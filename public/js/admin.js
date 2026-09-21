@@ -236,16 +236,16 @@ async function loadCustomerRecords() {
     const response = await adminFetch(`/api/admin/customers?search=${search}`);
     const data = await response.json();
     if (!response.ok)
-      throw new Error(data.error || "Failed to load customers.");
+      throw new Error(data.error || "No records yet.");
     list.innerHTML =
       (data.customers || [])
         .map(
           (customer) =>
             `<div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">${customer.name}</div><div class="sa-list-sub">${customer.email} · ${customer.phone_number || "No phone"} · Joined ${new Date(customer.created_at).toLocaleDateString()}</div></div><span class="admin-hint">${customer.marketing_email_opt_in ? "Email opt-in" : "No email opt-in"}</span></div>`,
         )
-        .join("") || '<p class="menu-empty">No recods yet</p>';
+        .join("") || '<p class="menu-empty">No records yet.</p>';
   } catch (error) {
-    list.innerHTML = `<p class="menu-empty">No recods yet</p>`;
+    list.innerHTML = `<p class="form-error">${error.message}</p>`;
   }
 }
 
