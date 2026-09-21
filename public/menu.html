@@ -1,0 +1,580 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Our Menu | Fulude's Cafe</title>
+
+    <meta
+      name="description"
+      content="Browse Fulude's Cafe's full menu — seafood, tilapia, wings, ribs, platters, pizza and more. Create your order and check out for collection, delivery, or dine-in."
+    />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://fuludescafe.co.za/menu" />
+
+    <link rel="stylesheet" href="css/style.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css"
+    />
+  </head>
+  <body>
+    <header class="header">
+      <div class="container nav-container">
+        <a href="home.html" class="logo">
+          <img src="images/logo.jpeg" alt="Fulude's Cafe Logo" />
+          <h4>Fulude's Cafe</h4>
+        </a>
+        <nav class="nav" id="navbar">
+          <a href="home.html" class="nav-link">Home</a>
+          <a href="menu.html" class="nav-link active">Menu</a>
+          <a href="reviews.html" class="nav-link">Reviews</a>
+          <a href="catering.html" class="nav-link">Catering</a>
+          <a href="contact.html" class="nav-link">Contact</a>
+          <a href="#" class="nav-link" id="navReservationLink"
+            >Book Reservation</a
+          >
+        </nav>
+        <div class="header-actions">
+          <button
+            type="button"
+            class="nav-account-btn"
+            id="accountNavBtn"
+            aria-label="Account"
+          >
+            <i class="bi bi-person-circle"></i>
+            <span id="accountNavLabel">Sign In</span>
+          </button>
+          <button
+            class="mobile-toggle"
+            id="mobileToggle"
+            aria-label="Toggle menu"
+          >
+            <span></span><span></span><span></span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <div id="paymentBanner" class="payment-banner" style="display: none"></div>
+
+    <section class="page-hero">
+      <div class="container">
+        <p class="page-eyebrow">Fulude's Cafe</p>
+        <h1 class="page-hero-title">Our Menu</h1>
+        <p class="page-hero-sub">
+          Browse by category, create your order, and check out for collection,
+          delivery, or dine-in.
+        </p>
+      </div>
+    </section>
+
+    <section class="section order" id="order">
+      <div class="container">
+        <div class="menu-toolbar">
+          <div class="menu-search-bar">
+            <i class="fas fa-search"></i>
+            <input
+              type="text"
+              id="menuSearchInput"
+              placeholder="Search the menu, e.g. wings, tilapia, pizza…"
+              autocomplete="off"
+            />
+            <button
+              type="button"
+              id="menuSearchClear"
+              class="menu-search-clear"
+              style="display: none"
+              aria-label="Clear search"
+            >
+              &times;
+            </button>
+          </div>
+          <button
+            type="button"
+            id="specialsBtn"
+            class="specials-cta-btn"
+            style="display: none"
+          >
+            <i class="fas fa-tag"></i> Save on Meals
+          </button>
+          <button
+            type="button"
+            class="menu-toolbar-link"
+            id="menuReservationBtn"
+          >
+            Book Reservation
+          </button>
+        </div>
+
+        <div class="order-layout">
+          <div class="menu-selector">
+            <div class="menu-selector-tabs" id="categoryTabs"></div>
+            <div class="order-grid" id="orderItems">
+              <p class="menu-loading">Loading menu…</p>
+            </div>
+          </div>
+
+          <div class="cart-panel">
+            <h3>Your Order</h3>
+            <div class="cart-items" id="cartItems">
+              <p class="cart-empty">Your cart is empty</p>
+            </div>
+            <div class="cart-total">
+              <span>Total:</span>
+              <span id="cartTotal">R0.00</span>
+            </div>
+            <button class="btn btn-primary btn-block" id="checkoutBtn" disabled>
+              Proceed to Checkout
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary btn-block"
+              id="reservationBtn"
+            >
+              Book Reservation
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <div class="container footer-content">
+        <a href="home.html" class="logo"
+          ><div class="footer-brand">
+            <img src="images/logo2.jpeg" alt="Fulude's Cafe Logo" />
+          </div>
+          Fulude's Cafe</a
+        >
+        <p>Made with passion in South Africa.</p>
+        <div class="social">
+          <a href="https://www.facebook.com/fulu.mutengwe" aria-label="Facebook"
+            ><i class="fab fa-facebook-f"></i
+          ></a>
+          <a
+            href="https://www.tiktok.com/@fulumutengwe?_r=1&_t=ZS-98KHMzmSGYP"
+            aria-label="TikTok"
+            ><i class="fab fa-tiktok"></i
+          ></a>
+          <a href="https://wa.me/27663649016" aria-label="WhatsApp"
+            ><i class="fab fa-whatsapp"></i
+          ></a>
+        </div>
+        <p class="footer-policy-link">
+          <a href="contact.html#policies">Privacy &amp; Refund Policy</a>
+        </p>
+        <p class="copyright">© 2026 Fulude's Cafe. All rights reserved.</p>
+      </div>
+    </footer>
+
+    <!-- Photo gallery lightbox (shared) -->
+    <div class="modal-overlay" id="photoLightbox">
+      <div class="lightbox">
+        <button class="modal-close" id="lightboxClose">&times;</button>
+        <button
+          class="lightbox-nav lightbox-prev"
+          id="lightboxPrev"
+          aria-label="Previous photo"
+        >
+          &#10094;
+        </button>
+        <img id="lightboxImage" src="" alt="" />
+        <button
+          class="lightbox-nav lightbox-next"
+          id="lightboxNext"
+          aria-label="Next photo"
+        >
+          &#10095;
+        </button>
+        <div class="lightbox-counter" id="lightboxCounter"></div>
+      </div>
+    </div>
+
+    <!-- Customization modal: spice level + extras, shown only for items that accept them -->
+    <div class="modal-overlay" id="customizeModal">
+      <div class="modal">
+        <button class="modal-close" id="customizeModalClose">&times;</button>
+        <h3 id="customizeItemName">Customize Item</h3>
+        <div id="customizeSpiceGroup" class="form-group" style="display: none">
+          <label>Spice Level</label>
+          <div class="pill-options" id="customizeSpiceOptions"></div>
+        </div>
+        <div id="customizeAddonsGroup" class="form-group" style="display: none">
+          <label>Extras</label>
+          <div class="checkbox-options" id="customizeAddonOptions"></div>
+        </div>
+        <div class="form-group">
+          <label>Quantity</label>
+          <div class="order-qty">
+            <button type="button" class="qty-btn" id="customizeQtyMinus">
+              -
+            </button>
+            <span class="qty-value" id="customizeQtyValue">1</span>
+            <button type="button" class="qty-btn" id="customizeQtyPlus">
+              +
+            </button>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-block" id="customizeConfirmBtn">
+          Add to Order
+        </button>
+      </div>
+    </div>
+
+    <!-- Specials: dishes the admin has put on a discounted price -->
+    <div class="modal-overlay" id="specialsModal">
+      <div class="modal">
+        <button class="modal-close" id="specialsModalClose">&times;</button>
+        <h3>Meals on Special</h3>
+        <div id="specialsModalList"></div>
+      </div>
+    </div>
+
+    <!-- Checkout modal -->
+    <div class="modal-overlay" id="checkoutModal">
+      <div class="modal">
+        <button class="modal-close" id="modalClose">&times;</button>
+        <h3>Checkout</h3>
+        <p id="checkoutError" class="form-error" style="display: none"></p>
+        <form id="checkoutForm">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="customer-name">Name</label>
+              <input type="text" id="customer-name" required />
+            </div>
+            <div class="form-group">
+              <label for="customer-phone">Phone</label>
+              <input type="tel" id="customer-phone" required />
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="order-type">Order Type</label>
+            <select id="order-type" required>
+              <option value="collection">Collection</option>
+              <option value="delivery">Delivery</option>
+              <option value="dine_in">Dine In</option>
+            </select>
+          </div>
+          <div class="form-group" id="addressField" style="display: none">
+            <label for="delivery-address">Delivery Address</label>
+            <input type="text" id="delivery-address" />
+          </div>
+          <div class="form-group" id="tableNumberField" style="display: none">
+            <label for="table-number">Table Number (optional)</label>
+            <input type="text" id="table-number" placeholder="e.g. 5" />
+          </div>
+          <div class="form-group" id="dineInTimeField" style="display: none">
+            <label for="dine-in-arrival-time"
+              >What Time Will You Arrive? (optional)</label
+            >
+            <input type="time" id="dine-in-arrival-time" />
+          </div>
+          <div class="form-group" id="preferredTimeField">
+            <label for="pickup-time-slot">Preferred Time</label>
+            <select id="pickup-time-slot">
+              <option value="As soon as possible">As soon as possible</option>
+              <option value="In 30 minutes">In 30 minutes</option>
+              <option value="In 1 hour">In 1 hour</option>
+              <option value="In 2 hours">In 2 hours</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="special-instructions">Special Instructions</label>
+            <textarea id="special-instructions" rows="3"></textarea>
+          </div>
+          <div class="form-group">
+            <label>Payment</label>
+            <p class="payment-online-note">
+              <i class="fas fa-lock"></i> Paid online via Yoco. You'll be
+              redirected to Yoco's secure page to pay with your card before your
+              order is sent to the kitchen.
+            </p>
+          </div>
+          <button
+            type="submit"
+            class="btn btn-primary btn-block"
+            id="placeOrderBtn"
+          >
+            Continue to Payment
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Reservation modal -->
+    <div class="modal-overlay" id="reservationModal">
+      <div class="modal">
+        <button class="modal-close" id="reservationModalClose">&times;</button>
+        <h3>Book a Dine-In Reservation</h3>
+        <p class="auth-hint">
+          Reserve a table for your visit. If you'd like to order food in
+          advance, check the box and we'll send you to the menu to add items to
+          cart and checkout.
+        </p>
+        <form id="reservationForm">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="reservation-name">Your Name</label>
+              <input type="text" id="reservation-name" required />
+            </div>
+            <div class="form-group">
+              <label for="reservation-phone">Phone</label>
+              <input type="tel" id="reservation-phone" required />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="reservation-email">Email</label>
+              <input type="email" id="reservation-email" required />
+            </div>
+            <div class="form-group">
+              <label for="reservation-date">Date</label>
+              <input type="date" id="reservation-date" required />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="reservation-time">Time</label>
+              <input type="time" id="reservation-time" required />
+            </div>
+            <div class="form-group">
+              <label for="reservation-party-size">Party Size</label>
+              <input
+                type="number"
+                id="reservation-party-size"
+                min="1"
+                required
+              />
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="reservation-notes">Notes</label>
+            <textarea
+              id="reservation-notes"
+              rows="3"
+              placeholder="Any special requests?"
+            ></textarea>
+          </div>
+          <div class="form-group">
+            <label class="checkbox-option"
+              ><input type="checkbox" id="reservation-advance-order" /> Request
+              advance food ordering</label
+            >
+          </div>
+          <div
+            class="form-group"
+            id="reservationAdvanceInfo"
+            style="display: none"
+          >
+            <p class="auth-hint" id="reservationAdvanceInfoText">
+              Requesting advanced food ordering requires an account. Redirecting
+              in <span id="reservationRedirectCountdown">7</span> seconds.
+            </p>
+            <button
+              type="button"
+              class="btn btn-secondary btn-block"
+              id="reservationGoToMenuBtn"
+            >
+              Go to Menu Now
+            </button>
+          </div>
+          <p id="reservationError" class="form-error" style="display: none"></p>
+          <p
+            id="reservationSuccess"
+            class="form-success"
+            style="display: none"
+          ></p>
+          <button type="submit" class="btn btn-primary btn-block">
+            Book Reservation
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- My Orders: every order ever placed on this account -->
+    <div class="modal-overlay" id="myOrdersModal">
+      <div class="modal">
+        <button class="modal-close" id="myOrdersModalClose">&times;</button>
+        <h3>My Orders</h3>
+        <div id="myOrdersList"></div>
+      </div>
+    </div>
+
+    <!-- Sign in / create account - required before checkout -->
+    <div class="modal-overlay" id="authModal">
+      <div class="modal">
+        <button class="modal-close" id="authModalClose">&times;</button>
+
+        <div class="auth-tabs" id="authTabs">
+          <button type="button" class="auth-tab active" data-auth-tab="signin">
+            Sign In
+          </button>
+          <button type="button" class="auth-tab" data-auth-tab="signup">
+            Create Account
+          </button>
+        </div>
+
+        <p id="authIntroMessage" class="auth-intro" style="display: none"></p>
+
+        <form id="signInForm" class="auth-form">
+          <div class="form-group">
+            <label for="signin-email">Email</label>
+            <input type="email" id="signin-email" required />
+          </div>
+          <div class="form-group">
+            <label for="signin-password">Password</label>
+            <input type="password" id="signin-password" required />
+          </div>
+          <p id="signInError" class="form-error" style="display: none"></p>
+          <button type="submit" class="btn btn-primary btn-block">
+            Sign In
+          </button>
+          <button type="button" class="auth-link-btn" id="forgotPasswordLink">
+            Forgot password?
+          </button>
+        </form>
+
+        <form id="signUpForm" class="auth-form" style="display: none">
+          <div class="form-group">
+            <label for="signup-name">Name</label>
+            <input type="text" id="signup-name" required />
+          </div>
+          <div class="form-group">
+            <label for="signup-email">Email</label>
+            <input type="email" id="signup-email" required />
+          </div>
+          <div class="form-group">
+            <label for="signup-password">Password</label>
+            <input
+              type="password"
+              id="signup-password"
+              required
+              minlength="8"
+            />
+            <span class="auth-hint">At least 8 characters.</span>
+          </div>
+          <p id="signUpError" class="form-error" style="display: none"></p>
+          <button type="submit" class="btn btn-primary btn-block">
+            Create Account
+          </button>
+          <div class="auth-divider">or</div>
+          <div class="auth-google">
+            <button type="button" id="googleSignInBtn" class="btn btn-google">
+              Sign in with Google
+            </button>
+            <div id="googleSignInContainer" style="display: none"></div>
+          </div>
+        </form>
+
+        <form id="forgotPasswordForm" class="auth-form" style="display: none">
+          <p class="auth-hint">
+            Enter your email and we'll send you a link to reset your password.
+          </p>
+          <div class="form-group">
+            <label for="forgot-email">Email</label>
+            <input type="email" id="forgot-email" required />
+          </div>
+          <p
+            id="forgotPasswordError"
+            class="form-error"
+            style="display: none"
+          ></p>
+          <p
+            id="forgotPasswordSuccess"
+            class="form-success"
+            style="display: none"
+          ></p>
+          <button type="submit" class="btn btn-primary btn-block">
+            Send Reset Link
+          </button>
+          <button type="button" class="auth-link-btn" id="backToSignInLink">
+            Back to Sign In
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Reset password - opened automatically from the emailed link (?reset_token=...) -->
+    <div class="modal-overlay" id="resetPasswordModal">
+      <div class="modal">
+        <button class="modal-close" id="resetPasswordModalClose">
+          &times;
+        </button>
+        <h3>Reset Your Password</h3>
+        <form id="resetPasswordForm">
+          <div class="form-group">
+            <label for="reset-new-password">New Password</label>
+            <input
+              type="password"
+              id="reset-new-password"
+              required
+              minlength="8"
+            />
+            <span class="auth-hint">At least 8 characters.</span>
+          </div>
+          <p
+            id="resetPasswordError"
+            class="form-error"
+            style="display: none"
+          ></p>
+          <button type="submit" class="btn btn-primary btn-block">
+            Reset Password
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Account menu - shown when signed in -->
+    <div class="modal-overlay" id="accountModal">
+      <div class="modal">
+        <button class="modal-close" id="accountModalClose">&times;</button>
+        <h3>My Account</h3>
+        <p id="accountWelcome" class="auth-hint"></p>
+        <label
+          ><input type="checkbox" id="marketingEmailOptIn" /> Email
+          marketing</label
+        >
+        <label
+          ><input type="checkbox" id="marketingSmsOptIn" /> SMS marketing</label
+        >
+        <button
+          type="button"
+          class="btn btn-secondary btn-block"
+          id="saveMarketingPreferencesBtn"
+        >
+          Save preferences
+        </button>
+        <button
+          type="button"
+          class="btn btn-primary btn-block"
+          id="viewMyOrdersFromAccountBtn"
+        >
+          View My Orders
+        </button>
+        <button type="button" class="auth-link-btn" id="logoutBtn">
+          Log Out
+        </button>
+        <button
+          type="button"
+          class="auth-link-btn danger"
+          id="deleteAccountBtn"
+        >
+          Delete Account
+        </button>
+      </div>
+    </div>
+
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="js/site.js"></script>
+    <script src="js/menu.js"></script>
+  </body>
+</html>
