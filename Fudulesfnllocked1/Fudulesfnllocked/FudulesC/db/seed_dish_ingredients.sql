@@ -1,2 +1,0 @@
--- PLACEHOLDER: Fudulesfnllocked/FudulesC/db/seed_dish_ingredients.sql
--- Original SQL removed.

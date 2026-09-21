@@ -1,2 +1,0 @@
--- PLACEHOLDER: Fudulesfnllocked/FudulesC/db/migrations/003_remove_delivery_tracking.sql
--- Original SQL removed.

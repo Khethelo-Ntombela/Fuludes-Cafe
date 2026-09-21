@@ -1,2 +1,0 @@
--- PLACEHOLDER: Fudulesfnllocked/FudulesC/db/schema.sql
--- Original SQL removed.
