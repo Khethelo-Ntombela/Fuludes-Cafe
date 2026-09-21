@@ -1,0 +1,2615 @@
+/**
+ * public/js/admin.js
+ * -----------------------------------------------------------------------
+ * Admin dashboard logic for Fulude's Cafe: password login, menu CRUD with
+ * category + spice/extras assignment, in-browser image compression +
+ * upload to R2, sold-out / visibility toggles, extras & spice-level
+ * catalog management, buffet visibility, review replies, and a polling
+ * live order monitor.
+ * -----------------------------------------------------------------------
+ */
+
+const TOKEN_KEY = "fulude_admin_token";
+let adminToken = localStorage.getItem(TOKEN_KEY);
+
+let categories = [];
+let menuItems = [];
+let addons = [];
+let spiceLevels = [];
+let staffAccounts = [];
+let reservations = [];
+let pollIntervalId = null;
+let knownPaidNewOrderIds = new Set();
+let adminAudioContext = null;
+const ADMIN_ALERTS_MUTED_KEY = "fulude_admin_alerts_muted";
+
+const money = (n) => `R${Number(n).toFixed(2)}`;
+
+/** "Delivery: 12 Main Rd" / "Dine In (Table 5)" / "Collection" */
+function describeOrderType(order) {
+  if (order.order_type === "delivery")
+    return `Delivery: ${order.delivery_address || ""}`;
+  if (order.order_type === "dine_in")
+    return `Dine In${order.table_number ? ` (Table ${order.table_number})` : ""}`;
+  return "Collection";
+}
+
+/** Where a pay-at-X badge should say the customer will pay (legacy orders only - payment is online-only now). */
+function orderTypePaymentLabel(order) {
+  if (order.order_type === "delivery") return "Delivery";
+  if (order.order_type === "dine_in") return "Table";
+  return "Pickup";
+}
+
+/**
+ * The little payment-status pill shown on every order card, in both Live
+ * Orders and History. A Cancelled order that was already paid gets a
+ * "Refund Needed" pill instead - cancelling never refunds anything
+ * automatically (see handleOrderAction's confirm prompt), so this is the
+ * at-a-glance reminder that a manual refund may still be needed.
+ */
+function paymentBadgeHtml(order) {
+  if (order.payment_method !== "online") {
+    // Legacy orders placed before payment became mandatory.
+    return `<span class="badge badge-unpaid">Pay at ${orderTypePaymentLabel(order)}</span>`;
+  }
+  if (order.status === "Cancelled" && order.payment_status === "paid") {
+    return `<span class="badge badge-refund">Refund Needed</span>`;
+  }
+  if (order.payment_status === "paid") {
+    return `<span class="badge badge-paid">Paid Online</span>`;
+  }
+  if (order.payment_status === "failed") {
+    return `<span class="badge badge-refund">Payment Failed</span>`;
+  }
+  return `<span class="badge badge-unpaid">Awaiting Payment</span>`;
+}
+
+// ---------------------------------------------------------------------
+// Auth
+// ---------------------------------------------------------------------
+async function adminFetch(url, options = {}) {
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      Authorization: `Bearer ${adminToken}`,
+    },
+  });
+  if (res.status === 401) {
+    logout();
+    throw new Error("Session expired. Please log in again.");
+  }
+  return res;
+}
+
+document.getElementById("logoutBtn").addEventListener("click", logout);
+
+document
+  .getElementById("forgotAdminPasswordBtn")
+  .addEventListener("click", async () => {
+    const email = prompt(
+      "Enter the admin email address for the password reset link:",
+    );
+    if (!email) return;
+
+    try {
+      const res = await fetch("/api/admin/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success)
+        throw new Error(data.error || "Couldn't send reset email.");
+      alert(
+        data.message ||
+          "If that email has an admin account, a reset link is on its way.",
+      );
+    } catch (err) {
+      alert(err.message || "Couldn't process that request.");
+    }
+  });
+
+function logout() {
+  adminToken = null;
+  localStorage.removeItem(TOKEN_KEY);
+  clearInterval(pollIntervalId);
+  document.getElementById("dashboard").style.display = "none";
+  document.getElementById("loginScreen").style.display = "flex";
+  document.getElementById("loginForm").style.display = "block";
+  document.getElementById("adminResetForm").style.display = "none";
+}
+
+function showDashboard() {
+  document.getElementById("loginScreen").style.display = "none";
+  document.getElementById("dashboard").style.display = "grid";
+  loadEverything();
+  pollIntervalId = setInterval(loadOrders, 30000);
+  initAdminAudio();
+  setupAdminAlertToggle();
+}
+
+function initAdminAudio() {
+  if (adminAudioContext) return;
+  try {
+    adminAudioContext = new (
+      window.AudioContext || window.webkitAudioContext
+    )();
+  } catch (e) {
+    adminAudioContext = null;
+  }
+}
+
+function playAdminBeep(repeats = 2) {
+  if (!adminAudioContext) return;
+  if (localStorage.getItem(ADMIN_ALERTS_MUTED_KEY) === "1") return;
+  const ctx = adminAudioContext;
+  const now = ctx.currentTime;
+  for (let i = 0; i < repeats; i++) {
+    const t = now + i * 0.18;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "sine";
+    o.frequency.value = 880 - i * 80;
+    g.gain.value = 0;
+    o.connect(g);
+    g.connect(ctx.destination);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.12, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+    o.start(t);
+    o.stop(t + 0.14);
+  }
+}
+
+function setupAdminAlertToggle() {
+  const btn = document.getElementById("alertMuteBtn");
+  const icon = document.getElementById("alertMuteIcon");
+  if (!btn) return;
+  const update = () => {
+    const muted = localStorage.getItem(ADMIN_ALERTS_MUTED_KEY) === "1";
+    if (icon)
+      icon.className = muted ? "fas fa-volume-mute" : "fas fa-volume-up";
+    btn.title = muted ? "Unmute order alerts" : "Mute order alerts";
+  };
+  btn.addEventListener("click", () => {
+    const muted = localStorage.getItem(ADMIN_ALERTS_MUTED_KEY) === "1";
+    localStorage.setItem(ADMIN_ALERTS_MUTED_KEY, muted ? "0" : "1");
+    update();
+  });
+  update();
+}
+
+// ---------------------------------------------------------------------
+// Tabs
+// ---------------------------------------------------------------------
+let historyLoadedOnce = false;
+
+document.querySelectorAll(".admin-tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document
+      .querySelectorAll(".admin-tab-btn")
+      .forEach((b) => b.classList.remove("active"));
+    document
+      .querySelectorAll(".admin-tab-panel")
+      .forEach((p) => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById(`tab-${btn.dataset.tab}`).classList.add("active");
+
+    if (btn.dataset.tab === "history" && !historyLoadedOnce) {
+      historyLoadedOnce = true;
+      loadOrderHistory(true);
+    }
+    if (btn.dataset.tab === "sales") {
+      loadSalesStats(); // always fresh - numbers change any time an order is placed or history is cleared
+    }
+    if (btn.dataset.tab === "audit") {
+      loadAudit(true);
+    }
+    if (btn.dataset.tab === "customers") loadCustomerRecords();
+    if (btn.dataset.tab === "settings") loadAdminAccounts();
+  });
+});
+
+function loadEverything() {
+  loadOrders();
+  loadCategories();
+  loadMenuItems();
+  loadAddonsAndSpice();
+  loadAdminReviews();
+  loadBuffetSetting();
+  initBuffetAdminHandlers();
+  initAuditHandlers();
+  loadStaffAccounts();
+  loadReservations();
+  loadAdminAccounts();
+}
+
+async function loadCustomerRecords() {
+  const search = encodeURIComponent(
+    document.getElementById("customerSearch")?.value.trim() || "",
+  );
+  const list = document.getElementById("customerRecordsList");
+  if (!list) return;
+  try {
+    const response = await adminFetch(`/api/admin/customers?search=${search}`);
+    const data = await response.json();
+    if (!response.ok)
+      throw new Error(data.error || "Failed to load customers.");
+    list.innerHTML =
+      (data.customers || [])
+        .map(
+          (customer) =>
+            `<div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">${customer.name}</div><div class="sa-list-sub">${customer.email} · ${customer.phone_number || "No phone"} · Joined ${new Date(customer.created_at).toLocaleDateString()}</div></div><span class="admin-hint">${customer.marketing_email_opt_in ? "Email opt-in" : "No email opt-in"}</span></div>`,
+        )
+        .join("") || '<p class="menu-empty">No recods yet</p>';
+  } catch (error) {
+    list.innerHTML = `<p class="menu-empty">No recods yet</p>`;
+  }
+}
+
+async function loadAdminAccounts() {
+  const list = document.getElementById("adminAccountsList");
+  if (!list) return;
+  try {
+    const response = await adminFetch("/api/admin/accounts");
+    const data = await response.json();
+    if (!response.ok)
+      throw new Error(data.error || "Failed to load admin accounts.");
+    list.innerHTML =
+      (data.accounts || [])
+        .map(
+          (account) =>
+            `<div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">${account.email}</div><div class="sa-list-sub">Permissions: ${
+              account.permissions?.all
+                ? "All"
+                : Object.keys(account.permissions || {})
+                    .filter((key) => account.permissions[key])
+                    .join(", ") || "None"
+            }</div></div></div>`,
+        )
+        .join("") ||
+      '<p class="menu-empty">No database admin accounts yet.</p>';
+  } catch (error) {
+    list.innerHTML = `<p class="form-error">${error.message}</p>`;
+  }
+}
+
+document
+  .getElementById("customerSearchBtn")
+  ?.addEventListener("click", loadCustomerRecords);
+document
+  .getElementById("adminAccountForm")
+  ?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const permissions = Object.fromEntries(
+      [...document.querySelectorAll("#adminPermissionOptions input")].map(
+        (input) => [input.value, input.checked],
+      ),
+    );
+    const status = document.getElementById("adminAccountStatus");
+    try {
+      const response = await adminFetch("/api/admin/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: document.getElementById("adminAccountEmail").value.trim(),
+          password: document.getElementById("adminAccountPassword").value,
+          permissions,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success)
+        throw new Error(data.error || "Failed to create admin account.");
+      status.textContent = "Admin account created.";
+      event.currentTarget.reset();
+      loadAdminAccounts();
+    } catch (error) {
+      status.textContent = error.message;
+    }
+  });
+
+// ---------------------------------------------------------------------
+// Orders: poll every 30s
+// ---------------------------------------------------------------------
+async function loadOrders() {
+  try {
+    const res = await adminFetch("/api/admin/pending-orders");
+    const data = await res.json();
+    const orders = data.orders || [];
+
+    document.getElementById("orderCountBadge").textContent = orders.length;
+    renderOrders(orders);
+
+    // Detect newly arrived PAID orders (status New && payment_status === 'paid')
+    const paidNewIds = new Set(
+      orders
+        .filter((o) => o.status === "New" && o.payment_status === "paid")
+        .map((o) => String(o.id)),
+    );
+    const newOnes = [...paidNewIds].filter(
+      (id) => !knownPaidNewOrderIds.has(id),
+    );
+    if (newOnes.length > 0) {
+      playAdminBeep(Math.min(4, newOnes.length));
+      // Highlight new cards briefly
+newOnes.forEach((id) => {
+        const el = document.querySelector(`[data-order-id="${id}"]`);
+        if (el) {
+          el.classList.add("kds-new-arrival");
+          setTimeout(() => el.classList.remove("kds-new-arrival"), 8000);
+        }
+      });
+}
+
+/** Load and render ingredient stock-up suggestions */
+async function loadIngredientSuggestions() {
+  const listEl = document.getElementById("ingredientSuggestionsList");
+  const days = document.getElementById("suggestionsDays")?.value || "7";
+  const threshold = document.getElementById("suggestionsLowStockThreshold")?.value || "5";
+  
+  if (!listEl) return;
+  
+  listEl.innerHTML = `<p class="menu-loading">Loading suggestions…</p>`;
+
+  try {
+    const res = await adminFetch(`/api/admin/ingredient-suggestions?days=${days}&low_stock_threshold=${threshold}`);
+    const data = await res.json();
+    
+    if (!res.ok) throw new Error(data.error || "Failed to load");
+    
+    renderIngredientSuggestions(data.ingredients || []);
+  } catch (err) {
+    listEl.innerHTML = `<p class="form-error">Failed to load: ${err.message}</p>`;
+  }
+}
+
+function renderIngredientSuggestions(ingredients) {
+  const listEl = document.getElementById("ingredientSuggestionsList");
+  if (!listEl) return;
+
+  if (!ingredients.length) {
+    listEl.innerHTML = `<p class="menu-empty">No ingredients flagged. All dishes are well-stocked and selling normally.</p>`;
+    return;
+  }
+
+  listEl.innerHTML = ingredients.map((ing, idx) => {
+    const urgencyClass = ing.urgency_score >= 3 ? "high" : ing.urgency_score >= 2 ? "medium" : "low";
+    const urgencyLabel = ing.urgency_score >= 3 ? "High" : ing.urgency_score >= 2 ? "Medium" : "Low";
+    
+    return `
+      <div class="ingredient-suggestion-item urgency-${urgencyClass}">
+        <div class="ingredient-header">
+          <strong>${ing.ingredient_name}</strong>
+          <span class="badge badge-status-${urgencyClass}">${urgencyLabel} urgency</span>
+        </div>
+        <div class="ingredient-meta">
+          <span>${ing.dish_count} dish${ing.dish_count === 1 ? "" : "es"} use this</span>
+          <span>Urgency score: ${ing.urgency_score}</span>
+        </div>
+        <details class="ingredient-dishes">
+          <summary>Show dishes (${ing.dishes.length})</summary>
+          <table class="sa-table" style="margin-top: 8px; font-size: 0.85rem;">
+            <thead>
+              <tr><th>Dish</th><th style="text-align:center">Units Sold</th><th style="text-align:center">Stock Qty</th><th>Reasons</th></tr>
+            </thead>
+            <tbody>
+              ${ing.dishes.map(d => `
+                <tr>
+                  <td>${d.name}</td>
+                  <td style="text-align:center">${d.units_sold || "—"}</td>
+                  <td style="text-align:center">${d.stock_quantity !== null ? d.stock_quantity : "Untracked"}</td>
+                  <td>${d.reasons.join("; ")}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </details>
+      </div>
+    `;
+  }).join("");
+}
+
+// Event listeners for suggestions panel
+document.getElementById("refreshSuggestionsBtn")?.addEventListener("click", loadIngredientSuggestions);
+document.getElementById("suggestionsDays")?.addEventListener("change", loadIngredientSuggestions);
+document.getElementById("suggestionsLowStockThreshold")?.addEventListener("change", loadIngredientSuggestions);
+
+// Load suggestions when Menu & Stock tab is activated
+document.querySelectorAll('.admin-tab-btn[data-tab="menu"]').forEach(btn => {
+  btn.addEventListener("click", () => {
+    setTimeout(loadIngredientSuggestions, 100);
+  });
+});
+    knownPaidNewOrderIds = paidNewIds;
+  } catch (err) {
+    // Non-fatal; the next poll will retry.
+  }
+}
+
+/** Sticky kitchen control bar above the board: instant operational visibility. */
+const KITCHEN_CAPACITY = 12; // active tickets considered a "full" kitchen
+
+function renderKitchenStrip(orders) {
+  const active = orders.filter((o) =>
+    ["New", "Preparing", "Ready", "Collection", "Delivery", "Out for Delivery"].includes(o.status),
+  );
+  const ages = active.map(kdsMinutes);
+  const avgAge = ages.length
+    ? Math.round(ages.reduce((s, m) => s + m, 0) / ages.length)
+    : 0;
+  const longest = ages.length ? Math.max(...ages) : 0;
+  const load = Math.min(
+    100,
+    Math.round((active.length / KITCHEN_CAPACITY) * 100),
+  );
+
+  const set = (id, val, alert) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = val;
+    el.classList.toggle("alert", !!alert);
+  };
+  set("kpiWaiting", orders.filter((o) => o.status === "New").length);
+  set("kpiPreparing", orders.filter((o) => o.status === "Preparing").length);
+  set("kpiReady", orders.filter((o) => o.status === "Ready").length);
+  set("kpiPrepTime", active.length ? `${avgAge} min` : "—");
+  set("kpiLongest", active.length ? `${longest} min` : "—", longest >= 30);
+  set("kpiEfficiency", `${load}%`, load >= 90);
+}
+
+function renderOrders(orders) {
+  const list = document.getElementById("ordersList");
+  renderKitchenStrip(orders);
+
+  list.innerHTML = kdsBoardHtml(orders, [
+    "New",
+    "Preparing",
+    "Ready",
+    "Collection",
+    "Delivery",
+  ], {
+    compactStatuses: ["Collection", "Delivery"],
+  });
+
+  kdsBindBoard(list, orders, {
+    onAction: handleOrderAction,
+    confirmAction: (order, status) => {
+      if (status === "Cancelled" && order.payment_status === "paid") {
+        return confirm(
+          `Order #${order.id} was already paid online (${money(order.total_amount)}). Cancelling does NOT refund it automatically - you'll need to log into Yoco and refund it yourself (Transactions History${order.payment_ref ? `, ref: ${order.payment_ref}` : ""}).\n\nCancel this order anyway?`,
+        );
+      }
+      if (status !== "Cancelled" && order.payment_status !== "paid") {
+        return confirm(
+          `Order #${order.id} hasn't been confirmed as paid yet (payment status: ${order.payment_status}). Advancing it means preparing food nobody's actually paid for.\n\nContinue anyway?`,
+        );
+      }
+      return true;
+    },
+  });
+}
+
+/** The kitchen lifecycle is New -> Preparing -> Ready -> Collection/Delivery -> Completed; this renders the one "advance" button for wherever an order currently sits. */
+const NEXT_STAGE = { New: "Preparing", Preparing: "Ready" };
+const NEXT_STAGE_LABEL = {
+  New: "Start Preparing",
+  Preparing: "Mark Ready",
+};
+
+function getNextStage(order) {
+  if (order.status === "Ready") {
+    return order.order_type === "delivery" ? "Delivery" : "Collection";
+  }
+  if (order.status === "Collection" || order.status === "Delivery" || order.status === "Out for Delivery") return "Completed";
+  return NEXT_STAGE[order.status] || null;
+}
+
+function getNextStageLabel(order) {
+  if (order.status === "Ready") {
+    return order.order_type === "delivery"
+      ? "Send Delivery"
+      : "Ready for Collection";
+  }
+  if (order.status === "Collection") return "Collected";
+  if (order.status === "Delivery" || order.status === "Out for Delivery") return "Complete Delivery";
+  return NEXT_STAGE_LABEL[order.status] || "";
+}
+
+function nextStageButtonHtml(order) {
+  const nextStatus = getNextStage(order);
+  if (!nextStatus) return ""; // already Completed or Cancelled - nothing to advance
+  return `<button class="btn btn-primary admin-mini-btn" data-status="${nextStatus}" data-id="${order.id}">${getNextStageLabel(order)}</button>`;
+}
+
+async function handleOrderAction(status, orderId) {
+  await adminFetch("/api/admin/order-status", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ order_id: orderId, status }),
+  });
+
+  loadOrders();
+}
+
+// ---------------------------------------------------------------------
+// Order History (read-only view across every status, incl. Completed
+// and Cancelled - separate from the live order monitor).
+// ---------------------------------------------------------------------
+const HISTORY_PAGE_SIZE = 30;
+let historyOffset = 0;
+let historyOrders = [];
+let historySearchDebounce = null;
+
+async function loadOrderHistory(reset) {
+  if (reset) {
+    historyOffset = 0;
+    historyOrders = [];
+  }
+  const search = document.getElementById("historySearch").value.trim();
+  const status = document.getElementById("historyStatusFilter").value;
+
+  const params = new URLSearchParams({
+    limit: HISTORY_PAGE_SIZE,
+    offset: historyOffset,
+  });
+  if (search) params.set("search", search);
+
+  // "Refund Needed" isn't a real order status - it's a shortcut for
+  // Cancelled orders that were already paid, so translate it into the
+  // two real filters the API understands.
+  if (status === "refund_needed") {
+    params.set("status", "Cancelled");
+    params.set("payment_status", "paid");
+  } else if (status) {
+    params.set("status", status);
+  }
+
+  try {
+    const res = await adminFetch(`/api/admin/orders?${params.toString()}`);
+    const data = await res.json();
+    const newOrders = data.orders || [];
+
+    historyOrders = reset ? newOrders : [...historyOrders, ...newOrders];
+    historyOffset += newOrders.length;
+
+    renderOrderHistory(historyOrders);
+    document.getElementById("historyLoadMoreBtn").style.display =
+      newOrders.length === HISTORY_PAGE_SIZE ? "inline-block" : "none";
+  } catch (err) {
+    // adminFetch already handles 401 by logging out; anything else, leave the list as-is.
+  }
+}
+
+function renderOrderHistory(orders) {
+  const list = document.getElementById("historyList");
+  if (orders.length === 0) {
+    list.innerHTML = `<p class="menu-empty">No orders match yet.</p>`;
+    return;
+  }
+
+  list.innerHTML = orders
+    .map((order) => {
+      const itemsHtml = order.items
+        .map((item) => {
+          const extras = Array.isArray(item.extras)
+            ? item.extras
+            : JSON.parse(item.extras || "[]");
+          const bits = [];
+          if (item.spice_level) bits.push(item.spice_level);
+          if (extras.length) bits.push(extras.map((e) => e.name).join(", "));
+          return `<li>${item.quantity}x ${item.item_name}${bits.length ? ` (${bits.join(" · ")})` : ""} - ${money(item.subtotal)}</li>`;
+        })
+        .join("");
+
+      const orderDate = new Date(order.created_at).toLocaleString("en-ZA", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+
+      const refundNeeded =
+        order.refund_needed === true ||
+        (order.status === "Cancelled" &&
+          order.payment_status === "paid" &&
+          order.refund_processed_at == null);
+
+      return `
+      <div class="admin-order-card status-${order.status.toLowerCase()}${refundNeeded ? " refund-needed" : ""}">
+        <div class="admin-order-card-header">
+          <strong>#${order.id} - ${order.customer_name}</strong>
+          <span>${money(order.total_amount)}</span>
+        </div>
+        <div class="admin-order-meta">
+          ${orderDate} · ${order.status} · ${order.customer_phone} · ${describeOrderType(order)} · ${order.pickup_time} · ${paymentBadgeHtml(order)}
+          ${order.special_instructions ? `<br>Note: ${order.special_instructions}` : ""}
+          ${refundNeeded ? `<br><strong class="refund-needed-note">Refund needed via Yoco${order.payment_ref ? ` (ref: ${order.payment_ref})` : ""}</strong><br><button class="btn btn-secondary mark-refund-btn" data-order-id="${order.id}">Mark refund processed</button>` : order.refund_processed_at ? `<br>Refund marked processed ${new Date(order.refund_processed_at).toLocaleString("en-ZA")}` : ""}
+        </div>
+        <ul class="admin-order-items">${itemsHtml}</ul>
+      </div>
+    `;
+    })
+    .join("");
+
+  list.querySelectorAll(".mark-refund-btn").forEach((button) =>
+    button.addEventListener("click", async () => {
+      if (!confirm("Confirm the refund has been completed in Yoco?")) return;
+      const response = await adminFetch("/api/admin/refund", {
+        method: "POST",
+        body: JSON.stringify({ order_id: Number(button.dataset.orderId) }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success)
+        return alert(data.error || "Failed to update refund.");
+      loadOrderHistory(true);
+    }),
+  );
+}
+
+document.getElementById("historySearch").addEventListener("input", () => {
+  clearTimeout(historySearchDebounce);
+  historySearchDebounce = setTimeout(() => loadOrderHistory(true), 350);
+});
+document
+  .getElementById("historyStatusFilter")
+  .addEventListener("change", () => loadOrderHistory(true));
+document
+  .getElementById("historyLoadMoreBtn")
+  .addEventListener("click", () => loadOrderHistory(false));
+
+document
+  .getElementById("clearHistoryBtn")
+  .addEventListener("click", async () => {
+    if (
+      !confirm(
+        "Permanently delete every Completed and Cancelled order? Live orders are kept. This also lowers the counts on Your Sales and can't be undone.",
+      )
+    ) {
+      return;
+    }
+    const res = await adminFetch("/api/admin/orders", { method: "DELETE" });
+    const data = await res.json();
+    alert(`Cleared ${data.deleted_count || 0} order(s) from history.`);
+    loadOrderHistory(true);
+    loadSalesStats();
+  });
+
+const salesPeriodSelect = document.getElementById("salesPeriodSelect");
+document
+  .getElementById("salesFilterBtn")
+  .addEventListener("click", () => loadSalesStats());
+
+if (salesPeriodSelect) {
+  salesPeriodSelect.addEventListener("change", toggleSalesDateInputs);
+}
+
+populateSalesMonthSelect();
+setDefaultSalesDates();
+toggleSalesDateInputs();
+
+// ---------------------------------------------------------------------
+// Your Sales: period-based order + revenue stats and a hand-drawn SVG pie
+// chart of orders per menu category (no charting library - keeps this
+// vanilla/free-tier).
+// ---------------------------------------------------------------------
+const PIE_COLORS = [
+  "#a88b4a",
+  "#0a0a0a",
+  "#c9a96e",
+  "#6e6e6e",
+  "#2c2c2c",
+  "#e8d5b7",
+  "#8a6f3a",
+  "#4a4a4a",
+  "#d4b483",
+  "#3a3a3a",
+  "#b89968",
+  "#5c5c5c",
+  "#c2a06a",
+  "#242424",
+];
+
+function formatDateInput(date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getLastSixMonths() {
+  const now = new Date();
+  return Array.from({ length: 6 }, (_, idx) => {
+    const date = new Date(now.getFullYear(), now.getMonth() - (5 - idx), 1);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  });
+}
+
+function populateSalesMonthSelect() {
+  const select = document.getElementById("salesMonthSelect");
+  if (!select) return;
+
+  const months = getLastSixMonths();
+  select.innerHTML = months
+    .map((month) => {
+      const [year, monthNumber] = month.split("-");
+      const label = new Date(
+        Number(year),
+        Number(monthNumber) - 1,
+        1,
+      ).toLocaleString("en-ZA", { month: "short", year: "numeric" });
+      return `<option value="${month}" selected>${label}</option>`;
+    })
+    .join("");
+}
+
+function getSelectedSalesMonths() {
+  const select = document.getElementById("salesMonthSelect");
+  if (!select) return [];
+  return Array.from(select.selectedOptions).map((option) => option.value);
+}
+
+function formatMonthLabel(monthKey) {
+  const [year, monthNumber] = monthKey.split("-");
+  return new Date(Number(year), Number(monthNumber) - 1, 1).toLocaleString(
+    "en-ZA",
+    { month: "long", year: "numeric" },
+  );
+}
+
+function buildSalesHeading(months) {
+  if (!months || months.length === 0) return "Category Breakdown";
+  if (months.length === 1)
+    return `Category Breakdown for ${formatMonthLabel(months[0])}`;
+  if (months.length === 6) return "Category Breakdown for the last 6 months";
+  const first = formatMonthLabel(months[0]);
+  const last = formatMonthLabel(months[months.length - 1]);
+  return `Category Breakdown for ${first} to ${last}`;
+}
+
+function setDefaultSalesDates() {
+  const now = new Date();
+  const fromInput = document.getElementById("salesFromDate");
+  const toInput = document.getElementById("salesToDate");
+  if (!fromInput || !toInput) return;
+
+  const from = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+  const to = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+  fromInput.value = formatDateInput(from);
+  toInput.value = formatDateInput(to);
+}
+
+function toggleSalesDateInputs() {
+  const salesPeriodSelect = document.getElementById("salesPeriodSelect");
+  const fromInput = document.getElementById("salesFromDate");
+  const toInput = document.getElementById("salesToDate");
+  if (!salesPeriodSelect || !fromInput || !toInput) return;
+
+  const isCustom = salesPeriodSelect.value === "custom";
+  // Hide the whole labelled group, not just the input, so no orphan labels remain.
+  (fromInput.closest(".form-group") || fromInput).style.display = isCustom
+    ? ""
+    : "none";
+  (toInput.closest(".form-group") || toInput).style.display = isCustom
+    ? ""
+    : "none";
+}
+
+async function loadSalesStats() {
+  const chartWrap = document.getElementById("salesChartWrap");
+  const salesPeriodSelect = document.getElementById("salesPeriodSelect");
+  const salesFromDate = document.getElementById("salesFromDate");
+  const salesToDate = document.getElementById("salesToDate");
+  const selectedMonths = getSelectedSalesMonths();
+
+  try {
+    const params = new URLSearchParams();
+    params.set("period", salesPeriodSelect?.value || "last_6_months");
+    if (selectedMonths.length > 0) {
+      params.set("months", selectedMonths.join(","));
+    }
+    if (salesPeriodSelect?.value === "custom") {
+      if (salesFromDate?.value) params.set("from", salesFromDate.value);
+      if (salesToDate?.value) params.set("to", salesToDate.value);
+    }
+
+    const res = await adminFetch(`/api/admin/stats?${params.toString()}`);
+    const data = await res.json();
+
+    document.getElementById("statsTotalOrders").textContent =
+      data.total_orders ?? 0;
+    document.getElementById("statsTotalRevenue").textContent =
+      `R${Number(data.total_revenue || 0).toFixed(2)}`;
+    document.getElementById("statsMonthlyOrders").textContent =
+      data.monthly_orders ?? 0;
+    document.getElementById("statsMonthlyRevenue").textContent =
+      `R${Number(data.monthly_revenue || 0).toFixed(2)}`;
+
+    // Derived KPIs: average basket + month-over-month revenue growth.
+    const avgBasketEl = document.getElementById("statsAvgBasket");
+    if (avgBasketEl) {
+      const avg =
+        data.total_orders > 0
+          ? Number(data.total_revenue || 0) / data.total_orders
+          : 0;
+      avgBasketEl.textContent = `R${avg.toFixed(2)}`;
+    }
+    const growthEl = document.getElementById("statsGrowth");
+    if (growthEl) {
+      const months = data.monthly_breakdown || [];
+      if (months.length >= 2) {
+        const last = Number(months[months.length - 1].revenue || 0);
+        const prev = Number(months[months.length - 2].revenue || 0);
+        const pct = prev > 0 ? ((last - prev) / prev) * 100 : 0;
+        growthEl.innerHTML = `${pct >= 0 ? "▲" : "▼"} ${Math.abs(pct).toFixed(1)}%`;
+        growthEl.style.color =
+          pct >= 0 ? "var(--sa-green-deep)" : "var(--sa-red)";
+      } else {
+        growthEl.textContent = "—";
+      }
+    }
+
+    renderSalesPieChart(
+      data.categories || [],
+      data.monthly_breakdown || [],
+      selectedMonths,
+    );
+    // Store for the sidebar status card + dashboard (admin-app.js reads this).
+    window.adminLastStats = data;
+    if (typeof window.onStatsLoaded === "function") window.onStatsLoaded(data);
+  } catch (err) {
+    chartWrap.innerHTML = `<p class="menu-empty">Couldn't load sales stats.</p>`;
+  }
+}
+
+/** Renders the month-by-month revenue trend as simple div-based bars (no chart library). */
+function renderMonthlyTrendHtml(monthlyBreakdown) {
+  if (monthlyBreakdown.length === 0) return "";
+
+  const maxRevenue = Math.max(
+    ...monthlyBreakdown.map((m) => Number(m.revenue || 0)),
+    1,
+  );
+  const cols = monthlyBreakdown
+    .map((m) => {
+      const revenue = Number(m.revenue || 0);
+      const heightPct = Math.max(2, Math.round((revenue / maxRevenue) * 100));
+      const [year, monthNumber] = m.month.split("-");
+      const label = new Date(
+        Number(year),
+        Number(monthNumber) - 1,
+        1,
+      ).toLocaleString("en-ZA", { month: "short" });
+      return `
+        <div class="admin-trend-col" title="${m.month}: ${m.order_count} order${m.order_count === 1 ? "" : "s"} · R${revenue.toFixed(2)}">
+          <span class="admin-trend-value">R${Math.round(revenue)}</span>
+          <div class="admin-trend-bar" style="height: ${heightPct}%"></div>
+          <span class="admin-trend-label">${label} '${year.slice(2)}</span>
+          <span class="admin-trend-orders">${m.order_count} order${m.order_count === 1 ? "" : "s"}</span>
+        </div>
+      `;
+    })
+    .join("");
+
+  return `
+    <div style="width: 100%; margin-bottom: 28px;">
+      <h3 style="margin-bottom: 4px;">Revenue by Month</h3>
+      <div class="admin-trend-chart">${cols}</div>
+    </div>
+  `;
+}
+
+function renderSalesPieChart(categories, monthlyBreakdown, selectedMonths) {
+  const chartWrap = document.getElementById("salesChartWrap");
+  const headingText = buildSalesHeading(selectedMonths);
+
+  const monthlyBreakdownHtml = renderMonthlyTrendHtml(monthlyBreakdown);
+
+  if (categories.length === 0) {
+    chartWrap.innerHTML = `
+      ${monthlyBreakdownHtml}
+      <h3 style="margin-bottom: 12px;">${headingText}</h3>
+      <p class="menu-empty">No paid orders yet - stats will show up here once customers start paying.</p>
+    `;
+    return;
+  }
+
+  const total = categories.reduce((sum, c) => sum + c.order_count, 0);
+  const radius = 100;
+  const cx = 110;
+  const cy = 110;
+
+  let cumulativeAngle = -90; // start at 12 o'clock
+  const slices = categories.map((cat, idx) => {
+    const percent = total > 0 ? cat.order_count / total : 0;
+    const startAngle = cumulativeAngle;
+    const sweepAngle = percent * 360;
+    cumulativeAngle += sweepAngle;
+    const endAngle = cumulativeAngle;
+    const color = PIE_COLORS[idx % PIE_COLORS.length];
+
+    return {
+      name: cat.category_name,
+      count: cat.order_count,
+      percent,
+      color,
+      startAngle,
+      endAngle,
+      pathD: describeArc(cx, cy, radius, startAngle, endAngle),
+    };
+  });
+
+  const pathsHtml = slices
+    .map(
+      (s, idx) =>
+        `<path d="${s.pathD}" fill="${s.color}" data-idx="${idx}"></path>`,
+    )
+    .join("");
+
+  const labelsHtml = slices
+    .filter((s) => s.percent >= 0.04)
+    .map((s) => {
+      const midAngle = (s.startAngle + s.endAngle) / 2;
+      const labelRadius = radius * 0.72;
+      const labelX = cx + labelRadius * Math.cos((midAngle * Math.PI) / 180);
+      const labelY = cy + labelRadius * Math.sin((midAngle * Math.PI) / 180);
+      return `<text x="${labelX}" y="${labelY}" text-anchor="middle" dominant-baseline="middle" fill="white" font-size="12" font-weight="700">${Math.round(s.percent * 100)}%</text>`;
+    })
+    .join("");
+
+  const legendHtml = slices
+    .map(
+      (s) => `
+    <div class="admin-pie-legend-item">
+      <span class="admin-pie-legend-swatch" style="background:${s.color}"></span>
+      <span>${s.name}</span>
+      <span class="admin-pie-legend-count">${s.count} order${s.count === 1 ? "" : "s"}</span>
+    </div>
+  `,
+    )
+    .join("");
+
+  chartWrap.innerHTML = `
+    ${monthlyBreakdownHtml}
+    <h3 style="margin-bottom: 12px; width: 100%;">${headingText}</h3>
+    <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start;">
+      <svg class="admin-pie-svg" viewBox="0 0 220 220" id="salesPieSvg">${pathsHtml}${labelsHtml}</svg>
+      <div class="admin-pie-legend">${legendHtml}</div>
+    </div>
+    <div class="admin-pie-tooltip" id="salesPieTooltip"></div>
+  `;
+
+  const tooltip = document.getElementById("salesPieTooltip");
+  chartWrap.querySelectorAll(".admin-pie-svg path").forEach((path) => {
+    const slice = slices[parseInt(path.dataset.idx, 10)];
+    path.addEventListener("mousemove", (e) => {
+      const wrapRect = chartWrap.getBoundingClientRect();
+      tooltip.textContent = `${slice.name}: ${slice.count} order${slice.count === 1 ? "" : "s"} (${Math.round(slice.percent * 100)}%)`;
+      tooltip.style.left = `${e.clientX - wrapRect.left}px`;
+      tooltip.style.top = `${e.clientY - wrapRect.top}px`;
+      tooltip.style.display = "block";
+    });
+    path.addEventListener("mouseleave", () => {
+      tooltip.style.display = "none";
+    });
+  });
+}
+
+/** Builds an SVG arc path "wedge" from centre (cx,cy), for a pie slice spanning startAngle..endAngle (degrees, 0 = 3 o'clock). */
+function describeArc(cx, cy, r, startAngle, endAngle) {
+  // A full-circle single-category case needs special handling - an SVG arc
+  // can't sweep a full 360° in one path, so nudge it just under 360.
+  if (endAngle - startAngle >= 359.99) endAngle = startAngle + 359.99;
+
+  const start = polarToCartesian(cx, cy, r, endAngle);
+  const end = polarToCartesian(cx, cy, r, startAngle);
+  const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
+
+  return `M ${cx} ${cy} L ${start.x} ${start.y} A ${r} ${r} 0 ${largeArcFlag} 0 ${end.x} ${end.y} Z`;
+}
+
+function polarToCartesian(cx, cy, r, angleDegrees) {
+  const angleRadians = (angleDegrees * Math.PI) / 180;
+  return {
+    x: cx + r * Math.cos(angleRadians),
+    y: cy + r * Math.sin(angleRadians),
+  };
+}
+
+// ---------------------------------------------------------------------
+// Categories
+// ---------------------------------------------------------------------
+async function loadCategories() {
+  const res = await adminFetch("/api/admin/categories");
+  const data = await res.json();
+  categories = data.categories || [];
+  renderCategoryOptions();
+  renderCategoriesList();
+  setupIngredientsVisibility(); // initial check
+}
+
+function renderCategoryOptions() {
+  const select = document.getElementById("itemCategory");
+  select.innerHTML = categories
+    .map((c) => `<option value="${c.id}">${c.name}</option>`)
+    .join("");
+
+  // Keep the inventory table's category filter in sync too.
+  const tableFilter = document.getElementById("menuTableCategory");
+  if (tableFilter) {
+    const previous = tableFilter.value;
+    tableFilter.innerHTML =
+      `<option value="">All categories</option>` +
+      categories
+        .map((c) => `<option value="${c.id}">${c.name}</option>`)
+        .join("");
+    if (previous && categories.some((c) => String(c.id) === previous))
+      tableFilter.value = previous;
+  }
+}
+
+/** Show/hide ingredients field based on category (hide for Dessert, Drinks) */
+function setupIngredientsVisibility() {
+  const categorySelect = document.getElementById("itemCategory");
+  const ingredientsGroup = document.getElementById("itemIngredients")?.closest(".form-group");
+  if (!categorySelect || !ingredientsGroup) return;
+
+  // Category slugs that should NOT show ingredients
+  const excludedSlugs = new Set(["dessert", "drinks"]);
+
+  function checkVisibility() {
+    const selectedId = categorySelect.value;
+    const selectedCat = categories.find((c) => String(c.id) === selectedId);
+    const shouldHide = selectedCat && excludedSlugs.has(selectedCat.slug);
+    ingredientsGroup.style.display = shouldHide ? "none" : "block";
+  }
+
+  categorySelect.addEventListener("change", checkVisibility);
+  checkVisibility(); // initial
+}
+
+function renderCategoriesList() {
+  const list = document.getElementById("categoriesList");
+  list.innerHTML = categories
+    .map((c) => `<span class="admin-chip">${c.name}</span>`)
+    .join("");
+}
+
+document
+  .getElementById("categoryForm")
+  .addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = document.getElementById("categoryName");
+    await adminFetch("/api/admin/categories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: input.value.trim() }),
+    });
+    input.value = "";
+    loadCategories();
+  });
+
+// ---------------------------------------------------------------------
+// Menu items
+// ---------------------------------------------------------------------
+async function loadMenuItems() {
+  const res = await adminFetch("/api/admin/menu");
+  const data = await res.json();
+  menuItems = data.items || [];
+  renderMenuItemsList();
+  renderSpecialItemSelect();
+  renderSpecialsList();
+}
+
+/* Stock button states: unlimited/healthy (gold), low (amber, 5 or fewer left), out (red). */
+const LOW_STOCK_THRESHOLD = 5;
+
+function stockButtonClass(item) {
+  if (item.stock_quantity === null || item.stock_quantity === undefined) {
+    return item.is_available ? " active-toggle" : "";
+  }
+  if (item.stock_quantity === 0) return " stock-out";
+  if (item.stock_quantity <= LOW_STOCK_THRESHOLD) return " stock-low";
+  return item.is_available ? " active-toggle" : "";
+}
+
+function stockButtonLabel(item) {
+  if (item.stock_quantity === null || item.stock_quantity === undefined)
+    return "Unlimited";
+  if (item.stock_quantity === 0) return "Sold Out";
+  if (item.stock_quantity <= LOW_STOCK_THRESHOLD)
+    return `${item.stock_quantity} left - Low`;
+  return `${item.stock_quantity} in Stock`;
+}
+
+/** Stock health cards above the inventory table. */
+function renderStockCards() {
+  const set = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  };
+  const tracked = menuItems.filter(
+    (i) => i.stock_quantity !== null && i.stock_quantity !== undefined,
+  );
+  set("stockTotal", menuItems.length);
+  set(
+    "stockLow",
+    tracked.filter(
+      (i) => i.stock_quantity > 0 && i.stock_quantity <= LOW_STOCK_THRESHOLD,
+    ).length,
+  );
+  set("stockOut", tracked.filter((i) => i.stock_quantity === 0).length);
+  set(
+    "stockSpecials",
+    menuItems.filter(
+      (i) => i.special_price !== null && i.special_price !== undefined,
+    ).length,
+  );
+}
+
+function renderMenuItemsList() {
+  const list = document.getElementById("menuItemsList");
+  renderStockCards();
+
+  if (menuItems.length === 0) {
+    list.innerHTML = `<p class="menu-empty">No menu items yet - add your first dish with the Add Item button.</p>`;
+    return;
+  }
+
+  const search = (document.getElementById("menuTableSearch")?.value || "")
+    .trim()
+    .toLowerCase();
+  const categoryFilter =
+    document.getElementById("menuTableCategory")?.value || "";
+
+  const visible = menuItems.filter((item) => {
+    if (search && !item.name.toLowerCase().includes(search)) return false;
+    if (categoryFilter && String(item.category_id) !== categoryFilter)
+      return false;
+    return true;
+  });
+
+  const rows = visible
+    .map((item) => {
+      const priceHtml =
+        item.special_price !== null && item.special_price !== undefined
+          ? `<s style="color:var(--sa-faint)">${money(item.price)}</s> <strong style="color:var(--sa-gold)">${money(item.special_price)}</strong>`
+          : money(item.price);
+      const statusBadge = !item.is_visible
+        ? `<span class="badge badge-status-completed">Hidden</span>`
+        : item.stock_quantity === 0
+          ? `<span class="badge badge-status-cancelled">Sold Out</span>`
+          : `<span class="badge badge-paid">Live</span>`;
+      return `
+      <tr>
+        <td>${item.image_url ? `<img src="${item.image_url}" alt="${item.name}" loading="lazy" />` : `<div class="table-noimg"></div>`}</td>
+        <td><strong>${item.name}</strong>${item.accepts_spice || item.accepts_addons ? `<div class="admin-item-meta">${[item.accepts_spice ? "Spice" : "", item.accepts_addons ? "Extras" : ""].filter(Boolean).join(" · ")}</div>` : ""}</td>
+        <td>${item.category_name}</td>
+        <td>${priceHtml}</td>
+        <td><button class="admin-mini-btn${stockButtonClass(item)}" data-action="edit-stock" data-id="${item.id}">${stockButtonLabel(item)}</button></td>
+        <td>${statusBadge}</td>
+        <td>
+          <div class="row-actions">
+            <button class="admin-mini-btn${item.is_visible ? " active-toggle" : ""}" data-action="toggle-visible" data-id="${item.id}">${item.is_visible ? "Visible" : "Hidden"}</button>
+            <button class="admin-mini-btn" data-action="edit" data-id="${item.id}">Edit</button>
+            <button class="admin-mini-btn danger" data-action="delete" data-id="${item.id}">Delete</button>
+          </div>
+        </td>
+      </tr>
+    `;
+    })
+    .join("");
+
+  list.innerHTML = `
+    <div class="sa-table-wrap">
+      <table class="sa-table">
+        <thead>
+          <tr><th style="width:56px"></th><th>Item</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th><th style="text-align:right">Actions</th></tr>
+        </thead>
+        <tbody>${rows || `<tr><td colspan="7"><p class="menu-empty">No items match your search.</p></td></tr>`}</tbody>
+      </table>
+    </div>
+  `;
+
+  list.querySelectorAll("[data-action]").forEach((btn) => {
+    btn.addEventListener("click", () =>
+      handleMenuItemAction(btn.dataset.action, parseInt(btn.dataset.id, 10)),
+    );
+  });
+}
+
+async function handleMenuItemAction(action, id) {
+  const item = menuItems.find((i) => i.id === id);
+  if (!item) return;
+
+  if (action === "edit-stock") {
+    await handleStockQuantityEdit(item);
+  } else if (action === "toggle-visible") {
+    await saveMenuItemPatch(item, { is_visible: !item.is_visible });
+  } else if (action === "edit") {
+    populateFormForEdit(item);
+    document.querySelector('.admin-tab-btn[data-tab="menu"]').click();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } else if (action === "delete") {
+    if (!confirm(`Delete "${item.name}"? This can't be undone.`)) return;
+    await adminFetch(`/api/admin/menu?id=${id}`, { method: "DELETE" });
+    loadMenuItems();
+  }
+}
+
+async function handleStockQuantityEdit(item) {
+  const current =
+    item.stock_quantity === null || item.stock_quantity === undefined
+      ? ""
+      : String(item.stock_quantity);
+  const input = prompt(
+    `Stock quantity for "${item.name}" (leave blank for unlimited/always available):`,
+    current,
+  );
+  if (input === null) return; // dismissed without saving
+
+  const trimmed = input.trim();
+  let stockQuantity = null;
+  if (trimmed !== "") {
+    const n = Number(trimmed);
+    if (!Number.isInteger(n) || n < 0) {
+      alert(
+        "Stock quantity must be a whole number of 0 or more (or left blank for unlimited).",
+      );
+      return;
+    }
+    stockQuantity = n;
+  }
+
+  await saveMenuItemPatch(item, { stock_quantity: stockQuantity });
+}
+
+async function saveMenuItemPatch(item, patch) {
+  const merged = { ...item, ...patch };
+  await adminFetch("/api/admin/menu", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(merged),
+  });
+  loadMenuItems();
+}
+
+// ---------------------------------------------------------------------
+// Specials - pick an existing dish and set a discounted price for it.
+// While special_price is set, it IS the dish's real selling price
+// everywhere (customer menu, cart, checkout) - see functions/api/order.js.
+// ---------------------------------------------------------------------
+function renderSpecialItemSelect() {
+  const select = document.getElementById("specialItemSelect");
+  const previousValue = select.value;
+  select.innerHTML = menuItems
+    .map(
+      (item) =>
+        `<option value="${item.id}">${item.name} (${item.category_name} · ${money(item.price)})</option>`,
+    )
+    .join("");
+  if (previousValue && menuItems.some((i) => String(i.id) === previousValue)) {
+    select.value = previousValue;
+  }
+}
+
+function renderSpecialsList() {
+  const list = document.getElementById("specialsList");
+  const specialItems = menuItems.filter(
+    (item) => item.special_price !== null && item.special_price !== undefined,
+  );
+
+  if (specialItems.length === 0) {
+    list.innerHTML = `<p class="menu-empty">No dishes are on special right now.</p>`;
+    return;
+  }
+
+  // Campaign performance is derived from order history when admin-app.js
+  // has fetched it (orders/revenue that included the discounted dish).
+  const history = window.adminHistoryAll || [];
+
+  list.innerHTML = specialItems
+    .map((item) => {
+      const savings = item.price - item.special_price;
+      const matching = history.filter(
+        (o) =>
+          o.status !== "Cancelled" &&
+          (o.items || []).some((line) => line.item_name === item.name),
+      );
+      const ordersGenerated = matching.length;
+      const revenueGenerated = matching.reduce((sum, o) => {
+        return (
+          sum +
+          (o.items || [])
+            .filter((line) => line.item_name === item.name)
+            .reduce((s, line) => s + Number(line.subtotal || 0), 0)
+        );
+      }, 0);
+
+      return `
+    <div class="promo-card">
+      <div class="promo-card-img">${item.image_url ? `<img src="${item.image_url}" alt="${item.name}" loading="lazy" />` : ""}</div>
+      <div class="promo-card-body">
+        <div class="promo-card-title">${item.name}</div>
+        <div class="promo-prices"><span class="was-price">${money(item.price)}</span><span class="now-price">${money(item.special_price)}</span> · Save ${money(savings)}</div>
+        <div class="promo-stats">
+          <div><strong>${ordersGenerated}</strong> orders</div>
+          <div><strong>${money(revenueGenerated)}</strong> revenue</div>
+        </div>
+        <button class="admin-mini-btn danger" data-end-special-id="${item.id}">End Special</button>
+      </div>
+    </div>
+  `;
+    })
+    .join("");
+
+  list.querySelectorAll("[data-end-special-id]").forEach((btn) => {
+    btn.addEventListener("click", () =>
+      handleEndSpecial(parseInt(btn.dataset.endSpecialId, 10)),
+    );
+  });
+}
+
+async function handleEndSpecial(id) {
+  const item = menuItems.find((i) => i.id === id);
+  if (!item) return;
+  await saveMenuItemPatch(item, { special_price: null });
+}
+
+document.getElementById("specialForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const hint = document.getElementById("specialFormHint");
+  hint.textContent = "";
+
+  const itemId = parseInt(
+    document.getElementById("specialItemSelect").value,
+    10,
+  );
+  const item = menuItems.find((i) => i.id === itemId);
+  if (!item) {
+    hint.textContent = "Pick a dish first.";
+    return;
+  }
+
+  const priceInput = document.getElementById("specialPriceInput").value.trim();
+  const specialPrice = parseFloat(priceInput);
+  if (
+    !Number.isFinite(specialPrice) ||
+    specialPrice < 0 ||
+    specialPrice >= item.price
+  ) {
+    hint.textContent = `Special price must be less than the regular price (${money(item.price)}).`;
+    return;
+  }
+  const startsRaw = document.getElementById("specialStartsInput").value;
+  const endsRaw = document.getElementById("specialEndsInput").value;
+  // Convert local datetime-local string to ISO by appending timezone offset
+  const normalize = (s) => (s ? new Date(s).toISOString() : null);
+  const startsIso = normalize(startsRaw);
+  const endsIso = normalize(endsRaw);
+  if (startsIso && endsIso && new Date(endsIso) <= new Date(startsIso)) {
+    hint.textContent = "End must be after start.";
+    return;
+  }
+
+  await saveMenuItemPatch(item, {
+    special_price: specialPrice,
+    special_starts_at: startsIso,
+    special_ends_at: endsIso,
+  });
+  document.getElementById("specialForm").reset();
+});
+
+function renderAddonCheckboxesForForm(selectedIds = []) {
+  const container = document.getElementById("itemAddonCheckboxes");
+  if (addons.length === 0) {
+    container.innerHTML = `<p class="admin-hint">Add extras in the "Extras" tab first.</p>`;
+    return;
+  }
+  container.innerHTML = addons
+    .map(
+      (a) =>
+        `<label class="checkbox-option"><input type="checkbox" value="${a.id}" ${selectedIds.includes(a.id) ? "checked" : ""} /> ${a.name} (+${money(a.price)})</label>`,
+    )
+    .join("");
+}
+
+const MAX_ITEM_IMAGES = 6;
+let formImages = []; // URLs already uploaded to R2 for the item currently being added/edited
+
+function populateFormForEdit(item) {
+  document.getElementById("menuFormTitle").textContent = `Edit: ${item.name}`;
+  document.getElementById("itemId").value = item.id;
+  document.getElementById("itemName").value = item.name;
+  document.getElementById("itemCategory").value = item.category_id;
+  document.getElementById("itemDescription").value = item.description || "";
+  document.getElementById("itemPrice").value = item.price;
+  document.getElementById("itemSpecialPrice").value =
+    item.special_price === null || item.special_price === undefined
+      ? ""
+      : item.special_price;
+  document.getElementById("itemStockQuantity").value =
+    item.stock_quantity === null || item.stock_quantity === undefined
+      ? ""
+      : item.stock_quantity;
+  document.getElementById("itemVisible").checked = item.is_visible;
+  document.getElementById("itemAcceptsSpice").checked = item.accepts_spice;
+  document.getElementById("itemAcceptsAddons").checked = item.accepts_addons;
+  document.getElementById("itemIngredients").value = item.ingredients || "";
+
+  formImages =
+    Array.isArray(item.images) && item.images.length > 0
+      ? [...item.images]
+      : item.image_url
+        ? [item.image_url]
+        : [];
+  renderImageThumbs();
+
+  renderAddonCheckboxesForForm(item.addon_ids || []);
+  document.getElementById("cancelEditBtn").style.display = "inline-block";
+}
+
+function resetMenuForm() {
+  document.getElementById("menuFormTitle").textContent = "Add Menu Item";
+  document.getElementById("menuItemForm").reset();
+  document.getElementById("itemId").value = "";
+  document.getElementById("itemSpecialPrice").value = "";
+  document.getElementById("itemIngredients").value = "";
+  document.getElementById("cancelEditBtn").style.display = "none";
+  formImages = [];
+  renderImageThumbs();
+  renderAddonCheckboxesForForm([]);
+}
+
+/** Renders the uploaded-photo thumbnail strip, first photo marked as the cover. */
+function renderImageThumbs() {
+  const container = document.getElementById("itemImageThumbs");
+  container.innerHTML = formImages
+    .map(
+      (url, idx) => `
+    <div class="admin-thumb">
+      <img src="${url}" alt="Dish photo ${idx + 1}" />
+      <button type="button" class="thumb-remove" data-idx="${idx}" aria-label="Remove photo">&times;</button>
+      ${idx === 0 ? `<span class="cover-badge">Cover</span>` : ""}
+    </div>
+  `,
+    )
+    .join("");
+
+  container.querySelectorAll(".thumb-remove").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      formImages.splice(parseInt(btn.dataset.idx, 10), 1);
+      renderImageThumbs();
+    });
+  });
+}
+
+document
+  .getElementById("cancelEditBtn")
+  .addEventListener("click", resetMenuForm);
+
+document
+  .getElementById("menuItemForm")
+  .addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const id = document.getElementById("itemId").value;
+    const selectedAddonIds = [
+      ...document.querySelectorAll("#itemAddonCheckboxes input:checked"),
+    ].map((el) => parseInt(el.value, 10));
+    const stockInput = document
+      .getElementById("itemStockQuantity")
+      .value.trim();
+    const stockQuantity = stockInput === "" ? null : parseInt(stockInput, 10);
+    if (
+      stockInput !== "" &&
+      (!Number.isInteger(stockQuantity) || stockQuantity < 0)
+    ) {
+      alert(
+        "Stock quantity must be a whole number of 0 or more (or left blank for unlimited).",
+      );
+      return;
+    }
+
+    const price = parseFloat(document.getElementById("itemPrice").value);
+    // special_price isn't editable on this form (see the Specials tab) - just
+    // carry the item's existing special forward. If the regular price was
+    // dropped to/below the existing special here, the special no longer
+    // makes sense, so end it automatically rather than blocking this save.
+    const carriedSpecialInput = document
+      .getElementById("itemSpecialPrice")
+      .value.trim();
+    const carriedSpecialPrice =
+      carriedSpecialInput === "" ? null : parseFloat(carriedSpecialInput);
+    const specialPrice =
+      carriedSpecialPrice !== null && carriedSpecialPrice < price
+        ? carriedSpecialPrice
+        : null;
+
+    const payload = {
+      category_id: parseInt(document.getElementById("itemCategory").value, 10),
+      name: document.getElementById("itemName").value.trim(),
+      description: document.getElementById("itemDescription").value.trim(),
+      price,
+      special_price: specialPrice,
+      images: formImages,
+      stock_quantity: stockQuantity,
+      is_visible: document.getElementById("itemVisible").checked,
+      accepts_spice: document.getElementById("itemAcceptsSpice").checked,
+      accepts_addons: document.getElementById("itemAcceptsAddons").checked,
+      addon_ids: selectedAddonIds,
+      ingredients: document.getElementById("itemIngredients").value
+        .split("\n")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0),
+    };
+
+    if (id) {
+      payload.id = parseInt(id, 10);
+      await adminFetch("/api/admin/menu", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } else {
+      await adminFetch("/api/admin/menu", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    }
+
+    resetMenuForm();
+    loadMenuItems();
+  });
+
+// ---- Image compression + upload (supports selecting several photos at once) ----
+document.getElementById("itemImage").addEventListener("change", async (e) => {
+  const files = [...e.target.files];
+  if (files.length === 0) return;
+  const statusEl = document.getElementById("imageUploadStatus");
+
+  const room = MAX_ITEM_IMAGES - formImages.length;
+  if (room <= 0) {
+    statusEl.textContent = `You've reached the ${MAX_ITEM_IMAGES}-photo limit. Remove one first.`;
+    e.target.value = "";
+    return;
+  }
+  const filesToUpload = files.slice(0, room);
+  if (files.length > filesToUpload.length) {
+    statusEl.textContent = `Only uploading ${filesToUpload.length} - the ${MAX_ITEM_IMAGES}-photo limit per dish.`;
+  }
+
+  for (let i = 0; i < filesToUpload.length; i++) {
+    const file = filesToUpload[i];
+    statusEl.textContent = `Compressing photo ${i + 1} of ${filesToUpload.length}…`;
+    try {
+      const webpBlob = await compressImageToWebP(file, 300 * 1024);
+      statusEl.textContent = `Uploading photo ${i + 1} of ${filesToUpload.length} (${Math.round(webpBlob.size / 1024)}KB)…`;
+
+      const filename = `${Date.now()}-${i}.webp`;
+      const res = await adminFetch(
+        `/api/admin/upload?filename=${encodeURIComponent(filename)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "image/webp" },
+          body: webpBlob,
+        },
+      );
+      const data = await res.json();
+      if (!res.ok || !data.success)
+        throw new Error(data.error || "Upload failed.");
+
+      formImages.push(data.url);
+      renderImageThumbs();
+    } catch (err) {
+      statusEl.textContent = `Upload failed: ${err.message}`;
+      e.target.value = "";
+      return;
+    }
+  }
+
+  statusEl.textContent = `${filesToUpload.length} photo${filesToUpload.length > 1 ? "s" : ""} uploaded ✓`;
+  e.target.value = "";
+});
+
+/**
+ * compressImageToWebP(file, maxBytes)
+ * Downscales/re-encodes a photo entirely in the browser (canvas) to a
+ * WebP under maxBytes, so the server never has to receive or process
+ * an oversized upload - keeping R2 usage and Worker CPU time inside the
+ * free tier.
+ */
+function compressImageToWebP(file, maxBytes = 300 * 1024) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Could not read the file."));
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("Could not read the image."));
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        const maxDimension = 1600;
+        if (width > maxDimension || height > maxDimension) {
+          const scale = maxDimension / Math.max(width, height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+        let quality = 0.85;
+        let attempts = 0;
+
+        const tryExport = () => {
+          canvas.width = width;
+          canvas.height = height;
+          ctx.clearRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+
+          canvas.toBlob(
+            (blob) => {
+              attempts += 1;
+              if (!blob) return reject(new Error("Compression failed."));
+              if (blob.size <= maxBytes || attempts >= 8) {
+                resolve(blob);
+                return;
+              }
+              if (quality > 0.35) {
+                quality -= 0.12;
+              } else {
+                width = Math.round(width * 0.8);
+                height = Math.round(height * 0.8);
+                quality = 0.7;
+              }
+              tryExport();
+            },
+            "image/webp",
+            quality,
+          );
+        };
+
+        tryExport();
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// ---------------------------------------------------------------------
+// Extras (addons) & spice levels
+// ---------------------------------------------------------------------
+async function loadAddonsAndSpice() {
+  const res = await adminFetch("/api/admin/addons");
+  const data = await res.json();
+  addons = data.addons || [];
+  spiceLevels = data.spice_levels || [];
+  renderAddonsList();
+  renderSpiceLevelsList();
+
+  // Keep the menu item form's extras checkboxes in sync, preserving
+  // whatever is currently checked (e.g. mid-edit) where possible.
+  const currentlyChecked = [
+    ...document.querySelectorAll("#itemAddonCheckboxes input:checked"),
+  ].map((el) => parseInt(el.value, 10));
+  renderAddonCheckboxesForForm(currentlyChecked);
+}
+
+function renderAddonsList() {
+  const list = document.getElementById("addonsList");
+  list.innerHTML = addons
+    .map(
+      (a) =>
+        `<span class="admin-chip">${a.name} (+${money(a.price)}) <button data-id="${a.id}" data-type="addon">&times;</button></span>`,
+    )
+    .join("");
+  attachChipDeleteHandlers(list);
+}
+
+function renderSpiceLevelsList() {
+  const list = document.getElementById("spiceLevelsList");
+  list.innerHTML = spiceLevels
+    .map(
+      (s) =>
+        `<span class="admin-chip">${s.name} <button data-id="${s.id}" data-type="spice">&times;</button></span>`,
+    )
+    .join("");
+  attachChipDeleteHandlers(list);
+}
+
+function attachChipDeleteHandlers(container) {
+  container.querySelectorAll("button[data-id]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const isSpice = btn.dataset.type === "spice";
+      const query = isSpice
+        ? `?type=spice&id=${btn.dataset.id}`
+        : `?id=${btn.dataset.id}`;
+      await adminFetch(`/api/admin/addons${query}`, { method: "DELETE" });
+      loadAddonsAndSpice();
+    });
+  });
+}
+
+document.getElementById("addonForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const nameInput = document.getElementById("addonName");
+  const priceInput = document.getElementById("addonPrice");
+  await adminFetch("/api/admin/addons", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: nameInput.value.trim(),
+      price: parseFloat(priceInput.value),
+    }),
+  });
+  nameInput.value = "";
+  priceInput.value = "";
+  loadAddonsAndSpice();
+});
+
+document.getElementById("spiceForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const nameInput = document.getElementById("spiceName");
+  await adminFetch("/api/admin/addons?type=spice", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: nameInput.value.trim() }),
+  });
+  nameInput.value = "";
+  loadAddonsAndSpice();
+});
+
+// ---------------------------------------------------------------------
+// Reviews
+// ---------------------------------------------------------------------
+/** Summary cards + rating distribution above the review feed. */
+function renderReviewSummary(reviews) {
+  const wrap = document.getElementById("reviewSummary");
+  if (!wrap) return;
+
+  if (reviews.length === 0) {
+    wrap.innerHTML = "";
+    return;
+  }
+
+  const avg = reviews.reduce((s, r) => s + r.rating, 0) / reviews.length;
+  const positive = Math.round(
+    (reviews.filter((r) => r.rating >= 4).length / reviews.length) * 100,
+  );
+  const distribution = [5, 4, 3, 2, 1].map((stars) => ({
+    stars,
+    count: reviews.filter((r) => r.rating === stars).length,
+  }));
+  const maxCount = Math.max(...distribution.map((d) => d.count), 1);
+
+  wrap.innerHTML = `
+    <div class="kpi-card">
+      <span class="kpi-label">Average Rating</span>
+      <span class="rating-big">${avg.toFixed(1)}</span>
+      <span class="rating-stars">${"★".repeat(Math.round(avg))}${"☆".repeat(5 - Math.round(avg))}</span>
+    </div>
+    <div class="kpi-card">
+      <span class="kpi-label">Total Reviews</span>
+      <span class="rating-big">${reviews.length}</span>
+      <span class="admin-hint" style="margin:0">${positive}% rated 4★ or higher</span>
+    </div>
+    <div class="kpi-card" style="grid-column: span 2;">
+      <span class="kpi-label">Rating Distribution</span>
+      <div class="sa-rows" style="margin-top: 4px;">
+        ${distribution
+          .map(
+            (d) => `
+          <div class="sa-row" style="grid-template-columns: 40px 1fr auto;">
+            <span class="sa-row-label">${d.stars}★</span>
+            <div class="sa-row-track"><div class="sa-row-fill" style="width:${Math.round((d.count / maxCount) * 100)}%"></div></div>
+            <span class="sa-row-num">${d.count}</span>
+          </div>
+        `,
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
+async function loadAdminReviews() {
+  const res = await fetch("/api/review");
+  const data = await res.json();
+  const reviews = data.reviews || [];
+  const list = document.getElementById("adminReviewsList");
+  renderReviewSummary(reviews);
+
+  if (reviews.length === 0) {
+    list.innerHTML = `<p class="menu-empty">No reviews yet.</p>`;
+    return;
+  }
+
+  list.innerHTML = reviews
+    .map((r) => {
+      const statusBadge = r.status
+        ? `<div class="admin-item-meta">Status: <strong>${r.status}</strong></div>`
+        : "";
+      const actions =
+        r.status === "pending"
+          ? `<div class="admin-item-actions" style="margin-top:8px;"><button class="admin-mini-btn" data-action="approve" data-id="${r.id}">Approve</button> <button class="admin-mini-btn danger" data-action="reject" data-id="${r.id}">Reject</button></div>`
+          : `<div class="admin-item-actions" style="margin-top:8px;"><button class="admin-mini-btn danger" data-action="delete" data-id="${r.id}">Delete</button></div>`;
+
+      return `
+    <div class="admin-item-card" style="flex-direction: column; align-items: stretch;">
+      <div class="admin-item-info">
+        <strong>${r.customer_name} - ${"★".repeat(r.rating)}${"☆".repeat(5 - r.rating)}</strong>
+        <div class="admin-item-meta">${r.comment}</div>
+        ${r.owner_reply ? `<div class="admin-item-meta"><strong>Your reply:</strong> ${r.owner_reply}</div>` : ""}
+        ${statusBadge}
+      </div>
+      <form class="admin-form-inline" data-review-id="${r.id}" style="padding: 0; margin-top: 10px;">
+        <input type="text" placeholder="Write a reply…" value="${r.owner_reply || ""}" required />
+        <button type="submit" class="btn btn-primary admin-mini-btn">Reply</button>
+      </form>
+      ${actions}
+    </div>
+  `;
+    })
+    .join("");
+
+  list.querySelectorAll("form[data-review-id]").forEach((form) => {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const input = form.querySelector("input");
+      await adminFetch("/api/admin/review-reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          review_id: parseInt(form.dataset.reviewId, 10),
+          reply: input.value.trim(),
+        }),
+      });
+      loadAdminReviews();
+    });
+  });
+
+  // moderation action handlers
+  list.querySelectorAll("[data-action]").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      const action = btn.dataset.action;
+      const id = parseInt(btn.dataset.id, 10);
+      if (!confirm(`Confirm ${action} review #${id}?`)) return;
+      try {
+        await adminFetch("/api/admin/review-moderate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ review_id: id, action }),
+        });
+        loadAdminReviews();
+      } catch (err) {
+        alert(err.message || "Failed");
+      }
+    });
+  });
+}
+
+// ---------------------------------------------------------------------
+// Settings: admin password + staff accounts
+// ---------------------------------------------------------------------
+document
+  .getElementById("adminPasswordForm")
+  .addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const statusEl = document.getElementById("adminPasswordStatus");
+    const currentPassword = document.getElementById(
+      "currentAdminPassword",
+    ).value;
+    const newPassword = document.getElementById("newAdminPassword").value;
+
+    try {
+      const res = await adminFetch("/api/admin/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          current_password: currentPassword,
+          new_password: newPassword,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success)
+        throw new Error(data.error || "Couldn't update the password.");
+      statusEl.textContent = "Admin password updated.";
+      document.getElementById("adminPasswordForm").reset();
+    } catch (err) {
+      statusEl.textContent = err.message;
+    }
+  });
+
+async function loadStaffAccounts() {
+  try {
+    const res = await adminFetch("/api/admin/staff");
+    const data = await res.json();
+    staffAccounts = data.staff || [];
+    renderStaffAccountsList();
+  } catch {
+    staffAccounts = [];
+    renderStaffAccountsList();
+  }
+}
+
+function renderStaffAccountsList() {
+  const list = document.getElementById("staffAccountsList");
+  if (staffAccounts.length === 0) {
+    list.innerHTML = `<p class="menu-empty">No staff accounts yet.</p>`;
+    return;
+  }
+
+  list.innerHTML = staffAccounts
+    .map(
+      (account) => `
+      <div class="admin-item-card">
+        <div class="admin-item-info">
+          <strong>${account.name}</strong>
+          <div class="admin-item-meta">${account.email} · ${account.is_active ? "Active" : "Inactive"}</div>
+        </div>
+        <div class="admin-item-actions">
+          <button class="admin-mini-btn" data-staff-action="edit" data-id="${account.id}">Edit</button>
+          <button class="admin-mini-btn danger" data-staff-action="delete" data-id="${account.id}">Delete</button>
+        </div>
+      </div>
+    `,
+    )
+    .join("");
+
+  list.querySelectorAll("[data-staff-action]").forEach((btn) => {
+    btn.addEventListener("click", () =>
+      handleStaffAccountAction(
+        btn.dataset.staffAction,
+        parseInt(btn.dataset.id, 10),
+      ),
+    );
+  });
+}
+
+function resetStaffAccountForm() {
+  document.getElementById("staffAccountForm").reset();
+  document.getElementById("staffAccountId").value = "";
+  document.getElementById("staffAccountPassword").required = false;
+  document.getElementById("cancelStaffEditBtn").style.display = "none";
+  document.getElementById("staffAccountStatus").textContent = "";
+}
+
+document
+  .getElementById("cancelStaffEditBtn")
+  .addEventListener("click", resetStaffAccountForm);
+
+document
+  .getElementById("marketingEmailForm")
+  ?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = document.getElementById("marketingEmailStatus");
+    const button = event.currentTarget.querySelector("button[type=submit]");
+    const formData = new FormData();
+    formData.append(
+      "subject",
+      document.getElementById("marketingSubject").value.trim(),
+    );
+    formData.append(
+      "body",
+      document.getElementById("marketingBody").value.trim(),
+    );
+    for (const file of document.getElementById("marketingImages").files)
+      formData.append("images", file);
+    button.disabled = true;
+    status.textContent = "Sending…";
+    try {
+      const response = await adminFetch("/api/admin/marketing/send", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success)
+        throw new Error(
+          data.error ||
+            `Sent ${data.sent || 0} email(s); ${data.failed || 0} failed.`,
+        );
+      status.textContent = `Sent to ${data.sent} subscriber${data.sent === 1 ? "" : "s"}.`;
+      event.currentTarget.reset();
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+document
+  .getElementById("staffAccountForm")
+  .addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const statusEl = document.getElementById("staffAccountStatus");
+    const id = document.getElementById("staffAccountId").value;
+    const payload = {
+      name: document.getElementById("staffAccountName").value.trim(),
+      email: document.getElementById("staffAccountEmail").value.trim(),
+      password: document.getElementById("staffAccountPassword").value,
+      permissions: { orders: true },
+    };
+
+    if (!payload.name || !payload.email) {
+      statusEl.textContent = "Name and email are required.";
+      return;
+    }
+
+    if (!id && !payload.password) {
+      statusEl.textContent = "Create a staff account with a password.";
+      return;
+    }
+
+    try {
+      const res = await adminFetch("/api/admin/staff", {
+        method: id ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          id ? { ...payload, id: parseInt(id, 10) } : payload,
+        ),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success)
+        throw new Error(data.error || "Couldn't save the staff account.");
+      statusEl.textContent = id
+        ? "Staff account updated."
+        : "Staff account created.";
+      resetStaffAccountForm();
+      loadStaffAccounts();
+    } catch (err) {
+      statusEl.textContent = err.message;
+    }
+  });
+
+async function handleStaffAccountAction(action, id) {
+  if (action === "delete") {
+    const account = staffAccounts.find((item) => item.id === id);
+    if (!account) return;
+    if (!confirm(`Delete staff account "${account.name}"?`)) return;
+    try {
+      const res = await adminFetch(`/api/admin/staff?id=${id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success)
+        throw new Error(data.error || "Couldn't delete that account.");
+      loadStaffAccounts();
+    } catch (err) {
+      alert(err.message);
+    }
+    return;
+  }
+
+  const account = staffAccounts.find((item) => item.id === id);
+  if (!account) return;
+  document.getElementById("staffAccountId").value = account.id;
+  document.getElementById("staffAccountName").value = account.name;
+  document.getElementById("staffAccountEmail").value = account.email;
+  document.getElementById("staffAccountPassword").value = "";
+  document.getElementById("staffAccountPassword").required = false;
+  document.getElementById("cancelStaffEditBtn").style.display = "inline-block";
+  document.getElementById("staffAccountStatus").textContent =
+    "Editing existing staff account.";
+  document.querySelector('.admin-tab-btn[data-tab="settings"]').click();
+}
+
+async function loadReservations() {
+  try {
+    const res = await adminFetch("/api/admin/reservations");
+    const data = await res.json();
+    reservations = data.reservations || [];
+    renderReservations();
+  } catch {
+    reservations = [];
+    renderReservations();
+  }
+}
+
+/** Booking overview cards: today's covers, upcoming bookings, pending confirmations. */
+function renderReservationSummary() {
+  const wrap = document.getElementById("resSummary");
+  if (!wrap) return;
+
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const today = reservations.filter(
+    (r) => r.reservation_date === todayKey && r.status !== "Cancelled",
+  );
+  const upcoming = reservations.filter(
+    (r) => r.reservation_date > todayKey && r.status !== "Cancelled",
+  );
+  const pending = reservations.filter((r) => r.status === "Pending");
+  const guestsToday = today.reduce((s, r) => s + (r.party_size || 0), 0);
+
+  wrap.innerHTML = `
+    <div class="kpi-card"><span class="kpi-label">Today's Reservations</span><span class="kpi-value">${today.length}</span></div>
+    <div class="kpi-card"><span class="kpi-label">Guests Today</span><span class="kpi-value">${guestsToday}</span></div>
+    <div class="kpi-card"><span class="kpi-label">Upcoming</span><span class="kpi-value">${upcoming.length}</span></div>
+    <div class="kpi-card"><span class="kpi-label">Awaiting Confirmation</span><span class="kpi-value">${pending.length}</span></div>
+  `;
+}
+
+function renderReservations() {
+  const list = document.getElementById("reservationsList");
+  renderReservationSummary();
+
+  if (reservations.length === 0) {
+    list.innerHTML = `<p class="menu-empty">No reservations yet.</p>`;
+    return;
+  }
+
+  list.innerHTML = reservations
+    .map((reservation) => {
+      const dateLabel = new Date(
+        `${reservation.reservation_date}T00:00:00`,
+      ).toLocaleDateString("en-ZA", {
+        weekday: "short",
+        day: "2-digit",
+        month: "short",
+      });
+      const timeLabel = reservation.reservation_time
+        ? reservation.reservation_time.slice(0, 5)
+        : "";
+      return `
+        <div class="admin-item-card" style="flex-direction: column; align-items: stretch;">
+          <div class="admin-item-info">
+            <strong>${reservation.customer_name} · ${reservation.party_size} guest${reservation.party_size > 1 ? "s" : ""}</strong>
+            <div class="admin-item-meta">${dateLabel} at ${timeLabel} · ${reservation.customer_phone} · ${reservation.customer_email}</div>
+            ${reservation.table_number ? `<div class="admin-item-meta">Table: ${reservation.table_number}</div>` : ""}
+            ${reservation.notes ? `<div class="admin-item-meta">Notes: ${reservation.notes}</div>` : ""}
+            ${reservation.advance_order_requested ? `<div class="admin-item-meta">Advance order requested: ${reservation.advance_order_details || "Details provided"}</div>` : ""}
+            <div class="admin-item-meta">Status: ${reservation.status}</div>
+          </div>
+          <div class="admin-form-inline" style="padding: 0; margin-top: 10px;">
+            <select data-reservation-status="${reservation.id}">
+              <option value="Pending" ${reservation.status === "Pending" ? "selected" : ""}>Pending</option>
+              <option value="Confirmed" ${reservation.status === "Confirmed" ? "selected" : ""}>Confirmed</option>
+              <option value="Cancelled" ${reservation.status === "Cancelled" ? "selected" : ""}>Cancelled</option>
+              <option value="Completed" ${reservation.status === "Completed" ? "selected" : ""}>Completed</option>
+            </select>
+            <button type="button" class="btn btn-primary admin-mini-btn" data-reservation-update="${reservation.id}">Save</button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
+  list.querySelectorAll("[data-reservation-update]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = parseInt(btn.dataset.reservationUpdate, 10);
+      const select = list.querySelector(`[data-reservation-status="${id}"]`);
+      if (!select) return;
+      try {
+        await adminFetch("/api/admin/reservations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reservation_id: id, status: select.value }),
+        });
+        loadReservations();
+      } catch {
+        alert("Couldn't update the reservation.");
+      }
+    });
+  });
+}
+
+async function loadBuffetSetting() {
+  const res = await fetch("/api/config");
+  const data = await res.json();
+  document.getElementById("buffetToggle").checked = !!data.is_buffet_visible;
+}
+
+// ----------------- Buffet admin UI handlers -----------------
+function initBuffetAdminHandlers() {
+  const btn = document.getElementById("manageBuffetBtn");
+  const modal = document.getElementById("buffetAdminModal");
+  const close = document.getElementById("buffetAdminClose");
+  const form = document.getElementById("buffetEventForm");
+  if (!btn || !modal) return;
+  btn.addEventListener("click", async () => {
+    modal.style.display = "block";
+    await loadBuffetEventsAdmin();
+  });
+  close.addEventListener("click", () => (modal.style.display = "none"));
+  if (form) {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const id = Number(document.getElementById("buffetEventId").value) || null;
+      const title = document.getElementById("buffetEventTitle").value.trim();
+      const event_date = document.getElementById("buffetEventDate").value;
+      const capacity =
+        Number(document.getElementById("buffetEventCapacity").value) || 30;
+      const price_cents =
+        Number(document.getElementById("buffetEventPrice").value) || 0;
+      const description = document
+        .getElementById("buffetEventDescription")
+        .value.trim();
+      const is_published = !!document.getElementById("buffetEventPublished")
+        .checked;
+      const booking_closes_at_raw =
+        document.getElementById("buffetEventBookingCloses").value || null;
+      const booking_closes_at = booking_closes_at_raw
+        ? new Date(booking_closes_at_raw).toISOString()
+        : null;
+      try {
+        const photoInput = document.getElementById("buffetEventPhotos");
+        const existingPhotos = JSON.parse(form.dataset.existingPhotos || "[]");
+        const photos = [...existingPhotos];
+        for (const file of Array.from(photoInput.files).slice(
+          0,
+          6 - photos.length,
+        )) {
+          const upload = await adminFetch(
+            `/api/admin/upload?filename=${encodeURIComponent(file.name)}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": file.type },
+              body: await file.arrayBuffer(),
+            },
+          );
+          const uploadData = await upload.json();
+          if (!upload.ok || !uploadData.success)
+            throw new Error(
+              uploadData.error || "Failed to upload buffet image.",
+            );
+          photos.push(uploadData.url);
+        }
+        const url = "/api/admin/buffet-events";
+        const method = id ? "PUT" : "POST";
+        const res = await adminFetch(url, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id,
+            title,
+            event_date,
+            capacity,
+            price_cents,
+            description,
+            photos,
+            is_published,
+            booking_closes_at,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || "Failed");
+        form.reset();
+        form.dataset.existingPhotos = "[]";
+        document.getElementById("buffetEventPhotoPreview").innerHTML = "";
+        await loadBuffetEventsAdmin();
+      } catch (err) {
+        alert(err.message || "Failed to save event");
+      }
+    });
+  }
+}
+
+async function loadBuffetEventsAdmin() {
+  try {
+    const res = await adminFetch("/api/admin/buffet-events");
+    const data = await res.json();
+    const list = document.getElementById("buffetEventsList");
+    if (!list) return;
+    list.innerHTML = "";
+    (data.events || []).forEach((evt) => {
+      const el = document.createElement("div");
+      el.className = "sa-list-item";
+      el.innerHTML = `<div class="sa-list-main"><div class="sa-list-title">${evt.title}</div><div class="sa-list-sub">${new Date(evt.event_date).toLocaleString()} • Capacity ${evt.capacity} • Price R${(Number(evt.price_cents) / 100).toFixed(2)} ${evt.is_published ? "• Published" : ""}</div></div>
+        <div style="margin-top:8px"><button class="admin-mini-btn btn-view" data-id="${evt.id}">View Bookings</button> <button class="admin-mini-btn btn-edit" data-id="${evt.id}">Edit</button> <button class="admin-mini-btn danger btn-del" data-id="${evt.id}">Delete</button></div>`;
+      list.appendChild(el);
+    });
+    document.querySelectorAll("#buffetEventsList .btn-del").forEach((b) =>
+      b.addEventListener("click", async (e) => {
+        if (!confirm("Delete this event?")) return;
+        const id = Number(e.target.dataset.id);
+        try {
+          const res = await adminFetch("/api/admin/buffet-events", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id }),
+          });
+          const data = await res.json();
+          if (!res.ok || !data.success) throw new Error(data.error || "Failed");
+          await loadBuffetEventsAdmin();
+        } catch (err) {
+          alert(err.message || "Failed to delete");
+        }
+      }),
+    );
+    document.querySelectorAll("#buffetEventsList .btn-edit").forEach((b) =>
+      b.addEventListener("click", async (e) => {
+        const id = Number(e.target.dataset.id);
+        const res = await adminFetch("/api/admin/buffet-events");
+        const all = await res.json();
+        const evt = (all.events || []).find((x) => x.id === id);
+        if (!evt) return alert("Not found");
+        document.getElementById("buffetEventId").value = evt.id;
+        document.getElementById("buffetEventTitle").value = evt.title;
+        const d = new Date(evt.event_date);
+        const isoLocal = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+          .toISOString()
+          .slice(0, 16);
+        document.getElementById("buffetEventDate").value = isoLocal;
+        document.getElementById("buffetEventCapacity").value = evt.capacity;
+        document.getElementById("buffetEventPrice").value = evt.price_cents;
+        document.getElementById("buffetEventDescription").value =
+          evt.description || "";
+        const eventPhotos = Array.isArray(evt.photos) ? evt.photos : [];
+        form.dataset.existingPhotos = JSON.stringify(eventPhotos);
+        document.getElementById("buffetEventPhotoPreview").innerHTML =
+          eventPhotos
+            .map(
+              (photo) =>
+                `<img src="${photo}" alt="Buffet event" style="width:72px;height:54px;object-fit:cover;border-radius:4px;" />`,
+            )
+            .join("");
+        document.getElementById("buffetEventPublished").checked =
+          !!evt.is_published;
+        if (evt.booking_closes_at) {
+          const d = new Date(evt.booking_closes_at);
+          const isoLocal = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+            .toISOString()
+            .slice(0, 16);
+          document.getElementById("buffetEventBookingCloses").value = isoLocal;
+        } else {
+          document.getElementById("buffetEventBookingCloses").value = "";
+        }
+      }),
+    );
+    document.querySelectorAll("#buffetEventsList .btn-view").forEach((b) =>
+      b.addEventListener("click", async (e) => {
+        const id = Number(e.target.dataset.id);
+        try {
+          const res = await adminFetch(
+            `/api/admin/buffet-bookings?event_id=${id}`,
+          );
+          const data = await res.json();
+          const container = document.getElementById("buffetBookingsList");
+          container.innerHTML = "";
+          (data.bookings || []).forEach((bk) => {
+            const row = document.createElement("div");
+            row.className = "sa-list-item";
+            row.innerHTML = `<div class="sa-list-main"><div class="sa-list-title">${bk.name} (${bk.seats} seats)</div><div class="sa-list-sub">${bk.email} • ${bk.phone || ""} • ${new Date(bk.created_at).toLocaleString()}</div></div>
+            <div style="margin-top:8px"><button class="admin-mini-btn btn-confirm" data-id="${bk.id}">Confirm</button> <button class="admin-mini-btn danger btn-cancel" data-id="${bk.id}">Cancel</button></div>`;
+            container.appendChild(row);
+          });
+          container.querySelectorAll(".btn-confirm").forEach((btn) =>
+            btn.addEventListener("click", async (ev) => {
+              const bid = Number(ev.target.dataset.id);
+              await adminFetch("/api/admin/buffet-bookings", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ booking_id: bid, action: "confirm" }),
+              });
+              await loadBuffetEventsAdmin();
+            }),
+          );
+          container.querySelectorAll(".btn-cancel").forEach((btn) =>
+            btn.addEventListener("click", async (ev) => {
+              const bid = Number(ev.target.dataset.id);
+              await adminFetch("/api/admin/buffet-bookings", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ booking_id: bid, action: "cancel" }),
+              });
+              await loadBuffetEventsAdmin();
+            }),
+          );
+        } catch (err) {
+          alert("Failed to load bookings");
+        }
+      }),
+    );
+  } catch (err) {
+    console.error("Failed to load buffet events", err);
+  }
+}
+
+document
+  .getElementById("buffetToggle")
+  .addEventListener("change", async (e) => {
+    await adminFetch("/api/admin/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_buffet_visible: e.target.checked }),
+    });
+  });
+
+// ---------------------------------------------------------------------
+// Admin password reset flow on the login page
+// ---------------------------------------------------------------------
+function getResetTokenFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("reset_token") || "";
+}
+
+function showAdminResetForm(token) {
+  const loginForm = document.getElementById("loginForm");
+  const resetForm = document.getElementById("adminResetForm");
+  const resetTokenInput = document.getElementById("adminResetToken");
+
+  loginForm.style.display = "none";
+  resetForm.style.display = "block";
+  resetTokenInput.value = token;
+}
+
+document
+  .getElementById("adminResetForm")
+  .addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const token = document.getElementById("adminResetToken").value;
+    const password = document.getElementById("adminResetPassword").value;
+    const statusEl = document.getElementById("adminResetStatus");
+
+    try {
+      const res = await fetch("/api/admin/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, password }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success)
+        throw new Error(data.error || "Couldn't reset the password.");
+      statusEl.textContent =
+        "Password reset successfully. You can now log in with your new password.";
+      document.getElementById("adminResetForm").reset();
+      setTimeout(() => {
+        window.history.replaceState(
+          {},
+          document.title,
+          window.location.pathname,
+        );
+        document.getElementById("loginForm").style.display = "flex";
+        document.getElementById("adminResetForm").style.display = "none";
+      }, 1500);
+    } catch (err) {
+      statusEl.textContent = err.message;
+    }
+  });
+
+const initialResetToken = getResetTokenFromUrl();
+if (initialResetToken) {
+  showAdminResetForm(initialResetToken);
+}
+
+// ---------------- Audit viewer (init and helpers appended) ----------------
+// (Uses adminFetch already defined above)
+let auditOffset = 0;
+const auditLimit = 100;
+
+function escapeHtml(s) {
+  return String(s || "").replace(
+    /[&<>"']/g,
+    (c) => "&#" + c.charCodeAt(0) + ";",
+  );
+}
+
+async function fetchAudit(offset = 0) {
+  const from = document.getElementById("auditFrom")?.value;
+  const to = document.getElementById("auditTo")?.value;
+  const actor_role = document.getElementById("auditActorRole")?.value;
+  const action = document.getElementById("auditAction")?.value?.trim();
+  const params = new URLSearchParams();
+  if (from) params.set("from", new Date(from).toISOString());
+  if (to) params.set("to", new Date(to).toISOString());
+  if (actor_role) params.set("actor_role", actor_role);
+  if (action) params.set("action", action);
+  params.set("limit", auditLimit);
+  params.set("offset", offset);
+  const res = await adminFetch("/api/admin/audit?" + params.toString());
+  return res.json();
+}
+
+async function loadAudit(reset = true) {
+  if (reset) auditOffset = 0;
+  try {
+    const data = await fetchAudit(auditOffset);
+    renderAuditTable(data.rows || []);
+    document.getElementById("auditPrevBtn").style.display =
+      auditOffset > 0 ? "" : "none";
+    document.getElementById("auditNextBtn").style.display =
+      data.rows && data.rows.length === auditLimit ? "" : "none";
+  } catch (err) {
+    console.error("Failed to load audit:", err);
+  }
+}
+
+function renderAuditTable(rows) {
+  const body = document.getElementById("auditTableBody");
+  if (!body) return;
+  body.innerHTML = "";
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="6">No results</td></tr>';
+    return;
+  }
+  rows.forEach((r) => {
+    const details =
+      typeof r.details === "object"
+        ? JSON.stringify(r.details)
+        : String(r.details || "");
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${new Date(r.created_at).toLocaleString()}</td>
+      <td>${escapeHtml(r.action)}</td>
+      <td>${escapeHtml(r.actor_role || "")}</td>
+      <td>${escapeHtml(r.actor_type || "")}${r.actor_id ? " #" + r.actor_id : ""}</td>
+      <td>${escapeHtml(r.target_type || "")}${r.target_id ? " #" + r.target_id : ""}</td>
+      <td class="audit-details" data-raw="${escapeHtml(details)}" title="Click to copy">${escapeHtml(details)}</td>
+    `;
+    body.appendChild(tr);
+  });
+}
+
+function initAuditHandlers() {
+  document
+    .getElementById("auditLoadBtn")
+    ?.addEventListener("click", () => loadAudit(true));
+  document.getElementById("auditPrevBtn")?.addEventListener("click", () => {
+    auditOffset = Math.max(0, auditOffset - auditLimit);
+    loadAudit(false);
+  });
+  document.getElementById("auditNextBtn")?.addEventListener("click", () => {
+    auditOffset += auditLimit;
+    loadAudit(false);
+  });
+  document
+    .getElementById("auditExportBtn")
+    ?.addEventListener("click", async () => {
+      try {
+        const data = await fetchAudit(auditOffset);
+        const rows = data.rows || [];
+        const csv = ["time,action,actor_role,actor, target, details"];
+        rows.forEach((r) => {
+          const details =
+            typeof r.details === "object"
+              ? JSON.stringify(r.details)
+              : String(r.details || "");
+          const line = [
+            `"${new Date(r.created_at).toISOString()}"`,
+            `"${r.action || ""}"`,
+            `"${r.actor_role || ""}"`,
+            `"${r.actor_type || ""}${r.actor_id ? " #" + r.actor_id : ""}"`,
+            `"${r.target_type || ""}${r.target_id ? " #" + r.target_id : ""}"`,
+            `"${details.replace(/"/g, '""')}"`,
+          ].join(",");
+          csv.push(line);
+        });
+        const blob = new Blob([csv.join("\n")], { type: "text/csv" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "audit_logs.csv";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        console.error("Export failed", err);
+      }
+    });
+  // Click-to-copy details
+  const body = document.getElementById("auditTableBody");
+  if (body) {
+    body.addEventListener("click", (e) => {
+      const td = e.target.closest(".audit-details");
+      if (!td) return;
+      const text = td.dataset.raw || td.textContent || "";
+      if (navigator.clipboard && text) {
+        navigator.clipboard
+          .writeText(text)
+          .then(() => {
+            if (typeof toast === "function")
+              toast("Copied details to clipboard");
+          })
+          .catch(() => {
+            // ignore
+          });
+      }
+    });
+  }
+}
+// Init
+// ---------------------------------------------------------------------
+if (adminToken) {
+  showDashboard();
+}
