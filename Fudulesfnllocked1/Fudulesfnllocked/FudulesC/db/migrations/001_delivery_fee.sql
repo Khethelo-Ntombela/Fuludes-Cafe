@@ -1,0 +1,2 @@
+-- PLACEHOLDER: Fudulesfnllocked/FudulesC/db/migrations/001_delivery_fee.sql
+-- Original SQL removed.

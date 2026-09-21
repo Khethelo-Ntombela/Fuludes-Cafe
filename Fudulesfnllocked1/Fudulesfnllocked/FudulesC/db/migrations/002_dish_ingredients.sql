@@ -1,0 +1,2 @@
+-- PLACEHOLDER: Fudulesfnllocked/FudulesC/db/migrations/002_dish_ingredients.sql
+-- Original SQL removed.
