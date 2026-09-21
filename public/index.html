@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Fulude's Cafe | Portal</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+    <style>
+      /* Self-contained portal styles - this page is the role gate and will
+         later carry the real RBAC login; it deliberately shares no CSS
+         with the customer site or the dashboards. */
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 40px;
+        padding: 32px 24px;
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+        background:
+          radial-gradient(ellipse 70% 55% at 50% -10%, rgba(201, 169, 110, 0.18), transparent 60%),
+          #0a0a0a;
+        color: #fff;
+      }
+
+      .portal-brand {
+        text-align: center;
+      }
+
+      .portal-brand .logo {
+        font-family: "Playfair Display", serif;
+        font-size: 2.4rem;
+        font-weight: 600;
+        letter-spacing: -0.5px;
+      }
+
+      .portal-brand .sub {
+        display: block;
+        margin-top: 10px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 3.5px;
+        color: #c9a96e;
+      }
+
+      .portal-tiles {
+        display: grid;
+        grid-template-columns: repeat(3, 240px);
+        gap: 20px;
+      }
+
+      .portal-tile {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 14px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 16px;
+        padding: 28px 24px;
+        text-decoration: none;
+        color: #fff;
+        transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+      }
+
+      .portal-tile:hover,
+      .portal-tile:focus-visible {
+        transform: translateY(-4px);
+        border-color: #c9a96e;
+        background: rgba(201, 169, 110, 0.08);
+        outline: none;
+      }
+
+      .portal-tile-icon {
+        width: 46px;
+        height: 46px;
+        border-radius: 12px;
+        background: rgba(201, 169, 110, 0.16);
+        color: #c9a96e;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.15rem;
+      }
+
+      .portal-tile h2 {
+        font-size: 1.05rem;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+
+      .portal-tile p {
+        font-size: 0.8rem;
+        line-height: 1.55;
+        color: rgba(255, 255, 255, 0.55);
+        flex: 1;
+      }
+
+      .portal-tile .go {
+        font-size: 0.76rem;
+        font-weight: 600;
+        color: #c9a96e;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        transition: gap 0.18s ease;
+      }
+
+      .portal-tile:hover .go {
+        gap: 11px;
+      }
+
+      .portal-note {
+        font-size: 0.74rem;
+        color: rgba(255, 255, 255, 0.35);
+        text-align: center;
+        max-width: 420px;
+        line-height: 1.6;
+      }
+
+      @media (max-width: 860px) {
+        .portal-tiles {
+          grid-template-columns: minmax(0, 340px);
+        }
+
+        body {
+          gap: 28px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="portal-brand">
+      <h1 class="logo">Fulude's Cafe</h1>
+      <span class="sub">Restaurant Platform</span>
+    </div>
+
+    <nav class="portal-tiles" aria-label="Choose your portal">
+      <a class="portal-tile" href="home.html">
+        <span class="portal-tile-icon"><i class="fas fa-store"></i></span>
+        <h2>Customer</h2>
+        <p>Browse the menu, order online, book a table, and leave reviews.</p>
+        <span class="go">Enter site <i class="fas fa-arrow-right"></i></span>
+      </a>
+
+      <a class="portal-tile" href="admin.html">
+        <span class="portal-tile-icon"><i class="fas fa-gauge-high"></i></span>
+        <h2>Admin</h2>
+        <p>Dashboard, live orders, sales &amp; reports, menu &amp; stock, settings.</p>
+        <span class="go">Open dashboard <i class="fas fa-arrow-right"></i></span>
+      </a>
+
+      <a class="portal-tile" href="staff.html">
+        <span class="portal-tile-icon"><i class="fas fa-fire-burner"></i></span>
+        <h2>Kitchen</h2>
+        <p>Live kitchen display - tickets, timers, and order stage control.</p>
+        <span class="go">Open board <i class="fas fa-arrow-right"></i></span>
+      </a>
+    </nav>
+
+    <p class="portal-note">
+      Role selection is open for design review - each portal will require its
+      own sign-in once role-based access control is wired up.
+    </p>
+  </body>
+</html>
