@@ -2,8 +2,7 @@ ADMIN_EMAIL=admin@fuludescafe.local
 ADMIN_PASSWORD=replace-with-a-local-admin-password
 STAFF_EMAIL=staff@fuludescafe.local
 STAFF_PASSWORD=replace-with-a-local-staff-password
-NEON_DATABASE_URL=replace-with-neon-url
-NEON_AUTH_TOKEN=replace-with-neon-token
+NEON_DATABASE_URL=postgresql://user:password@host/neondb?sslmode=require
 RESEND_API_KEY=re_replace-with-resend-api-key
 RESEND_FROM_EMAIL=verified-sender@example.com
 YOCO_PAYMENT_URL=https://replace-with-hosted-checkout-url

@@ -1,15 +1,13 @@
 /**
  * functions/_lib/db.js
  * -----------------------------------------------------------------------
- * Tiny wrapper around Neon's HTTP SQL endpoint (`/sql` via the Neon Data
- * API). Every Pages Function imports `runQuery()` instead of hand-rolling
- * fetch() calls, so the request shape and error handling only live in one
- * place.
+ * Tiny wrapper around Neon's serverless PostgreSQL driver. Every Pages
+ * Function imports `runQuery()` instead of hand-rolling database calls, so
+ * connection and error handling only live in one place.
  *
  * Required environment variables (set in Cloudflare Pages > Settings >
  * Environment variables):
- *   NEON_DATABASE_URL  e.g. https://<project>.neon.tech  (no trailing slash)
- *   NEON_AUTH_TOKEN    the Neon Data API bearer token
+ *   NEON_DATABASE_URL  PostgreSQL connection string from Neon's Connect panel
  *
  * NOTE: files/folders prefixed with "_" are ignored by Cloudflare Pages'
  * file-based router, so this module is never itself exposed as a route.
@@ -23,29 +21,22 @@
  * @param {Array} params - values for the placeholders
  * @returns {Promise<{rows: any[]}>}
  */
+import { neon } from "@neondatabase/serverless";
+
 export async function runQuery(env, query, params = []) {
   const databaseUrl = env.NEON_DATABASE_URL;
-  const databaseToken = env.NEON_AUTH_TOKEN;
 
-  if (!databaseUrl || !databaseToken) {
-    throw new DbConfigError("Neon database credentials are missing on the server.");
+  if (!databaseUrl) {
+    throw new DbConfigError("Neon database connection is missing on the server.");
   }
 
-  const response = await fetch(`${databaseUrl}/v1/sql`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${databaseToken}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ query, params })
-  });
-
-  if (!response.ok) {
-    const details = await response.text();
-    throw new DbQueryError(`Neon query failed: ${details}`);
+  try {
+    const sql = neon(databaseUrl);
+    const rows = await sql.query(query, params);
+    return { rows };
+  } catch (error) {
+    throw new DbQueryError(`Neon query failed: ${error.message}`);
   }
-
-  return response.json();
 }
 
 /**

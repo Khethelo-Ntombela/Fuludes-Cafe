@@ -4,7 +4,7 @@ A framework-free (vanilla HTML/CSS/JS) ordering site + admin dashboard for Fulud
 
 - **Frontend:** Cloudflare Pages (static `public/`)
 - **Backend:** Cloudflare Pages Functions (`functions/`, vanilla JS, no Express)
-- **Database:** Neon Postgres, queried over its HTTP SQL endpoint (no ORM, no driver)
+- **Database:** Neon Postgres, queried through Neon's serverless PostgreSQL driver
 - **Images:** Cloudflare R2 object storage
 - **Cost:** R0/month on Cloudflare's Free plan + Neon's Free plan, for a single-location cafe's traffic
 
@@ -96,9 +96,7 @@ Files/folders starting with `_` (like `functions/_lib`) are ignored by Cloudflar
 
 1. Create a free project at neon.tech.
 2. Open the Neon SQL editor and run the contents of `db/schema.sql` once. It creates every table and seeds your 14 menu categories (Starters, Wings, Chicken, Ribs, Beef, Stew, Seafood, Tilapia Fish, Pizza, Platters, Sides, Tripe & Cow Heels, Dessert, Drinks) plus 4 starter spice levels.
-3. In Neon's dashboard, enable the **Data API / HTTP SQL endpoint** and copy:
-   - the base URL (`NEON_DATABASE_URL`, looks like `https://<project>.neon.tech` or similar per Neon's current Data API docs)
-   - the bearer token (`NEON_AUTH_TOKEN`)
+3. In Neon's dashboard, open the **Connect** panel and copy the PostgreSQL connection string into `NEON_DATABASE_URL`.
 
 ### 2.2 Cloudflare R2 (free tier: 10GB storage, no egress fee)
 
@@ -132,8 +130,7 @@ If you skip this section, account signup/login/checkout all still work fine — 
 
    | Variable              | Value                                       |
    | --------------------- | ------------------------------------------- |
-   | `NEON_DATABASE_URL`   | from step 2.1                               |
-   | `NEON_AUTH_TOKEN`     | from step 2.1                               |
+  | `NEON_DATABASE_URL`   | PostgreSQL connection string from step 2.1  |
    | `R2_PUBLIC_URL`       | from step 2.2                               |
    | `YOCO_PAYMENT_URL`    | hosted checkout URL (gateway-provided)      |
    | `YOCO_CHECKOUT_URL`   | alternate hosted checkout URL (optional)    |

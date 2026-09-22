@@ -24,5 +24,5 @@ export function deleteSession(token) {
 }
 
 export function isDbAvailable(env) {
-  return !!(env.NEON_DATABASE_URL && env.NEON_AUTH_TOKEN);
+  return !!env.NEON_DATABASE_URL;
 }
