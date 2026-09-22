@@ -1,7 +1,5 @@
 {
   "name": "fuludes-cafe",
   "compatibility_date": "2024-09-23",
-  "assets": {
-    "directory": "./public"
-  }
+  "pages_build_output_dir": "./public"
 }
