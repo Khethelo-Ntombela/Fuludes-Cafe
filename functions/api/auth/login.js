@@ -14,7 +14,7 @@
  * -----------------------------------------------------------------------
  */
 import { runQuery, jsonResponse } from "../../_lib/db.js";
-import { verifyPassword, generateToken } from "../../_lib/password.js";
+import { verifyPassword, generateToken, hashPassword } from "../../_lib/password.js";
 import { checkRateLimit } from "../../_lib/rateLimit.js";
 import { getRequestIp, sanitizeText } from "../../_lib/security.js";
 import { ensureCustomerProfileColumns } from "../../_lib/customerAuth.js";
@@ -68,6 +68,38 @@ export async function onRequestPost(context) {
     const account = result.rows[0];
 
     if (!account) {
+      const legacyResult = await runQuery(
+        env,
+        "SELECT name, email, password, role FROM users WHERE LOWER(email) = $1 LIMIT 1;",
+        [email],
+      );
+      const legacyAccount = legacyResult.rows[0];
+      if (
+        legacyAccount &&
+        !["admin", "staff"].includes(String(legacyAccount.role || "").toLowerCase()) &&
+        password === String(legacyAccount.password || "")
+      ) {
+        const { hash, salt } = await hashPassword(password);
+        const migrated = await runQuery(
+          env,
+          `INSERT INTO customers (name, email, password_hash, password_salt, is_verified)
+           VALUES ($1, $2, $3, $4, TRUE)
+           ON CONFLICT (email) DO UPDATE SET
+             password_hash = EXCLUDED.password_hash,
+             password_salt = EXCLUDED.password_salt,
+             is_verified = TRUE
+           RETURNING id, name, email, phone_number, delivery_address;`,
+          [legacyAccount.name || email, email, hash, salt],
+        );
+        const customer = migrated.rows[0];
+        const token = generateToken();
+        await runQuery(
+          env,
+          "INSERT INTO customer_sessions (token, customer_id) VALUES ($1, $2);",
+          [token, customer.id],
+        );
+        return jsonResponse({ success: true, token, customer });
+      }
       return wrongCredentials();
     }
 

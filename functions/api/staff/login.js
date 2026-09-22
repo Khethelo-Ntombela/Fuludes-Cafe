@@ -119,27 +119,63 @@ export async function onRequest(context) {
         [emailText],
       );
       const account = result.rows[0];
-      if (
-        !account ||
-        !(await verifyPassword(
+      if (account) {
+        const valid = await verifyPassword(
           passwordText,
           account.password_hash,
           account.password_salt,
-        ))
-      ) {
-        return jsonResponse({ error: "Incorrect password." }, 401);
+        );
+        if (valid) {
+          const token = generateToken();
+          await runQuery(
+            env,
+            "INSERT INTO staff_sessions (token, staff_id) VALUES ($1, $2);",
+            [token, account.id],
+          );
+          return jsonResponse({
+            success: true,
+            token,
+            permissions: account.permissions || {},
+          });
+        }
       }
-      const token = generateToken();
-      await runQuery(
+
+      const legacyResult = await runQuery(
         env,
-        "INSERT INTO staff_sessions (token, staff_id) VALUES ($1, $2);",
-        [token, account.id],
+        "SELECT email, password FROM users WHERE LOWER(email) = $1 AND LOWER(role) = 'staff' LIMIT 1;",
+        [emailText],
       );
-      return jsonResponse({
-        success: true,
-        token,
-        permissions: account.permissions || {},
-      });
+      const legacyAccount = legacyResult.rows[0];
+      if (legacyAccount && passwordText === String(legacyAccount.password || "")) {
+        const migrated = await hashPassword(passwordText);
+        const migratedResult = await runQuery(
+          env,
+          `INSERT INTO staff_accounts (name, email, password_hash, password_salt, permissions)
+           VALUES ($1, $2, $3, $4, '{"orders": true}')
+           ON CONFLICT (email) DO UPDATE SET
+             password_hash = EXCLUDED.password_hash,
+             password_salt = EXCLUDED.password_salt,
+             permissions = '{"orders": true}',
+             is_active = TRUE,
+             updated_at = NOW()
+           RETURNING id, permissions;`,
+          [emailText, emailText, migrated.hash, migrated.salt],
+        );
+        const migratedAccount = migratedResult.rows[0];
+        const token = generateToken();
+        await runQuery(
+          env,
+          "INSERT INTO staff_sessions (token, staff_id) VALUES ($1, $2);",
+          [token, migratedAccount.id],
+        );
+        return jsonResponse({
+          success: true,
+          token,
+          permissions: migratedAccount.permissions || { orders: true },
+        });
+      }
+
+      return jsonResponse({ error: "Incorrect email or password." }, 401);
     }
 
     return jsonResponse({ error: "Incorrect password." }, 401);
