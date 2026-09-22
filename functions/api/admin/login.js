@@ -124,20 +124,60 @@ export async function onRequest(context) {
           account.password_salt,
         )),
       );
-      if (!valid) {
-        return jsonResponse({ error: "Incorrect password." }, 401);
+      if (valid) {
+        const token = generateToken();
+        await runQuery(
+          env,
+          "INSERT INTO admin_sessions (token, admin_id) VALUES ($1, $2);",
+          [token, account.id],
+        );
+        return jsonResponse({
+          success: true,
+          token,
+          permissions: account.permissions || {},
+        });
       }
-      const token = generateToken();
-      await runQuery(
-        env,
-        "INSERT INTO admin_sessions (token, admin_id) VALUES ($1, $2);",
-        [token, account.id],
-      );
-      return jsonResponse({
-        success: true,
-        token,
-        permissions: account.permissions || {},
-      });
+
+      try {
+        const legacyResult = await runQuery(
+          env,
+          "SELECT email, password FROM users WHERE LOWER(email) = $1 AND LOWER(role) = 'admin' LIMIT 1;",
+          [emailText],
+        );
+        const legacyAccount = legacyResult.rows[0];
+        if (legacyAccount && passwordText === String(legacyAccount.password || "")) {
+          const migrated = await hashPassword(passwordText);
+          const migratedResult = await runQuery(
+            env,
+            `INSERT INTO admin_accounts (email, password_hash, password_salt, permissions)
+             VALUES ($1, $2, $3, '{"all": true}')
+             ON CONFLICT (email) DO UPDATE SET
+               password_hash = EXCLUDED.password_hash,
+               password_salt = EXCLUDED.password_salt,
+               permissions = '{"all": true}',
+               is_active = TRUE,
+               updated_at = NOW()
+             RETURNING id, permissions;`,
+            [emailText, migrated.hash, migrated.salt],
+          );
+          const migratedAccount = migratedResult.rows[0];
+          const token = generateToken();
+          await runQuery(
+            env,
+            "INSERT INTO admin_sessions (token, admin_id) VALUES ($1, $2);",
+            [token, migratedAccount.id],
+          );
+          return jsonResponse({
+            success: true,
+            token,
+            permissions: migratedAccount.permissions || { all: true },
+          });
+        }
+      } catch (legacyError) {
+        console.error("legacy admin migration check failed:", legacyError);
+      }
+
+      return jsonResponse({ error: "Incorrect email or password." }, 401);
     }
 
     return jsonResponse({ error: "Incorrect password." }, 401);
