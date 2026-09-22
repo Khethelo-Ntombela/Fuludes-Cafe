@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fulude's Cafe | Bold Flavors, Fresh Meals in Thohoyandou</title>
+
+    <!-- ============================= SEO ============================= -->
+    <meta
+      name="description"
+      content="Fulude's Cafe in Mapate, Thohoyandou — bold seafood, tilapia, wings, ribs, platters, pizza and more. Order online for collection or delivery."
+    />
+    <meta
+      name="keywords"
+      content="Fulude's Cafe, Fulude's Cafe Mapate, restaurant Thohoyandou, Lwamondo restaurant, seafood Thohoyandou, tilapia fish, wings, ribs, platters, food delivery Thohoyandou"
+    />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://fuludescafe.co.za/home" />
+
+    <meta property="og:type" content="restaurant.restaurant" />
+    <meta
+      property="og:title"
+      content="Fulude's Cafe | Bold Flavors, Fresh Meals"
+    />
+    <meta
+      property="og:description"
+      content="Bold seafood, tilapia, wings, ribs, platters and pizza in Mapate, Thohoyandou. Order online for collection or delivery."
+    />
+    <meta
+      property="og:image"
+      content="https://fuludescafe.co.za/images/og-cover.jpg"
+    />
+    <meta property="og:url" content="https://fuludescafe.co.za/home" />
+    <meta property="og:locale" content="en_ZA" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <!-- ================================================================ -->
+
+    <link rel="stylesheet" href="css/style.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css"
+    />
+    <meta name="google-client-id" content="" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="container nav-container">
+        <script
+          src="https://accounts.google.com/gsi/client"
+          async
+          defer
+        ></script>
+        <a href="home.html" class="logo">
+          <img src="images/logo.jpeg" alt="Fulude's Cafe Logo" />
+          <h4>Fulude's Cafe</h4>
+        </a>
+        <nav class="nav" id="navbar">
+          <a href="home.html" class="nav-link active">Home</a>
+          <a href="menu.html" class="nav-link">Menu</a>
+          <a href="reviews.html" class="nav-link">Reviews</a>
+          <a href="catering.html" class="nav-link">Catering</a>
+          <a href="contact.html" class="nav-link">Contact</a>
+          <a href="#" class="nav-link" id="navReservationLink"
+            >Book Reservation</a
+          >
+        </nav>
+        <div class="header-actions">
+          <button
+            type="button"
+            class="nav-account-btn"
+            id="accountNavBtn"
+            aria-label="Account"
+          >
+            <i class="bi bi-person-circle"></i>
+            <span id="accountNavLabel">Sign In</span>
+          </button>
+          <button
+            type="button"
+            class="nav-link"
+            id="myBuffetBtn"
+            style="display: none; margin-left: 8px"
+          >
+            Buffet
+          </button>
+          <button
+            class="mobile-toggle"
+            id="mobileToggle"
+            aria-label="Toggle menu"
+          >
+            <span></span><span></span><span></span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <div id="paymentBanner" class="payment-banner" style="display: none"></div>
+
+    <section class="hero" id="home">
+      <div class="hero-bg"></div>
+      <div class="container hero-content">
+        <h1 class="hero-title">Welcome to Fulude's Cafe</h1>
+        <p class="hero-subtitle">Bold Flavors. Unique Meals. Made With Love.</p>
+        <p class="hero-note">
+          Want to dine-in, Did you know you can book reservation and order
+          online before your arrival to reduce waiting time?
+        </p>
+        <div class="hero-actions">
+          <a href="menu.html" class="btn btn-primary">View Menu &amp; Order</a>
+          <button
+            type="button"
+            class="btn btn-secondary"
+            id="heroReservationBtn"
+          >
+            Book Reservation
+          </button>
+          <a href="catering.html" class="btn btn-secondary">Book Catering</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Buffet teaser: hidden unless admin flips is_buffet_visible on -->
+    <section class="section buffet" id="buffetSection" style="display: none">
+      <div class="container">
+        <h2 class="section-title">Upcoming Buffets</h2>
+        <p class="section-text">
+          Join us for our scheduled buffets — book a seat below.
+        </p>
+        <div id="buffetContent">
+          <p class="menu-loading">Loading…</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Buffet booking modal -->
+    <div class="modal-overlay" id="buffetBookingModal" style="display: none">
+      <div class="modal">
+        <button class="modal-close" id="buffetBookingClose">&times;</button>
+        <h3 id="buffetModalTitle">Book Buffet</h3>
+        <form id="buffetBookingForm">
+          <input type="hidden" id="buffetEventId" />
+          <div class="form-group">
+            <label for="buffetName">Name</label
+            ><input id="buffetName" required />
+          </div>
+          <div class="form-group">
+            <label for="buffetEmail">Email</label
+            ><input id="buffetEmail" type="email" required />
+          </div>
+          <div class="form-group">
+            <label for="buffetPhone">Phone</label><input id="buffetPhone" />
+          </div>
+          <div class="form-group">
+            <label for="buffetSeats">Seats</label
+            ><input
+              id="buffetSeats"
+              type="number"
+              min="1"
+              max="10"
+              value="1"
+              required
+            />
+          </div>
+          <p
+            id="buffetBookingError"
+            class="form-error"
+            style="display: none"
+          ></p>
+          <p
+            id="buffetBookingSuccess"
+            class="form-success"
+            style="display: none"
+          ></p>
+          <div class="admin-form-actions">
+            <button class="btn btn-primary" type="submit">Book</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- My Buffet Bookings modal (customer) -->
+    <div class="modal-overlay" id="myBuffetModal" style="display: none">
+      <div class="modal">
+        <button class="modal-close" id="myBuffetClose">&times;</button>
+        <h3>My Buffet Bookings</h3>
+        <div id="myBuffetList">Loading…</div>
+      </div>
+    </div>
+
+    <section class="section band-dark home-menu-band">
+      <div class="container">
+        <h2 class="section-title">Our Menu</h2>
+        <p class="section-text">
+          Browse by category, create your order, and check out for collection,
+          delivery, or dine-in.
+        </p>
+        <div class="section-cta">
+          <a href="menu.html" class="btn btn-primary">View Menu &amp; Order</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="section home-catering">
+      <div class="container">
+        <h2 class="section-title">Catering Services</h2>
+        <p class="section-text">
+          Let Fulude's Catering bring our bold flavors to your next event. From
+          corporate functions to private celebrations, we craft memorable dining
+          experiences.
+        </p>
+
+        <div class="catering-types">
+          <div class="catering-card">
+            <h3>Corporate Events</h3>
+            <p>
+              Professional catering for meetings, conferences, and office
+              functions. Customizable menus to suit your team.
+            </p>
+          </div>
+          <div class="catering-card">
+            <h3>Private Functions</h3>
+            <p>
+              Weddings, birthdays, anniversaries, and family gatherings. We
+              bring the restaurant experience to you.
+            </p>
+          </div>
+          <div class="catering-card">
+            <h3>Custom Menus</h3>
+            <p>
+              Work with our chefs to design a menu tailored to your event,
+              dietary requirements, and budget.
+            </p>
+          </div>
+        </div>
+
+        <div class="section-cta">
+          <a href="catering.html" class="btn btn-outline"
+            >Book Catering Service</a
+          >
+        </div>
+      </div>
+    </section>
+
+    <section class="section about" id="about">
+      <div class="container">
+        <h2 class="section-title">About us</h2>
+        <p class="section-text about-text">
+          Fulude's Cafe is a vibrant local café known for its bold dishes and
+          uniquely crafted meals, bringing fresh and exciting flavors to the
+          community. Built on passion and creativity, the café offers
+          made-from-scratch meals in a warm, welcoming environment where every
+          dish is prepared with care.
+        </p>
+      </div>
+    </section>
+
+    <section class="section home-reviews-band">
+      <div class="container">
+        <h2 class="section-title">What Customers Say</h2>
+        <div class="section-cta">
+          <a href="reviews.html" class="btn btn-outline">Read Reviews</a>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+    
+     
+        <a href="home.html" class="logo"> <div class="container footer-content">
+         <div class="footer-brand">
+        <img src="images/logo2.jpeg" alt="Fulude's Cafe Logo" />
+      </div>Fulude's Cafe</a>
+        <p>Made with passion in South Africa.</p>
+        <div class="social">
+          <a href="https://www.facebook.com/fulu.mutengwe" aria-label="Facebook"
+            ><i class="fab fa-facebook-f"></i
+          ></a>
+          <a
+            href="https://www.tiktok.com/@fulumutengwe?_r=1&_t=ZS-98KHMzmSGYP"
+            aria-label="TikTok"
+            ><i class="fab fa-tiktok"></i
+          ></a>
+          <a href="https://wa.me/27663649016" aria-label="WhatsApp"
+            ><i class="fab fa-whatsapp"></i
+          ></a>
+        </div>
+        <p class="footer-policy-link">
+          <a href="contact.html#policies">Privacy &amp; Refund Policy</a>
+        </p>
+        <p class="copyright">© 2026 Fulude's Cafe. All rights reserved.</p>
+      </div>
+    </footer>
+
+    <!-- Photo gallery lightbox (shared) -->
+    <div class="modal-overlay" id="photoLightbox">
+      <div class="lightbox">
+        <button class="modal-close" id="lightboxClose">&times;</button>
+        <button
+          class="lightbox-nav lightbox-prev"
+          id="lightboxPrev"
+          aria-label="Previous photo"
+        >
+          &#10094;
+        </button>
+        <img id="lightboxImage" src="" alt="" />
+        <button
+          class="lightbox-nav lightbox-next"
+          id="lightboxNext"
+          aria-label="Next photo"
+        >
+          &#10095;
+        </button>
+        <div class="lightbox-counter" id="lightboxCounter"></div>
+      </div>
+    </div>
+
+    <!-- Reservation modal -->
+    <div class="modal-overlay" id="reservationModal">
+      <div class="modal">
+        <button class="modal-close" id="reservationModalClose">&times;</button>
+        <h3>Book a Dine-In Reservation</h3>
+        <p class="auth-hint">
+          Reserve a table for your visit. If you'd like to order food in
+          advance, check the box and we'll send you to the menu to add items to
+          cart and checkout.
+        </p>
+        <form id="reservationForm">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="reservation-name">Your Name</label>
+              <input type="text" id="reservation-name" required />
+            </div>
+            <div class="form-group">
+              <label for="reservation-phone">Phone</label>
+              <input type="tel" id="reservation-phone" required />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="reservation-email">Email</label>
+              <input type="email" id="reservation-email" required />
+            </div>
+            <div class="form-group">
+              <label for="reservation-date">Date</label>
+              <input type="date" id="reservation-date" required />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="reservation-time">Time</label>
+              <input type="time" id="reservation-time" required />
+            </div>
+            <div class="form-group">
+              <label for="reservation-party-size">Party Size</label>
+              <input
+                type="number"
+                id="reservation-party-size"
+                min="1"
+                required
+              />
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="reservation-notes">Notes</label>
+            <textarea
+              id="reservation-notes"
+              rows="3"
+              placeholder="Any special requests?"
+            ></textarea>
+          </div>
+          <div class="form-group">
+            <label class="checkbox-option"
+              ><input type="checkbox" id="reservation-advance-order" /> Request
+              advance food ordering</label
+            >
+          </div>
+          <div
+            class="form-group"
+            id="reservationAdvanceInfo"
+            style="display: none"
+          >
+            <p class="auth-hint" id="reservationAdvanceInfoText">
+              Requesting advanced food ordering requires an account. Redirecting
+              in <span id="reservationRedirectCountdown">7</span> seconds.
+            </p>
+            <button
+              type="button"
+              class="btn btn-secondary btn-block"
+              id="reservationGoToMenuBtn"
+            >
+              Go to Menu Now
+            </button>
+          </div>
+          <p id="reservationError" class="form-error" style="display: none"></p>
+          <p
+            id="reservationSuccess"
+            class="form-success"
+            style="display: none"
+          ></p>
+          <button type="submit" class="btn btn-primary btn-block">
+            Book Reservation
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- My Orders: every order ever placed on this account -->
+    <div class="modal-overlay" id="myOrdersModal">
+      <div class="modal">
+        <button class="modal-close" id="myOrdersModalClose">&times;</button>
+        <h3>My Orders</h3>
+        <div id="myOrdersList"></div>
+      </div>
+    </div>
+
+    <!-- Sign in / create account -->
+    <div class="modal-overlay" id="authModal">
+      <div class="modal">
+        <button class="modal-close" id="authModalClose">&times;</button>
+
+        <div class="auth-tabs" id="authTabs">
+          <button type="button" class="auth-tab active" data-auth-tab="signin">
+            Sign In
+          </button>
+          <button type="button" class="auth-tab" data-auth-tab="signup">
+            Create Account
+          </button>
+        </div>
+
+        <p id="authIntroMessage" class="auth-intro" style="display: none"></p>
+
+        <form id="signInForm" class="auth-form">
+          <div class="form-group">
+            <label for="signin-email">Email</label>
+            <input type="email" id="signin-email" required />
+          </div>
+          <div class="form-group">
+            <label for="signin-password">Password</label>
+            <input type="password" id="signin-password" required />
+          </div>
+          <p id="signInError" class="form-error" style="display: none"></p>
+          <button type="submit" class="btn btn-primary btn-block">
+            Sign In
+          </button>
+          <button type="button" class="auth-link-btn" id="forgotPasswordLink">
+            Forgot password?
+          </button>
+        </form>
+
+        <form id="signUpForm" class="auth-form" style="display: none">
+          <div class="form-group">
+            <label for="signup-name">Name</label>
+            <input type="text" id="signup-name" required />
+          </div>
+          <div class="form-group">
+            <label for="signup-email">Email</label>
+            <input type="email" id="signup-email" required />
+          </div>
+          <div class="form-group">
+            <label for="signup-password">Password</label>
+            <input
+              type="password"
+              id="signup-password"
+              required
+              minlength="8"
+            />
+            <span class="auth-hint">At least 8 characters.</span>
+          </div>
+          <p id="signUpError" class="form-error" style="display: none"></p>
+          <button type="submit" class="btn btn-primary btn-block">
+            Create Account
+          </button>
+          <div class="auth-divider">or</div>
+          <div class="auth-google">
+            <button type="button" id="googleSignInBtn" class="btn btn-google">
+              Sign in with Google
+            </button>
+            <div id="googleSignInContainer" style="display: none"></div>
+          </div>
+        </form>
+
+        <form id="forgotPasswordForm" class="auth-form" style="display: none">
+          <p class="auth-hint">
+            Enter your email and we'll send you a link to reset your password.
+          </p>
+          <div class="form-group">
+            <label for="forgot-email">Email</label>
+            <input type="email" id="forgot-email" required />
+          </div>
+          <p
+            id="forgotPasswordError"
+            class="form-error"
+            style="display: none"
+          ></p>
+          <p
+            id="forgotPasswordSuccess"
+            class="form-success"
+            style="display: none"
+          ></p>
+          <button type="submit" class="btn btn-primary btn-block">
+            Send Reset Link
+          </button>
+          <button type="button" class="auth-link-btn" id="backToSignInLink">
+            Back to Sign In
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Reset password - opened automatically from the emailed link (?reset_token=...) -->
+    <div class="modal-overlay" id="resetPasswordModal">
+      <div class="modal">
+        <button class="modal-close" id="resetPasswordModalClose">
+          &times;
+        </button>
+        <h3>Reset Your Password</h3>
+        <form id="resetPasswordForm">
+          <div class="form-group">
+            <label for="reset-new-password">New Password</label>
+            <input
+              type="password"
+              id="reset-new-password"
+              required
+              minlength="8"
+            />
+            <span class="auth-hint">At least 8 characters.</span>
+          </div>
+          <p
+            id="resetPasswordError"
+            class="form-error"
+            style="display: none"
+          ></p>
+          <button type="submit" class="btn btn-primary btn-block">
+            Reset Password
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Account menu - shown when signed in -->
+    <div class="modal-overlay" id="accountModal">
+      <div class="modal">
+        <button class="modal-close" id="accountModalClose">&times;</button>
+        <h3>My Account</h3>
+        <p id="accountWelcome" class="auth-hint"></p>
+        <label
+          ><input type="checkbox" id="marketingEmailOptIn" /> Email
+          marketing</label
+        >
+        <label
+          ><input type="checkbox" id="marketingSmsOptIn" /> SMS marketing</label
+        >
+        <button
+          type="button"
+          class="btn btn-secondary btn-block"
+          id="saveMarketingPreferencesBtn"
+        >
+          Save preferences
+        </button>
+        <button
+          type="button"
+          class="btn btn-primary btn-block"
+          id="viewMyOrdersFromAccountBtn"
+        >
+          View My Orders
+        </button>
+        <button type="button" class="auth-link-btn" id="logoutBtn">
+          Log Out
+        </button>
+        <button
+          type="button"
+          class="auth-link-btn danger"
+          id="deleteAccountBtn"
+        >
+          Delete Account
+        </button>
+      </div>
+    </div>
+
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="js/site.js"></script>
+  </body>
+</html>

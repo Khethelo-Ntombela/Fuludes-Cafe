@@ -1,0 +1,103 @@
+/* Staff Portal (kitchen display) - the board itself is rendered by the
+   shared KDS engine and styled by admin.css (kds-* classes), so the two
+   boards stay identical. This file only owns the kitchen header and the
+   staff page frame. */
+
+/* Header */
+.staff-header {
+  background: #0d0d0d;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 20px;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    text-decoration: none;
+}
+
+.logo img {
+    height: 70px;      /* desktop size */
+    width: auto;
+    object-fit: contain;
+}
+
+
+@media (max-width: 768px) {
+    .logo img {
+        height: 55px;  /* tablets */
+    }
+}
+
+@media (max-width: 480px) {
+    .logo img {
+        height: 45px;  /* small phones */
+    }
+}
+
+.staff-header-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.staff-header .logo {
+  color: #fff;
+  font-size: 1.25rem;
+}
+
+.staff-header-sub {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 2.5px;
+  color: var(--sa-gold, #a88b4a);
+  font-weight: 600;
+}
+
+/* Board frame */
+.staff-board-main {
+  padding: 16px 16px 32px;
+}
+
+/* The control bar sticks below the kitchen header */
+.staff-controlbar {
+  top: 58px;
+  margin-bottom: 12px;
+}
+
+/* Phone: columns stack; control bar wraps to two rows of three */
+@media (max-width: 700px) {
+  .staff-board-main .kds-board {
+    grid-template-columns: 1fr;
+  }
+
+  .staff-board-main .kds-col {
+    height: auto;
+    max-height: 60vh;
+    min-height: 0;
+  }
+
+  .staff-controlbar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .staff-controlbar .kds-stat:nth-child(4) {
+    border-left: none;
+  }
+
+  .staff-controlbar .kds-stat {
+    border-top: 1px solid var(--sa-border, #e7e9ee);
+  }
+
+  .staff-controlbar .kds-stat:nth-child(-n + 3) {
+    border-top: none;
+  }
+}

@@ -1,0 +1,14 @@
+ADMIN_EMAIL=admin@fuludescafe.local
+ADMIN_PASSWORD=replace-with-a-local-admin-password
+STAFF_EMAIL=staff@fuludescafe.local
+STAFF_PASSWORD=replace-with-a-local-staff-password
+NEON_DATABASE_URL=replace-with-neon-url
+NEON_AUTH_TOKEN=replace-with-neon-token
+RESEND_API_KEY=re_replace-with-resend-api-key
+RESEND_FROM_EMAIL=verified-sender@example.com
+YOCO_PAYMENT_URL=https://replace-with-hosted-checkout-url
+YOCO_CHECKOUT_URL=
+YOCO_CURRENCY=ZAR
+YOCO_WEBHOOK_SECRET=replace-with-webhook-signing-secret
+R2_PUBLIC_URL=https://replace-with-r2-public-url
+GOOGLE_CLIENT_ID=replace-with-google-client-id

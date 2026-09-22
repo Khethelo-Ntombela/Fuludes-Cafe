@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Fulude's Cafe | Staff Portal</title>
+    <link rel="stylesheet" href="css/style.css" />
+    <link rel="stylesheet" href="css/admin.css" />
+    <link rel="stylesheet" href="css/staff.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+  </head>
+  <body class="admin-body staff-body">
+    <!-- ===================== Login screen ===================== -->
+    <div id="staffLoginScreen" class="admin-login-screen">
+      <form id="staffLoginForm" class="admin-login-card">
+        <h1 class="logo">Fulude's Cafe</h1>
+        <p class="admin-login-sub">Staff Portal</p>
+        <div class="form-group">
+          <label for="staffEmail">Email</label>
+          <input type="email" id="staffEmail" required autocomplete="email" />
+        </div>
+        <div class="form-group">
+          <label for="staffPassword">Password</label>
+          <input
+            type="password"
+            id="staffPassword"
+            required
+            autocomplete="current-password"
+          />
+        </div>
+        <p id="staffLoginError" class="form-error" style="display: none"></p>
+        <button type="submit" class="btn btn-primary btn-block">Log In</button>
+      </form>
+    </div>
+
+    <!-- ===================== Kitchen board ===================== -->
+    <div id="staffBoard" class="staff-board-page" style="display: none">
+      <header class="staff-header">
+        <div class="staff-header-brand">
+          <a href="home.html" class="logo">
+            <img src="images/logo2.jpeg" alt="Fulude's Cafe Logo" />
+            <span class="staff-header-sub" style="font-size: 20px"
+              >>Kitchen Board</span
+            >
+          </a>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px">
+          <button
+            id="staffAlertMuteBtn"
+            class="admin-mini-btn"
+            title="Toggle order alerts"
+          >
+            <i class="fas fa-volume-up" id="staffAlertMuteIcon"></i>
+          </button>
+          <button id="staffLogoutBtn" class="admin-link-btn">Log Out</button>
+        </div>
+      </header>
+
+      <main class="staff-board-main">
+        <div class="kds-controlbar staff-controlbar" id="staffControlBar">
+          <div class="kds-stat">
+            <span class="kds-stat-label">Waiting</span
+            ><span class="kds-stat-value" id="sWaiting">—</span>
+          </div>
+          <div class="kds-stat">
+            <span class="kds-stat-label">Preparing</span
+            ><span class="kds-stat-value" id="sPreparing">—</span>
+          </div>
+          <div class="kds-stat">
+            <span class="kds-stat-label">Ready</span
+            ><span class="kds-stat-value" id="sReady">—</span>
+          </div>
+          <div class="kds-stat">
+            <span class="kds-stat-label">Avg Ticket Age</span
+            ><span class="kds-stat-value" id="sAvgAge">—</span>
+          </div>
+          <div class="kds-stat">
+            <span class="kds-stat-label">Longest Waiting</span
+            ><span class="kds-stat-value" id="sLongest">—</span>
+          </div>
+          <div class="kds-stat">
+            <span class="kds-stat-label">Kitchen Load</span
+            ><span class="kds-stat-value" id="sLoad">—</span>
+          </div>
+        </div>
+
+        <div id="staffColumns" class="kds-board">
+          <p class="menu-loading">Loading…</p>
+        </div>
+      </main>
+    </div>
+
+    <script src="js/kds.js"></script>
+    <script src="js/staff.js"></script>
+  </body>
+</html>

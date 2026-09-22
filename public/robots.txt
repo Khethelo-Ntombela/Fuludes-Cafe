@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+Allow: /home.html
+Allow: /css/
+Allow: /js/
+Disallow: /admin.html
+Disallow: /staff.html
+Disallow: /functions/
+Disallow: /api/admin/
+Disallow: /api/staff/
+
+Sitemap: https://fuludescafe.co.za/sitemap.xml
