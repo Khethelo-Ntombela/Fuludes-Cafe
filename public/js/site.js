@@ -14,6 +14,33 @@
 
 const money = (n) => `R${Number(n).toFixed(2)}`;
 
+function userFriendlyError(error, fallback = "Something went wrong. Please try again.") {
+  if (error instanceof TypeError && error.message.toLowerCase().includes("fetch")) {
+    return "We couldn't connect to the cafe service. Please check your internet connection and try again.";
+  }
+  return error?.message || fallback;
+}
+
+async function readApiResponse(response) {
+  const text = await response.text();
+  if (!text.trim()) {
+    throw new Error(
+      response.status >= 500
+        ? "The cafe service is temporarily unavailable. Please try again shortly."
+        : "The request could not be completed. Please try again.",
+    );
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(
+      response.status >= 500
+        ? "The cafe service is temporarily unavailable. Please try again shortly."
+        : "The server returned an unexpected response. Please try again.",
+    );
+  }
+}
+
 // ---------------------------------------------------------------------
 // Mobile nav
 // ---------------------------------------------------------------------
@@ -205,7 +232,7 @@ async function loadCustomerBuffetBookings() {
       headers: { Authorization: `Bearer ${customerToken}` },
     });
     if (!res.ok) throw new Error("Failed to load");
-    const data = await res.json();
+    const data = await readApiResponse(res);
     const bookings = data.bookings || [];
     if (!bookings.length) {
       if (myBuffetBtn) myBuffetBtn.style.display = "none";
@@ -423,14 +450,17 @@ signInForm.addEventListener("submit", async (e) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
-    const data = await res.json();
+    const data = await readApiResponse(res);
     if (!res.ok || !data.success)
       throw new Error(data.error || "Couldn't sign in.");
 
     signInForm.reset();
     onAuthSuccess(data.token, data.customer);
   } catch (err) {
-    signInError.textContent = err.message;
+    signInError.textContent = userFriendlyError(
+      err,
+      "We couldn't sign you in. Please check your details and try again.",
+    );
     signInError.style.display = "block";
   }
 });
@@ -448,7 +478,7 @@ signUpForm.addEventListener("submit", async (e) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, email, password }),
     });
-    const data = await res.json();
+    const data = await readApiResponse(res);
     if (!res.ok || !data.success)
       throw new Error(data.error || "Couldn't create your account.");
 
@@ -464,7 +494,10 @@ signUpForm.addEventListener("submit", async (e) => {
     signUpForm.reset();
     onAuthSuccess(data.token, data.customer);
   } catch (err) {
-    signUpError.textContent = err.message;
+    signUpError.textContent = userFriendlyError(
+      err,
+      "We couldn't create your account. Please try again.",
+    );
     signUpError.style.display = "block";
   }
 });
@@ -491,7 +524,10 @@ forgotPasswordForm.addEventListener("submit", async (e) => {
     forgotPasswordSuccess.style.display = "block";
     forgotPasswordForm.reset();
   } catch (err) {
-    forgotPasswordError.textContent = err.message;
+    forgotPasswordError.textContent = userFriendlyError(
+      err,
+      "We couldn't send the reset email. Please try again.",
+    );
     forgotPasswordError.style.display = "block";
   }
 });

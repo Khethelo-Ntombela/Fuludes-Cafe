@@ -154,8 +154,9 @@ export async function onRequestPost(context) {
       },
     });
   } catch (err) {
+    console.error("customer login error:", err);
     return jsonResponse(
-      { error: "Failed to sign in.", message: err.message },
+      { error: "We couldn't sign you in right now. Please try again." },
       500,
     );
   }

@@ -145,6 +145,9 @@ export async function onRequest(context) {
     return jsonResponse({ error: "Incorrect password." }, 401);
   } catch (err) {
     console.error("staff login error:", err);
-    return jsonResponse({ error: err.message || "Invalid request body." }, 400);
+    return jsonResponse(
+      { error: "We couldn't sign you in right now. Please try again." },
+      500,
+    );
   }
 }

@@ -19,13 +19,21 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export async function onRequestPost(context) {
   const { request, env } = context;
   const requestIp = getRequestIp(request);
-  if (!(await checkRateLimit(env, `auth-signup:${requestIp}`, 5, 60))) {
+  try {
+    if (!(await checkRateLimit(env, `auth-signup:${requestIp}`, 5, 60))) {
+      return jsonResponse(
+        {
+          error:
+            "Too many account creation attempts. Please wait a moment before trying again.",
+        },
+        429,
+      );
+    }
+  } catch (err) {
+    console.error("signup rate-limit/database check failed:", err);
     return jsonResponse(
-      {
-        error:
-          "Too many account creation attempts. Please wait a moment before trying again.",
-      },
-      429,
+      { error: "The cafe service is temporarily unavailable. Please try again shortly." },
+      503,
     );
   }
 
@@ -120,8 +128,9 @@ export async function onRequestPost(context) {
       customer,
     });
   } catch (err) {
+    console.error("customer signup error:", err);
     return jsonResponse(
-      { error: "Failed to create account.", message: err.message },
+      { error: "We couldn't create your account right now. Please try again." },
       500,
     );
   }
