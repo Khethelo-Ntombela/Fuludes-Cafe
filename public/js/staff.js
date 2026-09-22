@@ -19,6 +19,32 @@ let knownPaidNewOrderIds = new Set();
 let staffAudioContext = null;
 const STAFF_ALERTS_MUTED_KEY = "fulude_staff_alerts_muted";
 
+function addStaffPasswordVisibilityToggle() {
+  const input = document.getElementById("staffPassword");
+  if (!input || input.parentElement.classList.contains("password-input-wrapper"))
+    return;
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "password-input-wrapper";
+  input.parentNode.insertBefore(wrapper, input);
+  wrapper.appendChild(input);
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "password-visibility-toggle";
+  toggle.textContent = "Show";
+  toggle.setAttribute("aria-label", "Show password");
+  toggle.addEventListener("click", () => {
+    const isVisible = input.type === "text";
+    input.type = isVisible ? "password" : "text";
+    toggle.textContent = isVisible ? "Show" : "Hide";
+    toggle.setAttribute("aria-label", `${isVisible ? "Show" : "Hide"} password`);
+  });
+  wrapper.appendChild(toggle);
+}
+
+addStaffPasswordVisibilityToggle();
+
 // ---------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------
@@ -55,6 +81,36 @@ function showBoard() {
   initStaffAudio();
   setupStaffAlertToggle();
 }
+
+document
+  .getElementById("staffLoginForm")
+  .addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById("staffLoginError");
+    errorEl.style.display = "none";
+
+    try {
+      const res = await fetch("/api/staff/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: document.getElementById("staffEmail").value.trim(),
+          password: document.getElementById("staffPassword").value,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success)
+        throw new Error(data.error || "Couldn't log in.");
+
+      staffToken = data.token;
+      localStorage.setItem(STAFF_TOKEN_KEY, staffToken);
+      document.getElementById("staffLoginForm").reset();
+      showBoard();
+    } catch (err) {
+      errorEl.textContent = err.message || "Couldn't log in.";
+      errorEl.style.display = "block";
+    }
+  });
 
 function initStaffAudio() {
   if (staffAudioContext) return;

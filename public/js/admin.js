@@ -25,6 +25,33 @@ const ADMIN_ALERTS_MUTED_KEY = "fulude_admin_alerts_muted";
 
 const money = (n) => `R${Number(n).toFixed(2)}`;
 
+function addAdminPasswordVisibilityToggle(inputId) {
+  const input = document.getElementById(inputId);
+  if (!input || input.parentElement.classList.contains("password-input-wrapper"))
+    return;
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "password-input-wrapper";
+  input.parentNode.insertBefore(wrapper, input);
+  wrapper.appendChild(input);
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "password-visibility-toggle";
+  toggle.textContent = "Show";
+  toggle.setAttribute("aria-label", "Show password");
+  toggle.addEventListener("click", () => {
+    const isVisible = input.type === "text";
+    input.type = isVisible ? "password" : "text";
+    toggle.textContent = isVisible ? "Show" : "Hide";
+    toggle.setAttribute("aria-label", `${isVisible ? "Show" : "Hide"} password`);
+  });
+  wrapper.appendChild(toggle);
+}
+
+addAdminPasswordVisibilityToggle("adminPassword");
+addAdminPasswordVisibilityToggle("adminResetPassword");
+
 /** "Delivery: 12 Main Rd" / "Dine In (Table 5)" / "Collection" */
 function describeOrderType(order) {
   if (order.order_type === "delivery")
@@ -129,6 +156,34 @@ function showDashboard() {
   initAdminAudio();
   setupAdminAlertToggle();
 }
+
+document.getElementById("loginForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const errorEl = document.getElementById("loginError");
+  errorEl.style.display = "none";
+
+  try {
+    const res = await fetch("/api/admin/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: document.getElementById("adminEmail").value.trim(),
+        password: document.getElementById("adminPassword").value,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success)
+      throw new Error(data.error || "Couldn't log in.");
+
+    adminToken = data.token;
+    localStorage.setItem(TOKEN_KEY, adminToken);
+    document.getElementById("loginForm").reset();
+    showDashboard();
+  } catch (err) {
+    errorEl.textContent = err.message || "Couldn't log in.";
+    errorEl.style.display = "block";
+  }
+});
 
 function initAdminAudio() {
   if (adminAudioContext) return;

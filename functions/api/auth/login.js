@@ -60,7 +60,7 @@ export async function onRequestPost(context) {
     const result = await runQuery(
       env,
       `
-      SELECT id, name, email, phone_number, delivery_address, password_hash, password_salt, failed_login_attempts, is_locked
+      SELECT id, name, email, phone_number, delivery_address, password_hash, password_salt, failed_login_attempts, is_locked, is_verified
       FROM customers WHERE email = $1;
     `,
       [email],
