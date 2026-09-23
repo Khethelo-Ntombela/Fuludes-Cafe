@@ -1226,9 +1226,40 @@ function escapeAttr(str) {
  * A small live tracker with customer-facing labels and a pulsing current
  * stage, so customers can watch their order move without refreshing.
  */
+/**
+ * The customer never paid, or paid but nothing's owed back - a flat
+ * "cancelled" is accurate and enough.
+ */
+function cancelledMessage(order) {
+  const wasChargedOnline =
+    order.payment_method === "online" && order.payment_status !== "not_required";
+
+  if (!wasChargedOnline || order.payment_status === "failed") {
+    return "This order was cancelled.";
+  }
+
+  if (order.payment_status === "refunded") {
+    const when = order.refund_processed_at
+      ? new Date(order.refund_processed_at).toLocaleDateString("en-ZA", {
+          dateStyle: "medium",
+        })
+      : null;
+    return `This order was cancelled and refunded${when ? ` on ${when}` : ""}. It should reflect on your card within a few business days.`;
+  }
+
+  if (order.refund_needed) {
+    return "This order was cancelled. Your refund is being processed and should reflect on your card within a few business days - if it hasn't after a week, please contact the cafe.";
+  }
+
+  // paid, cancelled, refund_needed is false and payment_status isn't yet
+  // 'refunded' - a brief in-between state (e.g. refund initiated but the
+  // webhook confirmation hasn't landed yet).
+  return "This order was cancelled. A refund is being arranged for your payment.";
+}
+
 function renderStatusTracker(order) {
   if (order.status === "Cancelled") {
-    return `<div class="order-status-cancelled"><i class="fas fa-circle-xmark"></i> This order was cancelled</div>`;
+    return `<div class="order-status-cancelled"><i class="fas fa-circle-xmark"></i> ${cancelledMessage(order)}</div>`;
   }
 
   const handoffStage =

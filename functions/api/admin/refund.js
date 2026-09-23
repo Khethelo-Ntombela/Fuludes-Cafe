@@ -16,7 +16,8 @@ export async function onRequestPost(context) {
       env,
       `
       UPDATE orders
-      SET refund_needed = FALSE, refund_processed_at = NOW()
+      SET refund_needed = FALSE, refund_processed_at = NOW(),
+          payment_status = 'refunded', refund_error = NULL
       WHERE id = $1 AND status = 'Cancelled' AND payment_status = 'paid' AND refund_needed = TRUE
       RETURNING id, payment_ref, refund_processed_at;
     `,

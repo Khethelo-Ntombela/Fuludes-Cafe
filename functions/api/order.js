@@ -47,6 +47,7 @@
  */
 import { runQuery, jsonResponse } from "../_lib/db.js";
 import { buildYocoCheckout } from "../_lib/yoco.js";
+import { refundYocoCheckout } from "../_lib/yocoRefund.js";
 import {
   requireCustomer,
   ensureCustomerProfileColumns,
@@ -127,7 +128,7 @@ export async function onRequestPut(context) {
   try {
     const orderResult = await runQuery(
       env,
-      "SELECT id, status, created_at, customer_id, payment_status, kitchen_release_at FROM orders WHERE id = $1;",
+      "SELECT id, status, created_at, customer_id, payment_status, kitchen_release_at, payment_ref, total_amount FROM orders WHERE id = $1;",
       [orderId],
     );
     const order = orderResult.rows[0];
@@ -160,6 +161,12 @@ export async function onRequestPut(context) {
 
     // Re-check status='New' in the WHERE clause too, in case staff acted
     // on it in the moment between the SELECT above and this UPDATE.
+    // For a paid order, mark it Cancelled + refund_needed first - this is
+    // the safe fallback state. If the automatic Yoco refund below succeeds,
+    // it's immediately overwritten with the real refunded state. If Yoco
+    // fails or isn't configured, refund_needed stays TRUE so a human can
+    // still catch it via the existing manual admin/refund.js flow - the
+    // refund is never silently lost either way.
     const cancelQuery =
       order.payment_status === "paid"
         ? `UPDATE orders SET status = 'Cancelled', refund_needed = TRUE WHERE id = $1 AND customer_id = $2 AND status = 'New' RETURNING id;`
@@ -179,9 +186,58 @@ export async function onRequestPut(context) {
       );
     }
 
-    // Customer-initiated order cancellation is not written to audit_logs (audit reserved for admin/staff actions)
+    // Customer-initiated cancellation itself is not written to audit_logs
+    // (audit reserved for admin/staff actions) - but the refund below is a
+    // payment-gateway-driven event, logged the same way payment/notify.js
+    // logs webhook activity, so it's always visible in order/audit history.
+    let refundOutcome = null;
+    if (order.payment_status === "paid" && order.payment_ref) {
+      const refundResult = await refundYocoCheckout(env, {
+        checkoutId: order.payment_ref,
+        amount: Number(order.total_amount),
+        idempotencyKey: `cancel-refund-order-${orderId}`,
+      });
 
-    return jsonResponse({ success: true });
+      if (refundResult.ok) {
+        await runQuery(
+          env,
+          `UPDATE orders
+           SET payment_status = 'refunded', refund_needed = FALSE,
+               refund_processed_at = NOW(), refund_ref = $1, refund_error = NULL
+           WHERE id = $2;`,
+          [refundResult.refundId, orderId],
+        );
+        await logAudit(env, {
+          actor_type: "payment_gateway",
+          actor_role: "payment",
+          action: "auto_refund_processed",
+          target_type: "order",
+          target_id: orderId,
+          details: { payment_ref: order.payment_ref, refund_ref: refundResult.refundId },
+        });
+        refundOutcome = "refunded";
+      } else {
+        // Leave refund_needed = TRUE from the UPDATE above; record why the
+        // automatic attempt failed so it's visible next to the order, not
+        // just in logs.
+        await runQuery(
+          env,
+          `UPDATE orders SET refund_error = $1 WHERE id = $2;`,
+          [refundResult.error, orderId],
+        );
+        await logAudit(env, {
+          actor_type: "payment_gateway",
+          actor_role: "payment",
+          action: "auto_refund_failed",
+          target_type: "order",
+          target_id: orderId,
+          details: { payment_ref: order.payment_ref, error: refundResult.error },
+        });
+        refundOutcome = "manual_review_needed";
+      }
+    }
+
+    return jsonResponse({ success: true, refund: refundOutcome });
   } catch (err) {
     return jsonResponse(
       { error: "Failed to cancel order.", message: err.message },

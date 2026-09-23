@@ -113,6 +113,33 @@ Files/folders starting with `_` (like `functions/_lib`) are ignored by Cloudflar
 
 No notify-url whitelisting is usually required — the notify URL only needs to be publicly reachable so the gateway can POST payment confirmations to `/api/payment/notify`.
 
+**Automatic cancellation refunds:** if a customer cancels a paid order within
+the 2-minute cancellation window (see `CUSTOMER_CANCEL_WINDOW_MS` in
+`functions/api/order.js`), the app calls Yoco's real Checkout API to refund
+it automatically - no admin action needed. This requires a *separate* key
+from the ones above:
+
+- Set `YOCO_SECRET_KEY` in your environment - the merchant **Secret Key**
+  from Yoco's dashboard (Settings > API Keys). This is different from
+  `YOCO_WEBHOOK_SECRET` (which only verifies incoming webhooks) and from
+  `YOCO_PAYMENT_URL`/`YOCO_CHECKOUT_URL` (which only build the checkout
+  redirect) - none of those can authenticate an outgoing refund request.
+- The refund call uses `orders.payment_ref`, which must be Yoco's real
+  Checkout id (`ch_...` / `ch_test_...`) as captured by
+  `functions/api/payment/notify.js` from the payment webhook. If your Yoco
+  integration sends something else as the payment reference, refunds will
+  fail against real transactions - verify this against an actual Yoco
+  webhook payload before relying on it in production.
+- If `YOCO_SECRET_KEY` is missing, or the refund call to Yoco fails for any
+  reason, the order still cancels immediately and falls back to the
+  existing manual flow: `refund_needed = TRUE`, plus a `refund_error`
+  column recording why the automatic attempt failed, so nothing is silently
+  lost - an admin can complete the refund from `/admin.html` the same way
+  as before (`functions/api/admin/refund.js`).
+- Every automatic refund attempt (success or failure) is recorded via
+  `logAudit` as a `payment_gateway` actor, visible in order/audit history -
+  it just never requires an admin to click anything.
+
 ### 2.4 Resend (password reset emails - required, "Forgot password" won't work without it)
 
 1. Sign up for a free account at [resend.com](https://resend.com) (100 emails/day free, plenty for a single cafe's password resets).
@@ -173,6 +200,7 @@ their password at least once before Google Sign-In will link to that account.
    | `YOCO_CHECKOUT_URL`   | alternate hosted checkout URL (optional)    |
    | `YOCO_CURRENCY`       | Currency code (default `ZAR`)               |
    | `YOCO_WEBHOOK_SECRET` | HMAC secret used to verify webhook payloads |
+   | `YOCO_SECRET_KEY`     | Merchant secret key, from Yoco dashboard - required for automatic cancellation refunds |
    | `RESEND_API_KEY`      | from step 2.4                               |
    | `RESEND_FROM_EMAIL`   | from step 2.4                               |
    | `GOOGLE_CLIENT_ID`    | from step 2.5 (also goes in the HTML meta tags) |

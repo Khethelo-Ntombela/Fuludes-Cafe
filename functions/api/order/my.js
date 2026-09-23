@@ -25,7 +25,8 @@ export async function onRequestGet(context) {
       SELECT id, customer_name, customer_phone, order_type, delivery_address, table_number,
              pickup_time, special_instructions, total_amount,
              CASE WHEN status = 'Out for Delivery' THEN 'Delivery' ELSE status END AS status,
-             payment_method, payment_status, kitchen_release_at, created_at
+             payment_method, payment_status, refund_needed, refund_processed_at,
+             kitchen_release_at, created_at
       FROM orders
       WHERE customer_id = $1
       ORDER BY created_at DESC
