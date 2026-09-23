@@ -486,8 +486,7 @@ document.querySelectorAll('.admin-tab-btn[data-tab="menu"]').forEach(btn => {
 /** Sticky kitchen control bar above the board: instant operational visibility. */
 const KITCHEN_CAPACITY = 12; // active tickets considered a "full" kitchen
 
-function renderKitchenStrip(allOrders) {
-  const orders = allOrders.filter((o) => o.payment_status === "paid");
+function renderKitchenStrip(orders) {
   const active = orders.filter((o) =>
     ["New", "Preparing", "Ready", "Collection", "Delivery", "Out for Delivery"].includes(o.status),
   );

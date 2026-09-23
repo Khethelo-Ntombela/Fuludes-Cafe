@@ -4,9 +4,7 @@
  * GET /api/admin/pending-orders
  * Polled every 30s by the admin dashboard's order monitor. Returns every
  * order still active in the kitchen lifecycle (New, Preparing, Ready, Collection, Delivery -
- * i.e. not yet Completed or Cancelled) with their line items -
- * including orders still awaiting payment or whose payment failed, which
- * appear ONLY here (never in order history or reports) - so admin.js
+ * i.e. not yet Completed or Cancelled) with their line items, so admin.js
  * can detect brand-new tickets and ring an alert. The Staff Portal
  * (functions/api/staff/orders.js) is the same live board, kitchen-facing.
  * -----------------------------------------------------------------------
@@ -29,7 +27,7 @@ export async function onRequestGet(context) {
              payment_method, payment_status, payment_ref, created_at
       FROM orders
       WHERE status IN ('New', 'Preparing', 'Ready', 'Collection', 'Delivery', 'Out for Delivery')
-        AND payment_status IN ('paid', 'awaiting', 'failed')
+        AND payment_status = 'paid'
         AND (kitchen_release_at IS NULL OR kitchen_release_at <= NOW())
       ORDER BY created_at ASC;
     `,

@@ -55,7 +55,7 @@ let lastMenuSignature = "";
 async function loadMenu(silent = false) {
   const grid = document.getElementById("orderItems");
   try {
-    const res = await fetch(`/api/menu?t=${Date.now()}`, { cache: "no-store" });
+    const res = await fetch("/api/menu", { cache: "no-store" });
     if (!res.ok) throw new Error("Menu request failed");
     const data = await res.json();
     const signature = JSON.stringify([data.categories, data.items, data.spice_levels]);
@@ -106,12 +106,11 @@ function repriceCart() {
   return changed;
 }
 
-// Keep prices fresh while the page is open: poll every 10s, and refresh
+// Keep prices fresh while the page is open: poll every 30s, and refresh
 // when the customer returns to the tab.
 setInterval(() => {
   if (!document.hidden) loadMenu(true);
-}, 10000);
-window.addEventListener("focus", () => loadMenu(true));
+}, 30000);
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) loadMenu(true);
 });
@@ -124,12 +123,11 @@ function showCartToast(message, kind = "success") {
   if (!stack) {
     const style = document.createElement("style");
     style.textContent = `
-      #cartToastStack{position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:2147483647;display:flex;flex-direction:column;gap:10px;align-items:center;pointer-events:none;width:calc(100% - 32px);max-width:420px}
-      .cart-toast{background:#1f7a3d;color:#fff;padding:16px 22px;border-radius:12px;font-size:1.05rem;font-weight:600;line-height:1.35;box-shadow:0 10px 30px rgba(0,0,0,.35);opacity:0;transform:translateY(-16px);transition:opacity .25s ease,transform .25s ease;display:flex;align-items:center;gap:12px;width:100%}
+      #cartToastStack{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:100000;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none;width:calc(100% - 32px);max-width:360px}
+      .cart-toast{background:#2b2b2b;color:#fff;padding:12px 18px;border-radius:10px;font-size:.95rem;box-shadow:0 6px 20px rgba(0,0,0,.25);opacity:0;transform:translateY(12px);transition:opacity .25s ease,transform .25s ease;display:flex;align-items:center;gap:8px}
       .cart-toast.show{opacity:1;transform:translateY(0)}
-      .cart-toast .cart-toast-icon{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#fff;color:#1f7a3d;font-weight:800}
-      .cart-toast.info{background:#8a6d1d}
-      .cart-toast.info .cart-toast-icon{color:#8a6d1d}
+      .cart-toast .cart-toast-icon{color:#4caf50;font-weight:700}
+      .cart-toast.info .cart-toast-icon{color:#ffb300}
     `;
     document.head.appendChild(style);
     stack = document.createElement("div");
@@ -142,7 +140,7 @@ function showCartToast(message, kind = "success") {
   el.className = `cart-toast ${kind}`;
   const icon = document.createElement("span");
   icon.className = "cart-toast-icon";
-  icon.textContent = kind === "info" ? "!" : "✓";
+  icon.textContent = kind === "info" ? "ℹ" : "✓";
   const text = document.createElement("span");
   text.textContent = message;
   el.appendChild(icon);
@@ -152,7 +150,117 @@ function showCartToast(message, kind = "success") {
   setTimeout(() => {
     el.classList.remove("show");
     setTimeout(() => el.remove(), 300);
-  }, 2600);
+  }, 1800);
+}
+
+function renderCategoryTabs() {
+  const tabsContainer = document.getElementById("categoryTabs");
+  const tabs = [{ id: 0, name: "All", slug: "all" }, ...categories];
+
+  // Categories only come back from the API while they have at least one
+  // visible dish (see functions/api/menu.js) - so a category can vanish
+  // between page loads (e.g. admin turns off the last visible starter).
+  // If the tab someone was on is gone, fall back to "All" instead of
+  // silently rendering an empty category with nothing selected.
+  if (!tabs.some((t) => t.slug === activeCategorySlug)) {
+    activeCategorySlug = "all";
+  }
+
+  tabsContainer.innerHTML = tabs
+    .map(
+      (cat) => `<button class="tab-btn${cat.slug === activeCategorySlug ? " active" : ""}" data-slug="${cat.slug}">${cat.name}</button>`
+    )
+    .join("");
+
+  tabsContainer.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      activeCategorySlug = btn.dataset.slug;
+      tabsContainer.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+
+      // Picking a category is a fresh start - clear any active search so
+      // the two browsing modes don't fight each other.
+      searchQuery = "";
+      document.getElementById("menuSearchInput").value = "";
+      document.getElementById("menuSearchClear").style.display = "none";
+
+      renderOrderItems();
+    });
+  });
+}
+
+function renderOrderItems() {
+  const grid = document.getElementById("orderItems");
+
+  let items;
+  if (searchQuery.trim()) {
+    // Search spans every category, ranked by relevance (best matches first).
+    items = searchMenuItems(searchQuery, menuItems, categories);
+    if (items.length === 0) {
+      grid.innerHTML = `<p class="menu-empty">No dishes matched "${searchQuery}". Try a different word, or browse by category above.</p>`;
+      return;
+    }
+  } else {
+    const categoryBySlug = Object.fromEntries(categories.map((c) => [c.slug, c.id]));
+    items =
+      activeCategorySlug === "all"
+        ? menuItems
+        : menuItems.filter((item) => item.category_id === categoryBySlug[activeCategorySlug]);
+
+    if (items.length === 0) {
+      grid.innerHTML = `<p class="menu-empty">No dishes in this category yet.</p>`;
+      return;
+    }
+  }
+
+  grid.innerHTML = items
+    .map((item) => {
+      const photos = item.images && item.images.length > 0 ? item.images : (item.image_url ? [item.image_url] : []);
+      const onSpecial = item.is_on_special === true;
+      const priceHtml = onSpecial
+        ? `<span class="was-price">${money(item.price)}</span>${money(item.effective_price)}`
+        : money(item.price);
+      return `
+    <div class="order-card${item.is_available ? "" : " sold-out"}">
+      <div class="order-card-image" ${photos.length > 0 ? `data-id="${item.id}"` : ""}>
+        ${photos.length > 0 ? `<img src="${photos[0]}" alt="${item.name}" loading="lazy" />` : ""}
+        ${onSpecial ? `<span class="special-badge">Special</span>` : ""}
+        ${item.is_available ? "" : `<span class="sold-out-badge">Sold Out</span>`}
+        ${photos.length > 1 ? `<span class="photo-count-badge"><i class="fas fa-images"></i> ${photos.length}</span>` : ""}
+      </div>
+      <div class="order-card-body">
+        <div class="order-card-header">
+          <span class="order-card-name">${item.name}</span>
+          <span class="order-card-dots" aria-hidden="true"></span>
+          <span class="order-card-price">${priceHtml}</span>
+        </div>
+        <p class="order-card-desc">${item.description || ""}</p>
+        <div class="order-card-footer">
+          <button class="add-to-order-btn" data-id="${item.id}" ${item.is_available ? "" : "disabled"}>
+            ${item.is_available ? "Add to Order" : "Sold Out"}
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+    })
+    .join("");
+
+  grid.querySelectorAll(".add-to-order-btn:not([disabled])").forEach((btn) => {
+    btn.addEventListener("click", () => handleAddClick(parseInt(btn.dataset.id, 10)));
+  });
+
+  grid.querySelectorAll(".order-card-image[data-id]").forEach((el) => {
+    el.addEventListener("click", () => openLightbox(parseInt(el.dataset.id, 10)));
+  });
+}
+
+/** Opens the shared lightbox (site.js) for a dish's photo set. */
+function openLightbox(itemId) {
+  const item = menuItems.find((i) => i.id === itemId);
+  if (!item) return;
+  const photos = item.images && item.images.length > 0 ? item.images : (item.image_url ? [item.image_url] : []);
+  openLightboxWithPhotos(photos, 0);
 }
 
 // ---------------------------------------------------------------------
@@ -350,7 +458,7 @@ function addToCart(item, { spiceLevel, extras, quantity }) {
       extras
     });
   }
-  showCartToast(`${item.name} successfully added to cart`);
+  showCartToast(`${item.name} added to cart`);
   renderCart();
 }
 
@@ -441,7 +549,6 @@ document.getElementById("customizeConfirmBtn").addEventListener("click", () => {
 // Cart rendering + edit/remove
 // ---------------------------------------------------------------------
 function renderCart() {
-  repriceCart();
   saveCart();
 
   const cartItemsEl = document.getElementById("cartItems");
@@ -460,8 +567,6 @@ function renderCart() {
   let total = 0;
   cartItemsEl.innerHTML = cart
     .map((line) => {
-      const menuItemForLine = menuItems.find((i) => i.id === line.itemId);
-      const lineOnSpecial = !!(menuItemForLine && menuItemForLine.is_on_special === true);
       const extrasTotal = line.extras.reduce((s, e) => s + e.price, 0);
       const lineTotal = (line.price + extrasTotal) * line.quantity;
       total += lineTotal;
@@ -475,7 +580,6 @@ function renderCart() {
       <div class="cart-item">
         <div class="cart-item-info">
           <span class="cart-item-name">${line.name}</span>
-          ${lineOnSpecial ? `<div class="cart-item-options" style="color:#c0392b;font-weight:600">Special price applied</div>` : ""}
           ${optionsText ? `<div class="cart-item-options">${optionsText}</div>` : ""}
           <div class="cart-item-qty">
             <button class="cart-qty-minus" data-line="${line.lineId}">-</button>
