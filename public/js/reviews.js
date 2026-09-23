@@ -79,13 +79,7 @@ document.getElementById("reviewForm").addEventListener("submit", async (e) => {
     const data = await res.json();
     if (!res.ok || !data.success) {
       const err = data && data.error ? data.error : "Failed to submit review";
-      if (msgEl) {
-        msgEl.textContent = err;
-        msgEl.className = "form-error";
-        msgEl.style.display = "block";
-      } else {
-        alert(err);
-      }
+      alert(err);
       return;
     }
     // show a thank-you message and auto-hide after 5 seconds

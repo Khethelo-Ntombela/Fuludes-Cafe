@@ -59,24 +59,6 @@ export async function onRequest(context) {
       const body = await request.json();
       const { customer, error } = await requireCustomer(request, env);
       if (error) return error;
-
-      // Only customers who have actually bought something (a paid order)
-      // may leave a review.
-      const purchased = await runQuery(
-        env,
-        "SELECT 1 FROM orders WHERE customer_id = $1 AND payment_status = 'paid' LIMIT 1;",
-        [customer.id],
-      );
-      if (!purchased.rows.length) {
-        return jsonResponse(
-          {
-            error: "Sorry, you cannot leave a review yet.",
-            code: "no_purchase",
-          },
-          403,
-        );
-      }
-
       const customerName = sanitizeText(body.customer_name || "", 100);
       const rating = parseInt(body.rating, 10);
       const comment = sanitizeText(body.comment || "", 1000);
