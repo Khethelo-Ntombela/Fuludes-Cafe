@@ -25,7 +25,7 @@
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css"
     />
-    <meta name="google-client-id" content="633808599246-vluj9dv2qigabk9cpn1sb7qflnaucie0.apps.googleusercontent.com" />
+    <meta name="google-client-id" content="YOUR_GOOGLE_OAUTH_CLIENT_ID" />
   </head>
   <body>
     <header class="header">
@@ -494,11 +494,11 @@
             Create Account
           </button>
           <div class="auth-divider">or</div>
-          <div class="auth-google">
+          <div class="auth-google" style="position: relative;">
             <button type="button" id="googleSignInBtn" class="btn btn-google">
               Sign in with Google
             </button>
-            <div id="googleSignInContainer" style="display: none"></div>
+            <div id="googleSignInContainer" style="position: absolute; inset: 0; opacity: 0; overflow: hidden; z-index: 2; cursor: pointer;"></div>
           </div>
         </form>
 
@@ -600,7 +600,7 @@
       </div>
     </div>
 
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="https://accounts.google.com/gsi/client" async defer onload="if (typeof initGoogleSignIn === 'function') initGoogleSignIn();"></script>
     <script src="js/site.js"></script>
   </body>
 </html>

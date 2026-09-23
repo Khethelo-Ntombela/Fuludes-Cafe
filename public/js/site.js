@@ -563,33 +563,23 @@ function initGoogleSignIn() {
     callback: handleGoogleCredential,
   });
 
+  // The real Google button is rendered into #googleSignInContainer, which
+  // is stacked invisibly (opacity: 0) directly on top of the styled
+  // #googleSignInBtn via CSS (position: absolute; inset: 0) - see the
+  // .auth-google markup. The user's click lands on Google's real button,
+  // which reliably opens the sign-in flow. We deliberately do NOT also
+  // wire #googleSignInBtn to google.accounts.id.prompt() - that's Google's
+  // "One Tap" prompt, which fails completely silently (no popup, no
+  // error) under common conditions like blocked third-party cookies or
+  // FedCM restrictions, and would double-fire alongside the overlay click.
   const container = document.getElementById("googleSignInContainer");
   if (container) {
-    container.style.display = "block";
     google.accounts.id.renderButton(container, {
       theme: "outline",
       size: "large",
       width: "100%",
     });
   }
-
-  const btn = document.getElementById("googleSignInBtn");
-  if (btn) btn.addEventListener("click", () => google.accounts.id.prompt());
-  // If the GIS script wasn't ready at init time, ensure the button will
-  // attempt to initialize and prompt on the first user click.
-  if (btn)
-    btn.addEventListener("click", async () => {
-      if (
-        typeof google === "undefined" ||
-        !google.accounts ||
-        !google.accounts.id
-      ) {
-        // try to initialize again (script may have loaded after earlier check)
-        try {
-          initGoogleSignIn();
-        } catch (e) {}
-      }
-    });
 }
 
 async function handleGoogleCredential(response) {
