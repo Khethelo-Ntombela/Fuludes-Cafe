@@ -50,22 +50,85 @@ function saveCart() {
 // ---------------------------------------------------------------------
 // Load menu from the server
 // ---------------------------------------------------------------------
-async function loadMenu() {
+async function loadMenu(silent = false) {
   const grid = document.getElementById("orderItems");
   try {
-    const res = await fetch("/api/menu");
+    const res = await fetch(`/api/menu?t=${Date.now()}`, { cache: "no-store" });
     if (!res.ok) throw new Error("Menu request failed");
     const data = await res.json();
     categories = data.categories || [];
     menuItems = data.items || [];
     spiceLevels = data.spice_levels || [];
+    const pricesChanged = repriceCart();
     renderCategoryTabs();
     renderOrderItems();
     renderSpecialsBar();
+    if (pricesChanged) {
+      renderCart();
+      showCartToast("Prices in your cart were updated");
+    }
   } catch (err) {
-    grid.innerHTML = `<p class="menu-empty">Sorry, we couldn't load the menu right now. Please refresh.</p>`;
+    if (!silent) {
+      grid.innerHTML = `<p class="menu-empty">Sorry, we couldn't load the menu right now. Please refresh.</p>`;
+    }
   }
 }
+
+/** Syncs every cart line's price with the item's live price (special price while a special runs, normal price otherwise). Returns true if anything changed. */
+function repriceCart() {
+  let changed = false;
+  for (const line of cart) {
+    const item = menuItems.find((i) => i.id === line.itemId);
+    if (!item) continue;
+    const current = item.effective_price !== undefined && item.effective_price !== null ? item.effective_price : item.price;
+    if (Number(line.price) !== Number(current)) {
+      line.price = current;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+/** Quick pop-up message (e.g. "Item added to cart"). */
+function showCartToast(message) {
+  let stack = document.getElementById("cartToastStack");
+  if (!stack) {
+    const style = document.createElement("style");
+    style.textContent =
+      "#cartToastStack{position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:2147483647;display:flex;flex-direction:column;gap:10px;align-items:center;pointer-events:none;width:calc(100% - 32px);max-width:420px}" +
+      ".cart-toast{background:#1f7a3d;color:#fff;padding:16px 22px;border-radius:12px;font-size:1.05rem;font-weight:600;box-shadow:0 10px 30px rgba(0,0,0,.35);opacity:0;transform:translateY(-16px);transition:opacity .25s ease,transform .25s ease;display:flex;align-items:center;gap:12px;width:100%}" +
+      ".cart-toast.show{opacity:1;transform:translateY(0)}" +
+      ".cart-toast-icon{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#fff;color:#1f7a3d;font-weight:800}";
+    document.head.appendChild(style);
+    stack = document.createElement("div");
+    stack.id = "cartToastStack";
+    document.body.appendChild(stack);
+  }
+  const el = document.createElement("div");
+  el.className = "cart-toast";
+  const icon = document.createElement("span");
+  icon.className = "cart-toast-icon";
+  icon.textContent = "\u2713";
+  const text = document.createElement("span");
+  text.textContent = message;
+  el.appendChild(icon);
+  el.appendChild(text);
+  stack.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("show"));
+  setTimeout(() => {
+    el.classList.remove("show");
+    setTimeout(() => el.remove(), 300);
+  }, 2600);
+}
+
+// Keep cart prices fresh while the page is open.
+setInterval(() => {
+  if (!document.hidden) loadMenu(true);
+}, 10000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) loadMenu(true);
+});
+window.addEventListener("focus", () => loadMenu(true));
 
 function renderCategoryTabs() {
   const tabsContainer = document.getElementById("categoryTabs");
@@ -355,10 +418,11 @@ function addToCart(item, { spiceLevel, extras, quantity }) {
   // Special price (when set) is the real selling price - the server
   // re-checks and re-prices this from the live DB at checkout regardless,
   // but reflecting it here keeps the cart total from looking wrong.
-  const effectivePrice = item.special_price !== null && item.special_price !== undefined ? item.special_price : item.price;
+  const effectivePrice = item.effective_price !== undefined && item.effective_price !== null ? item.effective_price : item.price;
 
   if (existing) {
     existing.quantity += quantity;
+    existing.price = effectivePrice;
   } else {
     cart.push({
       lineId,
@@ -370,6 +434,7 @@ function addToCart(item, { spiceLevel, extras, quantity }) {
       extras
     });
   }
+  showCartToast(`${item.name} successfully added to cart`);
   renderCart();
 }
 
@@ -460,6 +525,7 @@ document.getElementById("customizeConfirmBtn").addEventListener("click", () => {
 // Cart rendering + edit/remove
 // ---------------------------------------------------------------------
 function renderCart() {
+  repriceCart();
   saveCart();
 
   const cartItemsEl = document.getElementById("cartItems");
@@ -589,7 +655,7 @@ checkoutBtn.addEventListener("click", () => {
     openAuthModal("signin", "Please sign in or create an account to continue to checkout.");
     return;
   }
-  proceedToCheckout();
+  loadMenu(true).finally(proceedToCheckout);
 });
 
 function updateCheckoutFieldVisibility() {

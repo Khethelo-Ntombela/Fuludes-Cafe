@@ -99,7 +99,7 @@ export async function onRequest(context) {
       categories: categoriesResult.rows,
       items,
       spice_levels: spiceResult.rows
-    });
+    }, 200, { "Cache-Control": "no-store, max-age=0" });
   } catch (err) {
     return jsonResponse({ error: "Failed to load menu.", message: err.message }, 500);
   }

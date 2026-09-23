@@ -87,9 +87,9 @@ window.adminHistoryAll = window.adminHistoryAll || [];
 
 async function fetchHistoryAll() {
   try {
-    const res = await adminFetch("/api/admin/orders?limit=200&offset=0");
+    const res = await adminFetch("/api/admin/orders?limit=200&offset=0&payment_status=paid");
     const data = await res.json();
-    window.adminHistoryAll = data.orders || [];
+    window.adminHistoryAll = (data.orders || []).filter((o) => o.payment_status === "paid");
   } catch {
     window.adminHistoryAll = [];
   }
