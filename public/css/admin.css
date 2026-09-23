@@ -1364,6 +1364,14 @@
   margin-top: 3px;
 }
 
+.kds-card-total {
+  display: inline-block;
+  margin-top: 4px;
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: var(--sa-text);
+}
+
 /* The timer dominates the card - readable before anything else */
 .kds-timer {
   flex-shrink: 0;
@@ -1561,6 +1569,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   flex: 1;
+}
+
+.kds-row .kds-row-total {
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .kds-row .kds-row-age {
