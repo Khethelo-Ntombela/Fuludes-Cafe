@@ -1,5 +1,11 @@
 {
   "name": "fuludes-cafe",
   "compatibility_date": "2024-09-23",
-  "pages_build_output_dir": "./public"
+  "pages_build_output_dir": "./public",
+  "r2_buckets": [
+    {
+      "binding": "FULUDE_BUCKET",
+      "bucket_name": "fulude-bucket"
+    }
+  ]
 }
