@@ -87,9 +87,9 @@ window.adminHistoryAll = window.adminHistoryAll || [];
 
 async function fetchHistoryAll() {
   try {
-    const res = await adminFetch("/api/admin/orders?limit=200&offset=0");
+    const res = await adminFetch("/api/admin/orders?limit=200&offset=0&payment_status=paid");
     const data = await res.json();
-    window.adminHistoryAll = data.orders || [];
+    window.adminHistoryAll = (data.orders || []).filter((o) => o.payment_status === "paid");
   } catch {
     window.adminHistoryAll = [];
   }
@@ -205,7 +205,7 @@ document.querySelectorAll("[data-quick]").forEach((btn) => {
 $id("topbarBell").addEventListener("click", () => activateTab("orders"));
 
 function updateBell(orders) {
-  const fresh = orders.filter((o) => o.status === "New").length;
+  const fresh = orders.filter((o) => o.status === "New" && o.payment_status === "paid").length;
   const el = $id("bellCount");
   el.textContent = fresh;
   el.style.display = fresh > 0 ? "flex" : "none";
@@ -234,11 +234,13 @@ function updateStatusCard() {
 // Dashboard home
 // ---------------------------------------------------------------------
 async function loadDashboardData() {
-  const [history, statsRes, reviewsRes] = await Promise.all([
+  const [history, statsRes, reviewsRes, pendingRes] = await Promise.all([
     fetchHistoryAll(),
     adminFetch("/api/admin/stats").then((r) => r.json()).catch(() => null),
-    fetch("/api/review").then((r) => r.json()).catch(() => ({ reviews: [] }))
+    fetch("/api/review").then((r) => r.json()).catch(() => ({ reviews: [] })),
+    adminFetch("/api/admin/pending-orders").then((r) => r.json()).catch(() => null)
   ]);
+  window.adminPendingCount = (pendingRes?.orders || []).length;
   const reviews = reviewsRes.reviews || [];
   const months = statsRes?.monthly_breakdown || [];
 
@@ -265,7 +267,9 @@ function renderDashKpis(history, stats, months) {
   const paidToday = todays.filter((o) => o.payment_status === "paid");
   const revenueToday = paidToday.reduce((s, o) => s + Number(o.total_amount || 0), 0);
   const avgOrder = paidToday.length ? revenueToday / paidToday.length : 0;
-  const pending = history.filter((o) => ["New", "Preparing", "Ready", "Collection", "Delivery"].includes(o.status)).length;
+  const pending = typeof window.adminPendingCount === "number"
+    ? window.adminPendingCount
+    : history.filter((o) => ["New", "Preparing", "Ready", "Collection", "Delivery"].includes(o.status)).length;
   const deliveryToday = todays.filter((o) => o.order_type === "delivery").length;
   const todayKey = new Date().toISOString().slice(0, 10);
   const allReservations = typeof reservations !== "undefined" ? reservations : [];

@@ -44,7 +44,7 @@ export async function onRequestGet(context) {
   const offset = Math.max(parseInt(url.searchParams.get("offset"), 10) || 0, 0);
 
   try {
-    const conditions = [];
+    const conditions = ["payment_status NOT IN ('awaiting', 'failed')"];
     const params = [];
 
     if (
