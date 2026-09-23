@@ -22,6 +22,10 @@
 
 const KDS_MAX_ITEM_LINES = 3;
 
+function kdsFmt(n) {
+  return `R${Number(n).toFixed(2)}`;
+}
+
 function kdsMinutes(order) {
   return Math.max(0, Math.round((Date.now() - new Date(order.created_at).getTime()) / 60000));
 }
@@ -92,6 +96,7 @@ function kdsCardHtml(order) {
         <div class="kds-card-head-left">
           <span class="kds-card-id">#${order.id}</span>
           ${kdsTypeBadgeHtml(order)}
+          ${order.total_amount !== undefined ? `<span class="kds-card-total">${kdsFmt(order.total_amount)}</span>` : ""}
         </div>
         <span class="kds-timer ${cls}">${mins}<small>min</small></span>
       </div>
@@ -122,6 +127,7 @@ function kdsRowHtml(order) {
     <div class="kds-row" data-open-details="${order.id}" data-order-id="${order.id}" draggable="true">
       <strong>#${order.id}</strong>
       <span class="kds-row-meta">${type}</span>
+      ${order.total_amount !== undefined ? `<span class="kds-row-total">${kdsFmt(order.total_amount)}</span>` : ""}
       <span class="kds-row-age">${mins} min</span>
     </div>`;
 }
@@ -259,7 +265,7 @@ function kdsOpenDetails(order) {
     overlay.querySelector("#kdsDetailClose").addEventListener("click", () => overlay.classList.remove("active"));
   }
 
-  const fmt = (n) => `R${Number(n).toFixed(2)}`;
+  const fmt = kdsFmt;
   const mins = kdsMinutes(order);
   const placed = new Date(order.created_at).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" });
   const typeLabel =

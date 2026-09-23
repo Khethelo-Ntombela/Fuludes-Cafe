@@ -14,9 +14,10 @@
  * payment_status to 'paid' once the gateway confirms it, and the order
  * appears here on the next poll.
  *
- * Kept deliberately kitchen-focused: prices/totals are stripped out since
- * staff don't need them to cook, matching the "staff only sees the order
- * board, nothing else" boundary from the admin dashboard.
+ * Includes item prices/subtotals and the order total (same shape as
+ * functions/api/admin/pending-orders.js) so staff can see what a ticket
+ * is worth, e.g. for cash handling, spotting mis-rung items, or bagging
+ * the right combo for a big order.
  * -----------------------------------------------------------------------
  */
 import { runQuery, jsonResponse } from "../../_lib/db.js";
@@ -49,7 +50,7 @@ export async function onRequestGet(context) {
       const itemsResult = await runQuery(
         env,
         `
-        SELECT order_id, item_name, quantity, spice_level, extras
+        SELECT order_id, item_name, item_price, quantity, spice_level, extras, subtotal
         FROM order_items WHERE order_id = ANY($1::int[]) ORDER BY id ASC;
       `,
         [orderIds],
@@ -63,6 +64,7 @@ export async function onRequestGet(context) {
 
     const orders = ordersResult.rows.map((order) => ({
       ...order,
+      total_amount: parseFloat(order.total_amount),
       items: itemsByOrder[order.id] || [],
     }));
 
