@@ -215,8 +215,12 @@ function updateBell(orders) {
 // Restaurant status card (sidebar)
 // ---------------------------------------------------------------------
 function updateStatusCard() {
-  const hour = new Date().getHours();
-  const open = hour >= 9 && hour < 21;
+  // Opening hours: Mon-Thu 09:00-18:00, Fri & Sun 09:00-20:00, Sat 09:00-21:00
+  const nowDate = new Date();
+  const day = nowDate.getDay(); // 0 = Sunday ... 6 = Saturday
+  const closeHour = day === 6 ? 21 : day === 5 || day === 0 ? 20 : 18;
+  const minutesNow = nowDate.getHours() * 60 + nowDate.getMinutes();
+  const open = minutesNow >= 9 * 60 && minutesNow < closeHour * 60;
   $id("statusOpenLabel").textContent = open ? "Open" : "Closed";
   $id("statusOpenDot").classList.toggle("closed", !open);
 

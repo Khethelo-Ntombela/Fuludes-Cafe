@@ -50,21 +50,107 @@ function saveCart() {
 // ---------------------------------------------------------------------
 // Load menu from the server
 // ---------------------------------------------------------------------
-async function loadMenu() {
+let lastMenuSignature = "";
+
+async function loadMenu(silent = false) {
   const grid = document.getElementById("orderItems");
   try {
-    const res = await fetch("/api/menu");
+    const res = await fetch("/api/menu", { cache: "no-store" });
     if (!res.ok) throw new Error("Menu request failed");
     const data = await res.json();
+    const signature = JSON.stringify([data.categories, data.items, data.spice_levels]);
+    const menuChanged = signature !== lastMenuSignature;
+    lastMenuSignature = signature;
+
     categories = data.categories || [];
     menuItems = data.items || [];
     spiceLevels = data.spice_levels || [];
-    renderCategoryTabs();
-    renderOrderItems();
-    renderSpecialsBar();
+
+    // Re-price anything already in the cart against the live menu, so a
+    // special that ended (price goes back up) or one that just started
+    // (price drops) is reflected before the customer pays.
+    const pricesChanged = repriceCart();
+
+    if (menuChanged || !silent) {
+      renderCategoryTabs();
+      renderOrderItems();
+      renderSpecialsBar();
+    }
+    if (pricesChanged) {
+      renderCart();
+      showCartToast("Prices in your cart were updated", "info");
+    }
   } catch (err) {
-    grid.innerHTML = `<p class="menu-empty">Sorry, we couldn't load the menu right now. Please refresh.</p>`;
+    if (!silent) {
+      grid.innerHTML = `<p class="menu-empty">Sorry, we couldn't load the menu right now. Please refresh.</p>`;
+    }
   }
+}
+
+/**
+ * Syncs every cart line's price with the item's current effective price
+ * (special price while a special is running, normal price otherwise).
+ * Returns true if any line's price changed.
+ */
+function repriceCart() {
+  let changed = false;
+  for (const line of cart) {
+    const item = menuItems.find((i) => i.id === line.itemId);
+    if (!item) continue;
+    const current = item.effective_price !== undefined && item.effective_price !== null ? item.effective_price : item.price;
+    if (Number(line.price) !== Number(current)) {
+      line.price = current;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+// Keep prices fresh while the page is open: poll every 30s, and refresh
+// when the customer returns to the tab.
+setInterval(() => {
+  if (!document.hidden) loadMenu(true);
+}, 30000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) loadMenu(true);
+});
+
+// ---------------------------------------------------------------------
+// Quick pop-up message (e.g. "Item added to cart")
+// ---------------------------------------------------------------------
+function showCartToast(message, kind = "success") {
+  let stack = document.getElementById("cartToastStack");
+  if (!stack) {
+    const style = document.createElement("style");
+    style.textContent = `
+      #cartToastStack{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:100000;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none;width:calc(100% - 32px);max-width:360px}
+      .cart-toast{background:#2b2b2b;color:#fff;padding:12px 18px;border-radius:10px;font-size:.95rem;box-shadow:0 6px 20px rgba(0,0,0,.25);opacity:0;transform:translateY(12px);transition:opacity .25s ease,transform .25s ease;display:flex;align-items:center;gap:8px}
+      .cart-toast.show{opacity:1;transform:translateY(0)}
+      .cart-toast .cart-toast-icon{color:#4caf50;font-weight:700}
+      .cart-toast.info .cart-toast-icon{color:#ffb300}
+    `;
+    document.head.appendChild(style);
+    stack = document.createElement("div");
+    stack.id = "cartToastStack";
+    stack.setAttribute("role", "status");
+    stack.setAttribute("aria-live", "polite");
+    document.body.appendChild(stack);
+  }
+  const el = document.createElement("div");
+  el.className = `cart-toast ${kind}`;
+  const icon = document.createElement("span");
+  icon.className = "cart-toast-icon";
+  icon.textContent = kind === "info" ? "ℹ" : "✓";
+  const text = document.createElement("span");
+  text.textContent = message;
+  el.appendChild(icon);
+  el.appendChild(text);
+  stack.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("show"));
+  setTimeout(() => {
+    el.classList.remove("show");
+    setTimeout(() => el.remove(), 300);
+  }, 1800);
 }
 
 function renderCategoryTabs() {
@@ -352,13 +438,15 @@ function addToCart(item, { spiceLevel, extras, quantity }) {
   const extraIds = extras.map((e) => e.id).sort().join(",");
   const lineId = `${item.id}|${spiceLevel || ""}|${extraIds}`;
   const existing = cart.find((line) => line.lineId === lineId);
-  // Special price (when set) is the real selling price - the server
-  // re-checks and re-prices this from the live DB at checkout regardless,
-  // but reflecting it here keeps the cart total from looking wrong.
-  const effectivePrice = item.special_price !== null && item.special_price !== undefined ? item.special_price : item.price;
+  // effective_price is the special price only while the special is
+  // actually running (start/end dates respected); otherwise the normal
+  // price. The server re-prices from the live DB at checkout regardless.
+  const effectivePrice =
+    item.effective_price !== undefined && item.effective_price !== null ? item.effective_price : item.price;
 
   if (existing) {
     existing.quantity += quantity;
+    existing.price = effectivePrice;
   } else {
     cart.push({
       lineId,
@@ -370,6 +458,7 @@ function addToCart(item, { spiceLevel, extras, quantity }) {
       extras
     });
   }
+  showCartToast(`${item.name} added to cart`);
   renderCart();
 }
 
@@ -589,7 +678,9 @@ checkoutBtn.addEventListener("click", () => {
     openAuthModal("signin", "Please sign in or create an account to continue to checkout.");
     return;
   }
-  proceedToCheckout();
+  // Pull the latest prices first so a special that started/ended while the
+  // item sat in the cart is reflected before the customer pays.
+  loadMenu(true).finally(proceedToCheckout);
 });
 
 function updateCheckoutFieldVisibility() {
