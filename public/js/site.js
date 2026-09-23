@@ -601,8 +601,15 @@ async function handleGoogleCredential(response) {
       body: JSON.stringify({ id_token: response.credential }),
     });
     const data = await res.json();
-    if (!res.ok || !data.success)
+    if (!res.ok || !data.success) {
+      if (data.error === "account_exists_use_password") {
+        throw new Error(
+          data.message ||
+            "An account with this email already exists. Please sign in with your password instead.",
+        );
+      }
       throw new Error(data.error || "Google sign-in failed");
+    }
     onAuthSuccess(data.token, data.customer);
   } catch (err) {
     // surface error in sign-in form area

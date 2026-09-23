@@ -122,7 +122,44 @@ No notify-url whitelisting is usually required — the notify URL only needs to 
 
 If you skip this section, account signup/login/checkout all still work fine — only "Forgot password" breaks, returning a clear server error instead of silently failing.
 
-### 2.5 Cloudflare Pages
+### 2.5 Google Sign-In (optional - customer accounts still work without it)
+
+Google Sign-In shares one client ID across two different places. Both must be
+set to the SAME value.
+
+1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials),
+   create an **OAuth 2.0 Client ID** of type **Web application**.
+2. Under **Authorized JavaScript origins**, add every domain you'll load this
+   site from - your production domain, your `*.pages.dev` preview domain, and
+   `http://localhost:8788` (or whatever port `wrangler pages dev` uses) if you
+   want to test locally.
+3. Copy the generated Client ID. It is **not a secret** - it's designed to be
+   public and ships inside the page HTML, unlike every other key in this
+   README. Set it in both places:
+   - **Server-side:** Cloudflare Pages > Settings > Environment variables >
+     `GOOGLE_CLIENT_ID` (Production and Preview). This is required, not
+     optional - `functions/api/auth/google.js` rejects all Google sign-ins
+     with a 500 if this isn't set, since without it any Google ID token from
+     any app would otherwise be accepted.
+   - **Client-side:** find `<meta name="google-client-id" content="...">` in
+     `public/home.html`, `public/catering.html`, `public/contact.html`,
+     `public/reviews.html`, and `public/menu.html`, and replace
+     `YOUR_GOOGLE_OAUTH_CLIENT_ID` with the same Client ID. This site is
+     static with no build step, so Cloudflare's env var is invisible to the
+     browser - the meta tag is the only way the frontend learns the client
+     ID. It's safe to commit the real value here.
+
+If you skip this section, the "Sign in / Create account with Google" buttons
+simply stay hidden and customers fall back to email/password - nothing else
+breaks.
+
+One account-linking behavior worth knowing: if someone already has a
+password-based account under an email and later uses Google Sign-In with that
+same email for the first time, the server returns `account_exists_use_password`
+rather than silently attaching the Google account - they need to sign in with
+their password at least once before Google Sign-In will link to that account.
+
+### 2.6 Cloudflare Pages
 
 1. Push this folder to a GitHub repo and connect it in Cloudflare Pages, **or** deploy directly with `npx wrangler pages deploy public`.
 2. Build output directory: `public`. No build command needed (it's static + Functions).
@@ -138,6 +175,7 @@ If you skip this section, account signup/login/checkout all still work fine — 
    | `YOCO_WEBHOOK_SECRET` | HMAC secret used to verify webhook payloads |
    | `RESEND_API_KEY`      | from step 2.4                               |
    | `RESEND_FROM_EMAIL`   | from step 2.4                               |
+   | `GOOGLE_CLIENT_ID`    | from step 2.5 (also goes in the HTML meta tags) |
 
 For local development, admin and staff credentials are read from `.dev.vars` (Wrangler Pages Functions reads this automatically). Admin uses `ADMIN_EMAIL`/`ADMIN_PASSWORD`; staff uses `STAFF_EMAIL`/`STAFF_PASSWORD`. `.dev.vars` is untracked and ignored by Git. No database is required for local login — sessions are stored in memory when Neon is not configured.
 

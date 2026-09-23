@@ -30,8 +30,12 @@ export async function onRequestPost(context) {
     if (!verifyRes.ok) return jsonResponse({ error: 'Invalid Google ID token.' }, 401);
     const payload = await verifyRes.json();
 
-    // audience must match our configured client id
-    if (env.GOOGLE_CLIENT_ID && payload.aud !== env.GOOGLE_CLIENT_ID) {
+    // GOOGLE_CLIENT_ID must be configured server-side, or any Google ID token
+    // from ANY app (not just this one) would be accepted. Treat as required.
+    if (!env.GOOGLE_CLIENT_ID) {
+      return jsonResponse({ error: 'Google sign-in is not configured.' }, 500);
+    }
+    if (payload.aud !== env.GOOGLE_CLIENT_ID) {
       return jsonResponse({ error: 'Token audience mismatch.' }, 401);
     }
 
@@ -45,10 +49,18 @@ export async function onRequestPost(context) {
 
     // Upsert: if a customer with this email exists, attach google_id and mark verified.
     // Otherwise insert a new customer row without a password.
-    const existing = await runQuery(env, 'SELECT id FROM customers WHERE email = $1;', [email]);
+    const existing = await runQuery(env, 'SELECT id, password_hash, google_id FROM customers WHERE email = $1;', [email]);
     let customerId;
     if (existing.rows[0]) {
-      customerId = existing.rows[0].id;
+      const row = existing.rows[0];
+      // If this email already has a password-based account that has never
+      // been linked to Google before, don't silently attach google_id and
+      // flip is_verified on a bare email match - require the user to prove
+      // ownership via their existing password first.
+      if (row.password_hash && !row.google_id) {
+        return jsonResponse({ error: 'account_exists_use_password', message: 'An account with this email already exists. Please sign in with your password, then link Google from your account settings.' }, 409);
+      }
+      customerId = row.id;
       await runQuery(env, "UPDATE customers SET google_id = $1, is_verified = TRUE, name = COALESCE(NULLIF($2, ''), name) WHERE id = $3;", [googleId, name, customerId]);
     } else {
       const insert = await runQuery(env, 'INSERT INTO customers (name, email, google_id, is_verified) VALUES ($1, $2, $3, TRUE) RETURNING id, name, email, phone_number, delivery_address;', [name, email, googleId]);
