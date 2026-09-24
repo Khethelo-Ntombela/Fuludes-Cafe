@@ -36,7 +36,7 @@ export async function onRequestGet(context) {
       `
       SELECT b.id, b.title, b.description, b.event_date, b.capacity, b.price_cents, b.photos,
         b.is_published, b.booking_closes_at,
-        COALESCE((SELECT SUM(seats) FROM buffet_bookings bb WHERE bb.event_id = b.id AND bb.status = 'confirmed'), 0) AS seats_taken
+        COALESCE((SELECT SUM(seats) FROM buffet_bookings bb WHERE bb.event_id = b.id AND bb.status IN ('pending','confirmed')), 0) AS seats_taken
       FROM buffet_events b
       WHERE b.event_date >= now() AND b.is_published = TRUE
       ORDER BY b.event_date ASC;`,
@@ -85,8 +85,16 @@ export async function onRequestPost(context) {
     const phone = sanitizeText(body.phone || "", 40);
     const seats = Math.max(1, Math.min(20, Number(body.seats) || 1));
 
-    if (!event_id || !name || !email) {
-      return jsonResponse({ error: "Missing required booking fields." }, 400);
+    const missing = [];
+    if (!event_id) missing.push("event");
+    if (!name) missing.push("name");
+    if (!email) missing.push("email");
+    if (!phone) missing.push("WhatsApp phone number");
+    if (missing.length) {
+      return jsonResponse(
+        { error: `Please fill in: ${missing.join(", ")}.` },
+        400,
+      );
     }
 
     // Simple anti-abuse: rate-limit by IP and by email
@@ -152,7 +160,7 @@ export async function onRequestPost(context) {
 
     const taken = await runQuery(
       env,
-      "SELECT COALESCE(SUM(seats),0) AS taken FROM buffet_bookings WHERE event_id = $1 AND status = 'confirmed';",
+      "SELECT COALESCE(SUM(seats),0) AS taken FROM buffet_bookings WHERE event_id = $1 AND status IN ('pending','confirmed');",
       [event_id],
     );
     const takenSeats = Number(taken.rows[0].taken || 0);
@@ -180,17 +188,18 @@ export async function onRequestPost(context) {
       /* ignore */
     }
 
-    // Insert booking as confirmed (UI shows confirmation message; no email)
+    // Insert booking as pending - the admin confirms it (and sends the WhatsApp confirmation)
     const ins = await runQuery(
       env,
       "INSERT INTO buffet_bookings (event_id, customer_id, name, email, phone, seats, status) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id;",
-      [event_id, customer_id, name, email, phone || null, seats, "confirmed"],
+      [event_id, customer_id, name, email.toLowerCase(), phone, seats, "pending"],
     );
 
     return jsonResponse({
       success: true,
       booking_id: ins.rows[0].id,
-      message: "Booking confirmed. See you at the event!",
+      message:
+        "Booking received! We should send your confirmation on WhatsApp shortly.",
     });
   } catch (err) {
     return jsonResponse(

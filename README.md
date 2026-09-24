@@ -275,3 +275,7 @@ Repeat for each photo — this also lets you write a proper name/description/pri
 - Delivery: geocoding now searches near the cafe first and picks the closest match; delivery orders require a located address.
 - Customer Settings (details, password change via emailed confirmation link, email marketing, delete account) - new endpoints `api/auth/change-password.js` and `api/auth/confirm-password-change.js`.
 - SMS marketing removed. Run `db/migrations/005_remove_sms_marketing.sql` in Neon after deploying.
+- Order History (admin) no longer lists unpaid orders; the dashboard cards Pending Orders / Delivery Orders / Reservations Today each have a manual "Clear" button (Pending deletes unpaid orders only; the other two reset today's counter in that browser).
+- My Orders (customer) shows only the last 24 hours; tracking doesn't start until payment is confirmed.
+- Buffet bookings start as `pending`; admin confirms them (Confirm button + WhatsApp). Customers use "Check My Bookings" under the buffet section to see status and cancel. Buffet event form now requires event date and booking-close date and compresses photos before upload.
+- Installable PWA: `public/manifest.webmanifest`, `public/sw.js`, icons and `offline.html`; pages register the service worker and show an "Install app" button.

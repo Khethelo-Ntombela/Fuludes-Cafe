@@ -39,7 +39,7 @@
     <meta name="twitter:card" content="summary_large_image" />
     <!-- ================================================================ -->
 
-    <link rel="stylesheet" href="css/style.css" />
+    <link rel="stylesheet" href="css/style.css?v=2" />
     <link
       href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap"
       rel="stylesheet"
@@ -116,6 +116,8 @@
           Want to dine-in, Did you know you can book reservation and order
           online before your arrival to reduce waiting time?
         </p>
+        <!-- Out-of-service message (filled + shown by site.js only when admin turns it on) -->
+        <div class="site-notice" id="heroServiceNotice" style="display: none" role="status"></div>
         <div class="hero-actions">
           <a href="menu.html" class="btn btn-primary">View Menu &amp; Order</a>
           <button
@@ -126,6 +128,10 @@
             Book Reservation
           </button>
           <a href="catering.html" class="btn btn-secondary">Book Catering</a>
+        </div>
+        <!-- Admin announcement bar (only rendered by site.js when a message is set) -->
+        <div class="hero-announcement-wrap" id="heroAnnouncementWrap" style="display: none">
+          <span class="hero-announcement" id="heroAnnouncement"></span>
         </div>
       </div>
     </section>
@@ -144,7 +150,7 @@
     </section>
 
     <!-- Buffet booking modal -->
-    <div class="modal-overlay" id="buffetBookingModal" style="display: none">
+    <div class="modal-overlay" id="buffetBookingModal">
       <div class="modal">
         <button class="modal-close" id="buffetBookingClose">&times;</button>
         <h3 id="buffetModalTitle">Book Buffet</h3>
@@ -159,7 +165,7 @@
             ><input id="buffetEmail" type="email" required />
           </div>
           <div class="form-group">
-            <label for="buffetPhone">Phone</label><input id="buffetPhone" />
+            <label for="buffetPhone">WhatsApp number</label><input id="buffetPhone" type="tel" required />
           </div>
           <div class="form-group">
             <label for="buffetSeats">Seats</label
@@ -190,7 +196,7 @@
     </div>
 
     <!-- My Buffet Bookings modal (customer) -->
-    <div class="modal-overlay" id="myBuffetModal" style="display: none">
+    <div class="modal-overlay" id="myBuffetModal">
       <div class="modal">
         <button class="modal-close" id="myBuffetClose">&times;</button>
         <h3>My Buffet Bookings</h3>
@@ -416,7 +422,7 @@
       </div>
     </div>
 
-    <!-- My Orders: every order ever placed on this account -->
+    <!-- My Orders: orders from the last 24 hours -->
     <div class="modal-overlay" id="myOrdersModal">
       <div class="modal">
         <button class="modal-close" id="myOrdersModalClose">&times;</button>
@@ -568,7 +574,7 @@
         </button>
         <button
           type="button"
-          class="btn btn-secondary btn-block"
+          class="btn btn-block btn-account-settings"
           id="openSettingsBtn"
         >
           <i class="fas fa-gear"></i> Settings
@@ -580,6 +586,9 @@
     </div>
 
     <script src="https://accounts.google.com/gsi/client" async defer onload="if (typeof initGoogleSignIn === 'function') initGoogleSignIn();"></script>
-    <script src="js/site.js"></script>
-  </body>
+    <script src="js/site.js?v=2"></script>
+  <script>
+  if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+</script>
+</body>
 </html>

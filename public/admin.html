@@ -231,6 +231,14 @@
           </div>
         </header>
 
+        <!-- Shown only while Out of Service is switched on (Settings > General) -->
+        <div class="oos-banner" id="oosBanner" style="display: none" role="alert">
+          <i class="fas fa-circle-exclamation"></i>
+          <span class="oos-banner-full">You are currently not receiving any orders because you have Out of Service enabled.</span>
+          <span class="oos-banner-short">Out of service</span>
+          <button type="button" class="oos-banner-btn" id="oosBannerManage">Manage</button>
+        </div>
+
         <main class="admin-main">
           <!-- ---------------- Dashboard home ---------------- -->
           <section id="tab-dashboard" class="admin-tab-panel active">
@@ -913,7 +921,21 @@
               </div>
               <div class="form-group">
                 <label for="auditAction">Action</label>
-                <input id="auditAction" placeholder="e.g. menu_item_updated" />
+                <datalist id="auditActionList">
+                  <option value="menu_item_created"></option>
+                  <option value="menu_item_updated"></option>
+                  <option value="menu_item_deleted"></option>
+                  <option value="special_added"></option>
+                  <option value="special_updated"></option>
+                  <option value="special_removed"></option>
+                  <option value="delivery_fee_updated"></option>
+                  <option value="cafe_details_updated"></option>
+                  <option value="out_of_service_enabled"></option>
+                  <option value="out_of_service_disabled"></option>
+                  <option value="announcement_updated"></option>
+                  <option value="buffet_visibility_updated"></option>
+                </datalist>
+                <input id="auditAction" placeholder="e.g. menu_item_updated" list="auditActionList" />
               </div>
               <div style="display: flex; gap: 8px; align-items: end">
                 <button id="auditLoadBtn" class="admin-mini-btn">Load</button>
@@ -929,11 +951,11 @@
                   <thead>
                     <tr>
                       <th>Time</th>
-                      <th>Action</th>
+                      <th>What happened</th>
                       <th>Actor Role</th>
                       <th>Actor</th>
                       <th>Target</th>
-                      <th>Details</th>
+                      <th>What changed</th>
                     </tr>
                   </thead>
                   <tbody id="auditTableBody"></tbody>
@@ -1049,6 +1071,37 @@
                   </div>
                 </div>
                 <div>
+                  <div class="sa-card store-status-card" style="margin-bottom: 14px">
+                    <div class="sa-card-title">Out of Service</div>
+                    <label class="admin-toggle-row">
+                      <span>Stop taking orders</span>
+                      <input type="checkbox" id="oosToggle" />
+                    </label>
+                    <p class="admin-hint" style="margin: 8px 2px 0">
+                      Customers can still browse and add to their cart, but
+                      they can't check out. They'll see the reason you give.
+                    </p>
+                    <div id="oosReasonRow" class="oos-reason-row" style="display: none">
+                      <div class="sa-list-sub">Reason customers see</div>
+                      <div class="oos-reason-text" id="oosReasonText"></div>
+                      <button type="button" class="admin-mini-btn" id="oosEditReasonBtn">Edit reason</button>
+                    </div>
+                  </div>
+
+                  <div class="sa-card store-status-card" style="margin-bottom: 14px">
+                    <div class="sa-card-title">Website Announcement</div>
+                    <p class="admin-hint" style="margin: 0 0 8px">
+                      Shown in a white bar under the buttons on the home page
+                      (e.g. "Buffet coming soon"). Leave empty to show nothing.
+                    </p>
+                    <input type="text" id="announcementInput" maxlength="300" placeholder="e.g. Buffet coming soon" />
+                    <div style="display: flex; gap: 8px; margin-top: 10px">
+                      <button type="button" class="admin-mini-btn" id="announcementSaveBtn">Save</button>
+                      <button type="button" class="admin-mini-btn" id="announcementClearBtn">Remove</button>
+                    </div>
+                    <p class="admin-hint" id="announcementStatus" style="margin: 8px 2px 0"></p>
+                  </div>
+
                   <label class="admin-toggle-row">
                     <span>Show Buffet Section on Website</span>
                     <input type="checkbox" id="buffetToggle" />
@@ -1424,8 +1477,30 @@
       </div>
     </div>
 
+    <!-- Out of Service: ask for the reason customers will see -->
+    <div class="sa-modal-overlay" id="oosModal">
+      <div class="sa-modal" style="max-width: 460px">
+        <div class="sa-modal-head">
+          <h3>Turn on Out of Service</h3>
+        </div>
+        <p class="admin-hint" style="margin: 0 0 10px">
+          Tell your customers why you're not taking orders. This message is
+          shown on the home page and whenever they try to check out.
+        </p>
+        <textarea id="oosReasonInput" rows="3" maxlength="400" placeholder="e.g. We are closed due to weather conditions"></textarea>
+        <p class="form-error" id="oosModalError" style="display: none; margin-top: 8px"></p>
+        <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px">
+          <button type="button" class="admin-mini-btn" id="oosCancelBtn">Cancel</button>
+          <button type="button" class="admin-mini-btn" id="oosConfirmBtn" style="background: var(--sa-red); color: #fff; border-color: var(--sa-red)">Turn on</button>
+        </div>
+      </div>
+    </div>
+
     <script src="js/kds.js"></script>
     <script src="js/admin.js"></script>
     <script src="js/admin-app.js"></script>
-  </body>
+  <script>
+  if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+</script>
+</body>
 </html>

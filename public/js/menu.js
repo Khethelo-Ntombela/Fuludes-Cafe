@@ -855,9 +855,21 @@ checkoutBtn.addEventListener("click", () => {
     openAuthModal("signin", "Please sign in or create an account to continue to checkout.");
     return;
   }
-  // Pull the latest prices first so a special that started/ended while the
-  // item sat in the cart is reflected before the customer pays.
-  loadMenu(true).finally(proceedToCheckout);
+  // Closed right now? No checkout (a pre-order for a booked table is allowed).
+  if (!isCafeOpenNow() && !getActiveReservation()) {
+    showOutOfServiceNotice(CLOSED_MESSAGE);
+    return;
+  }
+  // Out of service? Ask the server (not a cached copy) and stop here if so.
+  fetchStoreConfig().then((config) => {
+    if (config && config.is_out_of_service) {
+      showOutOfServiceNotice(config.out_of_service_reason);
+      return;
+    }
+    // Pull the latest prices first so a special that started/ended while the
+    // item sat in the cart is reflected before the customer pays.
+    loadMenu(true).finally(proceedToCheckout);
+  });
 });
 
 function updateCheckoutFieldVisibility() {
@@ -912,7 +924,7 @@ async function handleDeliveryAddressBlur() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ address }),
     });
-    const geoData = await geoRes.json();
+    const geoData = await safeJson(geoRes);
 
     if (!geoRes.ok || !geoData.lat || !geoData.lng) {
       throw new Error(geoData.error || "We couldn't find that address.");
@@ -924,7 +936,7 @@ async function handleDeliveryAddressBlur() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ lat: geoData.lat, lng: geoData.lng }),
     });
-    const feeData = await feeRes.json();
+    const feeData = await safeJson(feeRes);
 
     if (!feeRes.ok) {
       throw new Error(feeData.error || "Failed to calculate delivery fee");
@@ -978,6 +990,26 @@ function invalidateQuoteOnEdit() {
 function proceedToCheckout() {
   checkoutError.style.display = "none";
   checkoutForm.reset();
+  const preorder = getActiveReservation();
+  orderTypeSelect.disabled = Boolean(preorder);
+  const arrivalInput = document.getElementById("dine-in-arrival-time");
+  arrivalInput.readOnly = Boolean(preorder);
+  let preorderNote = document.getElementById("checkoutPreorderNote");
+  if (preorder) {
+    // Pre-order for a table booking: dine-in is fixed and the booking's details are filled in.
+    orderTypeSelect.value = "dine_in";
+    arrivalInput.value = preorder.time || "";
+    if (!preorderNote) {
+      preorderNote = document.createElement("p");
+      preorderNote.id = "checkoutPreorderNote";
+      preorderNote.className = "auth-hint";
+      checkoutForm.parentNode.insertBefore(preorderNote, checkoutForm);
+    }
+    preorderNote.textContent = `Pre-order for your table: ${formatReservationWhen(preorder.date, preorder.time)}${preorder.party ? ` · ${preorder.party} guest${preorder.party > 1 ? "s" : ""}` : ""}. Order type is set to Dine In.`;
+    preorderNote.style.display = "block";
+  } else if (preorderNote) {
+    preorderNote.style.display = "none";
+  }
   updateCheckoutFieldVisibility();
 
   const nameInput = document.getElementById("customer-name");
@@ -986,7 +1018,10 @@ function proceedToCheckout() {
 
   resetDeliveryQuote();
 
-  if (currentCustomer) {
+  if (preorder) {
+    nameInput.value = preorder.name || (currentCustomer && currentCustomer.name) || "";
+    phoneInput.value = preorder.phone || (currentCustomer && currentCustomer.phone_number) || "";
+  } else if (currentCustomer) {
     if (!nameInput.value.trim()) {
       nameInput.value = currentCustomer.name || "";
     }
@@ -1057,6 +1092,11 @@ async function submitOrderCheckout(event) {
   const orderType = orderTypeSelect.value;
   const deliveryAddress = addressInput.value.trim();
 
+  if (!isCafeOpenNow() && !getActiveReservation()) {
+    checkoutModal.classList.remove("active");
+    showOutOfServiceNotice(CLOSED_MESSAGE);
+    return;
+  }
   if (!currentCustomer) {
     // Session must have expired between opening checkout and submitting it.
     checkoutModal.classList.remove("active");
@@ -1106,6 +1146,7 @@ async function submitOrderCheckout(event) {
     table_number: orderType === "dine_in" ? tableInput.value.trim() : "",
     pickup_time: pickupTime,
     special_instructions: instructionsInput.value.trim(),
+    reservation_id: getActiveReservation()?.id,
     cart_items: cart.map((line) => ({
       id: line.itemId,
       quantity: line.quantity,
@@ -1125,8 +1166,23 @@ async function submitOrderCheckout(event) {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${customerToken}` },
       body: JSON.stringify(payload)
     });
-    const result = await res.json();
+    const result = await safeJson(res);
 
+    if (res.status === 503 && result.closed) {
+      checkoutModal.classList.remove("active");
+      showOutOfServiceNotice(result.error);
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Continue to Payment";
+      return;
+    }
+    if (res.status === 503 && result.out_of_service) {
+      // Admin switched Out of Service on while the customer was checking out.
+      checkoutModal.classList.remove("active");
+      showOutOfServiceNotice(result.reason || result.error);
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Continue to Payment";
+      return;
+    }
     if (!res.ok || !result.success) {
       throw new Error(result.error || "Something went wrong placing your order.");
     }
@@ -1136,6 +1192,7 @@ async function submitOrderCheckout(event) {
     // since the order itself exists regardless of payment outcome.
     cart = [];
     saveCart();
+    localStorage.removeItem(ACTIVE_RES_KEY); // pre-order done - this booking no longer drives checkout
     redirectToYoco(result.payment);
   } catch (err) {
     showCheckoutError(err.message);
@@ -1172,5 +1229,52 @@ checkoutForm.addEventListener("submit", submitOrderCheckout);
 // ---------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------
+// ---------------------------------------------------------------------
+// Pre-order for a table reservation: cart items are kept and editable,
+// checkout is dine-in with the booking's details, and the "Book
+// Reservation" button is hidden (they already have one).
+// ---------------------------------------------------------------------
+function refreshPreorderUI() {
+  const r = getActiveReservation();
+  const resBtn = document.getElementById("menuReservationBtn");
+  if (resBtn) resBtn.style.display = r ? "none" : "";
+  let banner = document.getElementById("preorderBanner");
+  if (!r) {
+    if (banner) banner.remove();
+    return;
+  }
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "preorderBanner";
+    banner.className = "auth-hint";
+    banner.style.cssText = "background:#fff8e6;border:1px solid #f0d78a;border-radius:6px;padding:10px 12px;margin-bottom:12px";
+    const panel = cartPanelEl;
+    const back = document.getElementById("cartPageBack");
+    if (back) back.after(banner); else panel.prepend(banner);
+  }
+  banner.innerHTML = `<strong>Pre-order for your table</strong><br>${escapeHtml(formatReservationWhen(r.date, r.time))}${r.party ? ` · ${r.party} guest${r.party > 1 ? "s" : ""}` : ""}<br>Dine In is set for you. Add, edit or remove items, then check out. <button type="button" id="preorderCancelBtn" class="auth-link-btn" style="display:inline">Not pre-ordering? Remove</button>`;
+  document.getElementById("preorderCancelBtn").addEventListener("click", () => {
+    localStorage.removeItem(ACTIVE_RES_KEY);
+    refreshPreorderUI();
+  });
+}
+
+function showPreorderCart() {
+  refreshPreorderUI();
+  if (window.matchMedia("(max-width: 900px)").matches) openCartPage();
+  else cartPanelEl.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+window.addEventListener("fulude:preorder", showPreorderCart);
+
 loadMenu();
 renderCart(); // restore any cart carried over from a previous visit
+refreshPreorderUI();
+if (location.hash === "#your-order" && window.matchMedia("(max-width: 900px)").matches) {
+  // Page was refreshed while viewing the cart - stay on the cart.
+  cartPanelEl.classList.add("cart-page-open");
+  document.body.classList.add("cart-page-active");
+}
+if (new URLSearchParams(location.search).get("preorder") === "1") {
+  history.replaceState({}, "", location.pathname + location.hash);
+  if (getActiveReservation()) showPreorderCart();
+}

@@ -1,0 +1,8 @@
+-- =====================================================================
+-- Out-of-service switch + hero announcement message.
+-- Run once in the Neon SQL editor after deploying (the app also adds
+-- these columns automatically if you forget).
+-- =====================================================================
+ALTER TABLE app_config ADD COLUMN IF NOT EXISTS is_out_of_service BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE app_config ADD COLUMN IF NOT EXISTS out_of_service_reason TEXT;
+ALTER TABLE app_config ADD COLUMN IF NOT EXISTS announcement_message TEXT;

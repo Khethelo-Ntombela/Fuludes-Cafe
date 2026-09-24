@@ -72,7 +72,7 @@ function nearest(results, cafe) {
   return best;
 }
 
-export async function onRequestPost(context) {
+async function handlePost(context) {
   const { request, env } = context;
 
   let body;
@@ -163,4 +163,17 @@ export async function onRequestPost(context) {
       err.status || 500,
     );
   }
+}
+
+// Never let an unexpected error escape as an HTML error page - the checkout expects JSON.
+export async function onRequestPost(context) {
+  try {
+    return await handlePost(context);
+  } catch (err) {
+    return jsonResponse({ error: "Delivery lookup failed. Please try again.", message: String(err && err.message) }, 500);
+  }
+}
+// Any other method (e.g. a stray GET) also gets JSON instead of an HTML 404/405 page.
+export async function onRequest() {
+  return jsonResponse({ error: "Method not allowed." }, 405);
 }

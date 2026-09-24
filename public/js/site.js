@@ -222,9 +222,23 @@ const myBuffetModal = document.getElementById("myBuffetModal");
 const myBuffetClose = document.getElementById("myBuffetClose");
 const myBuffetList = document.getElementById("myBuffetList");
 
+const BOOKING_STATUS_LABELS = {
+  pending: "Pending confirmation",
+  confirmed: "Confirmed",
+  cancelled: "Cancelled",
+};
+
+function setOverlay(el, on) {
+  if (!el) return;
+  el.style.display = "";
+  el.classList.toggle("active", on);
+}
+
 async function loadCustomerBuffetBookings() {
+  if (!myBuffetList) return;
   if (!currentCustomer || !customerToken) {
     if (myBuffetBtn) myBuffetBtn.style.display = "none";
+    myBuffetList.innerHTML = `<p class="menu-empty">Please sign in to see your buffet bookings.</p>`;
     return;
   }
   try {
@@ -234,28 +248,32 @@ async function loadCustomerBuffetBookings() {
     if (!res.ok) throw new Error("Failed to load");
     const data = await readApiResponse(res);
     const bookings = data.bookings || [];
+    const active = bookings.filter((b) => b.status !== "cancelled").length;
+    if (myBuffetBtn) {
+      myBuffetBtn.style.display = active ? "inline-block" : "none";
+      myBuffetBtn.textContent = `Buffet (${active})`;
+    }
     if (!bookings.length) {
-      if (myBuffetBtn) myBuffetBtn.style.display = "none";
+      myBuffetList.innerHTML = `<p class="menu-empty">You have no upcoming buffet bookings.</p>`;
       return;
     }
-    if (myBuffetBtn) {
-      myBuffetBtn.style.display = "inline-block";
-      myBuffetBtn.textContent = `Buffet (${bookings.length})`;
-    }
-    // render inside modal
-    if (!myBuffetList) return;
     myBuffetList.innerHTML = "";
     bookings.forEach((b) => {
       const el = document.createElement("div");
-      el.className = "sa-list-item";
-      el.innerHTML = `<div class="sa-list-main"><div class="sa-list-title">${escapeHtml(b.title)} — ${new Date(b.event_date).toLocaleString()}</div><div class="sa-list-sub">Seats: ${b.seats} • Status: ${b.status}</div></div>
-        <div style="margin-top:8px"><button class="btn btn-secondary btn-cancel-booking" data-id="${b.booking_id}">Cancel</button></div>`;
+      el.className = "receipt-card";
+      const canCancel = b.status === "pending" || b.status === "confirmed";
+      const color =
+        b.status === "confirmed" ? "#1a7f37" : b.status === "cancelled" ? "#b42318" : "#8a6d1d";
+      el.innerHTML = `<div class="receipt-card-header"><strong>${escapeHtml(b.title)}</strong></div>
+        <div class="receipt-meta">${new Date(b.event_date).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" })} · ${b.seats} seat${b.seats > 1 ? "s" : ""}</div>
+        <div style="margin:8px 0;font-weight:600;color:${color}">Status: ${BOOKING_STATUS_LABELS[b.status] || escapeHtml(b.status)}</div>
+        ${canCancel ? `<button class="receipt-cancel-btn btn-cancel-booking" data-id="${b.booking_id}">Cancel booking</button>` : ""}`;
       myBuffetList.appendChild(el);
     });
     myBuffetList.querySelectorAll(".btn-cancel-booking").forEach((btn) =>
       btn.addEventListener("click", async (e) => {
         if (!confirm("Cancel this booking?")) return;
-        const id = Number(e.target.dataset.id);
+        const id = Number(e.currentTarget.dataset.id);
         try {
           const r = await fetch("/api/buffet-bookings", {
             method: "PUT",
@@ -268,24 +286,31 @@ async function loadCustomerBuffetBookings() {
           const d = await r.json();
           if (!r.ok || !d.success) throw new Error(d.error || "Failed");
           await loadCustomerBuffetBookings();
+          if (typeof loadPublicBuffet === "function") loadPublicBuffet();
         } catch (err) {
           alert(err.message || "Failed to cancel");
         }
       }),
     );
   } catch (err) {
-    if (myBuffetBtn) myBuffetBtn.style.display = "none";
+    myBuffetList.innerHTML = `<p class="menu-empty">Couldn't load your bookings. Please try again.</p>`;
   }
 }
 
-if (myBuffetBtn)
-  myBuffetBtn.addEventListener("click", () => {
-    if (myBuffetModal) myBuffetModal.style.display = "block";
-  });
+/** Opens the "My Buffet Bookings" window (asks the customer to sign in first). */
+async function openMyBuffetBookings() {
+  if (!currentCustomer) {
+    alert("Please sign in to check your buffet bookings.");
+    openAuthModal("signin");
+    return;
+  }
+  setOverlay(myBuffetModal, true);
+  await loadCustomerBuffetBookings();
+}
+
+if (myBuffetBtn) myBuffetBtn.addEventListener("click", openMyBuffetBookings);
 if (myBuffetClose)
-  myBuffetClose.addEventListener("click", () => {
-    if (myBuffetModal) myBuffetModal.style.display = "none";
-  });
+  myBuffetClose.addEventListener("click", () => setOverlay(myBuffetModal, false));
 
 /** Shared by both account entry points - the text+icon link inside the nav, and the standalone icon button next to the mobile menu toggle. */
 function openAccountMenu() {
@@ -433,7 +458,7 @@ signInForm.addEventListener("submit", async (e) => {
   } catch (err) {
     signInError.textContent = userFriendlyError(
       err,
-      "We couldn't sign you in. Please check your details and try again.",
+      "Sorry, we couldn't sign you in right now. Please try again.",
     );
     signInError.style.display = "block";
   }
@@ -516,7 +541,13 @@ function onAuthSuccess(token, customer) {
   authModal.classList.remove("active");
   if (pendingCheckoutAfterAuth) {
     pendingCheckoutAfterAuth = false;
-    if (typeof proceedToCheckout === "function") proceedToCheckout();
+    if (typeof proceedToCheckout === "function") {
+      // Don't skip the out-of-service check just because they signed in first.
+      fetchStoreConfig().then((config) => {
+        if (config && config.is_out_of_service) showOutOfServiceNotice(config.out_of_service_reason);
+        else proceedToCheckout();
+      });
+    }
   }
 }
 
@@ -606,12 +637,14 @@ async function loadPublicBuffet() {
       el.innerHTML = "<p>No upcoming buffet events.</p>";
       return;
     }
-    el.innerHTML = events
+    const checkBtn = `<div style="margin-bottom:16px"><button type="button" class="btn btn-secondary" id="checkMyBookingsBtn" style="background:#000;color:#fff;border-color:#000">Check My Bookings</button></div>`;
+    el.innerHTML = checkBtn + events
       .map(
         (evt) => `
       <div class="sa-card" data-event-id="${evt.id}">
-        <div class="sa-card-title">${evt.title} <span class="admin-hint">${new Date(evt.event_date).toLocaleString()}</span></div>
-        <p>${evt.description || ""}</p>
+        ${(evt.photos || []).length ? `<div style="display:flex;gap:8px;overflow-x:auto;margin-bottom:10px">${evt.photos.map((ph) => `<img src="${escapeHtml(ph)}" alt="${escapeHtml(evt.title)}" loading="lazy" style="height:180px;max-width:100%;object-fit:cover;border-radius:6px;flex:0 0 auto" onerror="this.style.display='none'" />`).join("")}</div>` : ""}
+        <div class="sa-card-title">${escapeHtml(evt.title)} <span class="admin-hint">${new Date(evt.event_date).toLocaleString()}</span></div>
+        <p>${escapeHtml(evt.description || "")}</p>
         <div><strong>Seats:</strong> ${evt.seats_remaining} remaining of ${evt.capacity} &nbsp; <strong>Price:</strong> R${(Number(evt.price_cents) / 100).toFixed(2)}</div>
         <div style="margin-top:8px"><button class="btn btn-primary btn-book-buffet" data-id="${evt.id}" data-title="${escapeHtml(evt.title)}" ${evt.seats_remaining <= 0 ? "disabled" : ""}>${evt.seats_remaining <= 0 ? "Sold out" : "Book"}</button></div>
         ${evt.booking_closes_at ? `<div class="admin-hint">Booking closes: ${new Date(evt.booking_closes_at).toLocaleString()}</div>` : ""}
@@ -620,6 +653,7 @@ async function loadPublicBuffet() {
       )
       .join("");
 
+    document.getElementById("checkMyBookingsBtn")?.addEventListener("click", openMyBuffetBookings);
     document.querySelectorAll(".btn-book-buffet").forEach((b) =>
       b.addEventListener("click", (e) => {
         const id = b.dataset.id || e.target.dataset.id;
@@ -656,11 +690,11 @@ function openBuffetBookingModal(eventId, title) {
   }
   document.getElementById("buffetBookingError").style.display = "none";
   document.getElementById("buffetBookingSuccess").style.display = "none";
-  modal.style.display = "block";
+  setOverlay(modal, true);
 }
 
 document.getElementById("buffetBookingClose")?.addEventListener("click", () => {
-  document.getElementById("buffetBookingModal").style.display = "none";
+  setOverlay(document.getElementById("buffetBookingModal"), false);
 });
 
 document
@@ -676,20 +710,34 @@ document
     const okEl = document.getElementById("buffetBookingSuccess");
     errEl.style.display = "none";
     okEl.style.display = "none";
+    const missing = [];
+    if (!name) missing.push("your name");
+    if (!email) missing.push("your email");
+    if (!phone) missing.push("your WhatsApp number");
+    if (missing.length) {
+      errEl.textContent = `Please add ${missing.join(", ")} to book.`;
+      errEl.style.display = "block";
+      return;
+    }
     try {
       const res = await fetch("/api/buffet", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(customerToken ? { Authorization: `Bearer ${customerToken}` } : {}),
+        },
         body: JSON.stringify({ event_id, name, email, phone, seats }),
       });
       const data = await res.json();
       if (!res.ok || !data.success)
         throw new Error(data.error || "Booking failed");
-      okEl.textContent = "Booking confirmed — we look forward to seeing you!";
+      okEl.textContent =
+        "Booking received! We should send your confirmation on WhatsApp shortly. You can check the status anytime under “Check My Bookings”.";
       okEl.style.display = "block";
       document.getElementById("buffetBookingForm").reset();
       // refresh events/bookings availability
       loadPublicBuffet();
+      loadCustomerBuffetBookings();
     } catch (err) {
       errEl.textContent = err.message || "Booking failed";
       errEl.style.display = "block";
@@ -787,7 +835,159 @@ const reservationAdvanceInfoText = document.getElementById(
 const reservationGoToMenuBtn = document.getElementById(
   "reservationGoToMenuBtn",
 );
-let reservationRedirectTimer = null;
+
+// ---- Opening hours (South Africa time) - keep in sync with functions/_lib/hours.js ----
+const OPENING_HOURS = { open: 9 * 60, close: { 0: 20 * 60, 1: 18 * 60, 2: 18 * 60, 3: 18 * 60, 4: 18 * 60, 5: 20 * 60, 6: 21 * 60 } };
+const NOT_OPEN_MESSAGE = "Sorry, try a different time because we don't operate at the time you chose.";
+
+/** Returns an error message when the chosen date/time isn't bookable, else "". */
+function checkReservationSlot(dateStr, timeStr) {
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr || "");
+  const t = /^(\d{1,2}):(\d{2})/.exec(timeStr || "");
+  if (!d || !t) return "Please choose both a date and a time for your reservation.";
+  const weekday = new Date(Date.UTC(+d[1], +d[2] - 1, +d[3])).getUTCDay();
+  const minutes = +t[1] * 60 + +t[2];
+  if (minutes < OPENING_HOURS.open || minutes >= OPENING_HOURS.close[weekday]) return NOT_OPEN_MESSAGE;
+  const now = new Date();
+  const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  if (dateStr < todayKey || (dateStr === todayKey && minutes <= now.getHours() * 60 + now.getMinutes())) {
+    return "That date and time has already passed. Please choose a future time.";
+  }
+  return "";
+}
+
+/** Is the cafe open right now? Uses South Africa time, whatever the device's timezone. */
+function isCafeOpenNow() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Africa/Johannesburg", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date());
+  const get = (t) => parts.find((p) => p.type === t)?.value;
+  const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(get("weekday"));
+  const minutes = (+get("hour") % 24) * 60 + +get("minute");
+  return minutes >= OPENING_HOURS.open && minutes < OPENING_HOURS.close[weekday];
+}
+const CLOSED_MESSAGE = "Can't order at this time, we are currently closed.";
+
+/** Reads a fetch response as JSON without throwing when the server sent an HTML error page. */
+async function safeJson(res) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { error: `The service isn't responding right now (error ${res.status}). Please try again in a moment, or call the cafe to order.` };
+  }
+}
+
+/** "2026-09-24" + "13:30" -> "Thu, 24 Sep 2026 at 13:30" (never "Invalid Date"). */
+function formatReservationWhen(dateStr, timeStr) {
+  const iso = String(dateStr || "").slice(0, 10);
+  const d = new Date(`${iso}T00:00:00`);
+  const dateLabel = isNaN(d.getTime())
+    ? iso
+    : d.toLocaleDateString("en-ZA", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  const time = timeStr ? String(timeStr).slice(0, 5) : "";
+  return time ? `${dateLabel} at ${time}` : dateLabel;
+}
+
+const ACTIVE_RES_KEY = "fulude_active_reservation"; // the booking a pre-order belongs to
+const MY_RES_KEY = "fulude_my_reservations"; // guests: bookings sent from this device
+
+function todayKeyLocal() {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
+}
+function getActiveReservation() {
+  try {
+    const r = JSON.parse(localStorage.getItem(ACTIVE_RES_KEY) || "null");
+    if (r && r.date >= todayKeyLocal()) return r;
+  } catch { /* ignore */ }
+  localStorage.removeItem(ACTIVE_RES_KEY);
+  return null;
+}
+function rememberReservation(r) {
+  try {
+    const list = JSON.parse(localStorage.getItem(MY_RES_KEY) || "[]").filter((x) => x.id !== r.id);
+    list.unshift(r);
+    localStorage.setItem(MY_RES_KEY, JSON.stringify(list.slice(0, 5)));
+  } catch { /* ignore */ }
+}
+
+// Existing-booking panel shown at the top of the reservation modal
+const reservationExisting = document.createElement("div");
+reservationExisting.id = "reservationExisting";
+reservationForm.parentNode.insertBefore(reservationExisting, reservationForm);
+const reservationBookAnotherBtn = document.createElement("button");
+reservationBookAnotherBtn.type = "button";
+reservationBookAnotherBtn.className = "btn btn-secondary btn-block";
+reservationBookAnotherBtn.style.cssText = "background:#000;color:#fff;border-color:#000;margin:10px 0 16px";
+reservationBookAnotherBtn.textContent = "Book another table";
+reservationExisting.after(reservationBookAnotherBtn);
+reservationBookAnotherBtn.addEventListener("click", () => {
+  reservationForm.style.display = "block";
+  reservationBookAnotherBtn.style.display = "none";
+});
+
+async function loadExistingReservations() {
+  let list = [];
+  const today = todayKeyLocal();
+  if (currentCustomer && customerToken) {
+    try {
+      const res = await fetch("/api/reservations", { headers: { Authorization: `Bearer ${customerToken}` } });
+      if (res.ok) list = (await res.json()).reservations || [];
+    } catch { /* fall through to local copy */ }
+  }
+  if (!list.length) {
+    try { list = JSON.parse(localStorage.getItem(MY_RES_KEY) || "[]"); } catch { list = []; }
+  }
+  list = list.filter((r) => String(r.reservation_date || r.date).slice(0, 10) >= today && r.status !== "Completed");
+  if (!list.length) {
+    reservationExisting.innerHTML = "";
+    reservationBookAnotherBtn.style.display = "none";
+    reservationForm.style.display = "block";
+    return;
+  }
+  const colors = { Confirmed: "#1a7f37", Cancelled: "#b42318", Pending: "#8a6d1d" };
+  reservationExisting.innerHTML =
+    `<h4 style="margin:0 0 8px">Your reservation${list.length > 1 ? "s" : ""}</h4>` +
+    list.map((r) => {
+      const date = r.reservation_date || r.date;
+      const time = r.reservation_time || r.time;
+      const size = r.party_size || r.party;
+      const status = r.status || "Pending";
+      const needsPreorder = r.advance_order_requested && !r.advance_order_id && status !== "Cancelled";
+      return `<div class="receipt-card" style="margin-bottom:10px">
+        <div class="receipt-card-header"><strong>${escapeHtml(formatReservationWhen(date, time))}</strong></div>
+        <div class="receipt-meta">${size} guest${size > 1 ? "s" : ""}${r.table_number ? ` · Table ${escapeHtml(r.table_number)}` : ""}</div>
+        <div style="margin:6px 0;font-weight:600;color:${colors[status] || "#8a6d1d"}">Status: ${escapeHtml(status)}${status === "Pending" ? " (we should confirm on WhatsApp)" : ""}</div>
+        ${needsPreorder ? `<button type="button" class="receipt-cancel-btn" data-continue-preorder="${r.id}" data-date="${escapeHtml(String(date).slice(0, 10))}" data-time="${escapeHtml(String(time).slice(0, 5))}" data-party="${size}">Continue pre-order</button>` : ""}
+      </div>`;
+    }).join("");
+  reservationExisting.querySelectorAll("[data-continue-preorder]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      startPreorder({
+        id: Number(btn.dataset.continuePreorder),
+        date: btn.dataset.date,
+        time: btn.dataset.time,
+        party: Number(btn.dataset.party),
+        name: currentCustomer?.name || "",
+        phone: currentCustomer?.phone_number || "",
+      });
+    }),
+  );
+  reservationForm.style.display = "none";
+  reservationBookAnotherBtn.style.display = "block";
+}
+
+/** Remember the booking as the pre-order target and go to the cart (items already in it stay). */
+function startPreorder(r) {
+  localStorage.setItem(ACTIVE_RES_KEY, JSON.stringify(r));
+  reservationModal.classList.remove("active");
+  if (document.getElementById("cartPageBack") || document.querySelector(".cart-panel")) {
+    window.dispatchEvent(new CustomEvent("fulude:preorder"));
+  } else {
+    window.location.href = "menu.html?preorder=1";
+  }
+}
 
 function openReservationModal() {
   reservationError.style.display = "none";
@@ -802,7 +1002,10 @@ function openReservationModal() {
     document.getElementById("reservation-phone").value =
       currentCustomer.phone_number || "";
   }
+  const dateInput = document.getElementById("reservation-date");
+  if (dateInput) dateInput.min = todayKeyLocal();
   reservationModal.classList.add("active");
+  loadExistingReservations();
 }
 
 if (navReservationLink) {
@@ -811,18 +1014,9 @@ if (navReservationLink) {
     openReservationModal();
   });
 }
-
-if (heroReservationBtn) {
-  heroReservationBtn.addEventListener("click", openReservationModal);
-}
-
-if (menuReservationBtn) {
-  menuReservationBtn.addEventListener("click", openReservationModal);
-}
-
-if (reservationBtn) {
-  reservationBtn.addEventListener("click", openReservationModal);
-}
+if (heroReservationBtn) heroReservationBtn.addEventListener("click", openReservationModal);
+if (menuReservationBtn) menuReservationBtn.addEventListener("click", openReservationModal);
+if (reservationBtn) reservationBtn.addEventListener("click", openReservationModal);
 
 reservationModalClose.addEventListener("click", () =>
   reservationModal.classList.remove("active"),
@@ -832,24 +1026,6 @@ reservationModal.addEventListener("click", (e) => {
     reservationModal.classList.remove("active");
 });
 
-function clearReservationRedirectTimer() {
-  if (reservationRedirectTimer) {
-    clearInterval(reservationRedirectTimer);
-    reservationRedirectTimer = null;
-  }
-}
-
-/** On the menu page, scroll to the ordering section; from any other page, navigate to it. */
-function redirectToMenu() {
-  reservationModal.classList.remove("active");
-  const orderSection = document.getElementById("order");
-  if (orderSection) {
-    orderSection.scrollIntoView({ behavior: "smooth" });
-  } else {
-    window.location.href = "menu.html";
-  }
-}
-
 function redirectToSignup() {
   reservationModal.classList.remove("active");
   openAuthModal(
@@ -858,50 +1034,18 @@ function redirectToSignup() {
   );
 }
 
-function startReservationRedirectCountdown() {
-  clearReservationRedirectTimer();
-  let seconds = 7;
-  reservationRedirectCountdown.textContent = seconds;
-  const redirectTarget = currentCustomer ? "menu" : "signup";
-
-  reservationRedirectTimer = setInterval(() => {
-    seconds -= 1;
-    reservationRedirectCountdown.textContent = seconds;
-    if (seconds <= 0) {
-      clearReservationRedirectTimer();
-      if (redirectTarget === "menu") {
-        redirectToMenu();
-      } else {
-        redirectToSignup();
-      }
-    }
-  }, 1000);
-}
-
+// Ticking "pre-order" no longer redirects on its own - it only explains what happens next.
 reservationAdvanceOrderCheckbox.addEventListener("change", () => {
   if (reservationAdvanceOrderCheckbox.checked) {
     reservationAdvanceInfo.style.display = "block";
     reservationAdvanceInfoText.textContent = currentCustomer
-      ? "Requesting advanced food ordering will take you to the menu in "
-      : "Requesting advanced food ordering requires an account. Redirecting to signup in ";
-    reservationAdvanceInfoText.innerHTML +=
-      '<span id="reservationRedirectCountdown">7</span> seconds.';
-    startReservationRedirectCountdown();
+      ? "After you book, we'll open your cart so you can add, edit or remove items and check out. Items already in your cart are included."
+      : "Pre-ordering needs an account. You'll be asked to sign in or create one when you book.";
   } else {
     reservationAdvanceInfo.style.display = "none";
-    clearReservationRedirectTimer();
   }
 });
-
-reservationGoToMenuBtn.addEventListener("click", () => {
-  clearReservationRedirectTimer();
-  if (!currentCustomer) {
-    redirectToSignup();
-    return;
-  }
-
-  redirectToMenu();
-});
+reservationGoToMenuBtn.style.display = "none";
 
 reservationForm.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -920,6 +1064,16 @@ reservationForm.addEventListener("submit", async (e) => {
     return;
   }
 
+  const slotError = checkReservationSlot(
+    document.getElementById("reservation-date").value,
+    document.getElementById("reservation-time").value,
+  );
+  if (slotError) {
+    reservationError.textContent = slotError;
+    reservationError.style.display = "block";
+    return;
+  }
+
   const payload = {
     name: document.getElementById("reservation-name").value.trim(),
     email: document.getElementById("reservation-email").value.trim(),
@@ -932,21 +1086,6 @@ reservationForm.addEventListener("submit", async (e) => {
     ),
     notes: document.getElementById("reservation-notes").value.trim(),
     advance_order_requested: reservationAdvanceOrderCheckbox.checked,
-    cart_items: (() => {
-      try {
-        return JSON.parse(localStorage.getItem("fulude_cart") || "[]").map(
-          (item) => ({
-            id: item.itemId,
-            quantity: item.quantity,
-            spice_level: item.spiceLevel,
-            side: item.side ? item.side.id : undefined,
-            extras: (item.extras || []).map((extra) => extra.id),
-          }),
-        );
-      } catch {
-        return [];
-      }
-    })(),
   };
 
   try {
@@ -964,13 +1103,29 @@ reservationForm.addEventListener("submit", async (e) => {
     if (!res.ok || !data.success)
       throw new Error(data.error || "Couldn't book the reservation.");
 
+    const booked = {
+      id: data.reservation_id,
+      date: payload.reservation_date,
+      time: payload.reservation_time,
+      party: payload.party_size,
+      party_size: payload.party_size,
+      name: payload.name,
+      phone: payload.phone,
+      status: "Pending",
+      advance_order_requested: payload.advance_order_requested,
+    };
+    rememberReservation(booked);
     reservationForm.reset();
     reservationAdvanceInfo.style.display = "none";
+    if (payload.advance_order_requested) {
+      // Keep whatever is already in the cart; the menu page opens the cart with dine-in fixed.
+      startPreorder(booked);
+      return;
+    }
     reservationSuccess.textContent =
-      data.message || "Reservation request received.";
+      "Thank you! We should send your confirmation on WhatsApp shortly. You can reopen “Book Reservation” anytime to see its status.";
     reservationSuccess.style.display = "block";
-    if (data.payment?.action_url)
-      window.location.href = data.payment.action_url;
+    loadExistingReservations();
   } catch (err) {
     reservationError.textContent = err.message;
     reservationError.style.display = "block";
@@ -1065,7 +1220,7 @@ async function refreshMyOrders() {
     const orders = data.orders || [];
 
     if (orders.length === 0) {
-      myOrdersList.innerHTML = `<p class="menu-empty">You haven't placed any orders yet.</p>`;
+      myOrdersList.innerHTML = `<p class="menu-empty">You have no orders from the last 24 hours.</p>`;
       return;
     }
 
@@ -1197,6 +1352,19 @@ function cancelledMessage(order) {
 }
 
 function renderStatusTracker(order) {
+  // Tracking only starts once payment is confirmed. While payment is still
+  // pending (or failed) there is nothing for the kitchen to track yet.
+  if (
+    order.status !== "Cancelled" &&
+    order.payment_method === "online" &&
+    ["awaiting", "failed"].includes(order.payment_status)
+  ) {
+    return `<div class="order-status-cancelled" style="background:#fff8e6;color:#8a6d1d;border-color:#f0d78a"><i class="fas fa-hourglass-half"></i> ${
+      order.payment_status === "failed"
+        ? "Payment failed. Tracking will start once your payment goes through - tap Retry Payment in the receipt below."
+        : "Waiting for payment. Order tracking will start once your payment is confirmed."
+    }</div>`;
+  }
   if (order.status === "Cancelled") {
     return `<div class="order-status-cancelled"><i class="fas fa-circle-xmark"></i> ${cancelledMessage(order)}</div>`;
   }
@@ -1268,6 +1436,14 @@ function renderCancelSection(order) {
   `;
 }
 
+/** "5h 12m" until this order drops off My Orders (24 hours after it was placed). */
+function formatClearsIn(createdAt) {
+  const msLeft = new Date(createdAt).getTime() + 24 * 60 * 60 * 1000 - Date.now();
+  if (!(msLeft > 0)) return "soon";
+  const mins = Math.ceil(msLeft / 60000);
+  return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`;
+}
+
 function renderReceiptCard(order) {
   const itemsHtml = order.items
     .map((item) => {
@@ -1318,15 +1494,16 @@ function renderReceiptCard(order) {
         <strong>Order #${order.id}</strong>
       </div>
       <div class="receipt-meta">${placedDate} · ${orderTypeLabel}</div>
+      <div class="receipt-meta" style="font-style:italic">Clears in: ${formatClearsIn(order.created_at)}</div>
 
       ${renderStatusTracker(order)}
+      ${retryPayment && order.status !== "Cancelled" ? `<div class="receipt-cancel-row"><button type="button" class="receipt-cancel-btn" data-retry-payment="${order.id}">Pay Now</button></div>` : ""}
       ${renderCancelSection(order)}
 
       <button type="button" class="receipt-toggle-btn" data-toggle-receipt="${order.id}">${isOpen ? "Hide Receipt" : "View Receipt"}</button>
 
       <div class="receipt-details${isOpen ? " open" : ""}" data-order-id="${order.id}">
         <div class="receipt-meta">${order.pickup_time} · ${paymentText}</div>
-        ${retryPayment ? `<button type="button" class="receipt-cancel-btn" data-retry-payment="${order.id}">Retry Payment</button>` : ""}
         <ul class="receipt-items">${itemsHtml}</ul>
         <div class="receipt-total"><span>Total</span><span>${money(order.total_amount)}</span></div>
       </div>
@@ -1370,23 +1547,100 @@ function checkPaymentReturn() {
 // ---------------------------------------------------------------------
 // Buffet visibility (admin-controlled, home page only)
 // ---------------------------------------------------------------------
-async function loadConfig() {
-  const buffetSection = document.getElementById("buffetSection");
-  if (!buffetSection) return;
+const OUT_OF_SERVICE_TITLE = "Sorry, we are not taking orders at the moment.";
+
+/** Always asks the server (never cached) so checkout reacts the moment admin flips the switch. */
+async function fetchStoreConfig() {
   try {
-    const res = await fetch("/api/config");
-    if (!res.ok) return;
+    const res = await fetch("/api/config", { cache: "no-store" });
+    if (!res.ok) return null;
     const config = await res.json();
-    if (config.is_buffet_visible) {
-      buffetSection.style.display = "block";
-      try {
-        loadPublicBuffet();
-      } catch (e) {
-        /* ignore */
-      }
-    }
+    window.storeConfig = config;
+    return config;
   } catch {
-    /* non-critical - buffet section just stays hidden */
+    return null;
+  }
+}
+
+/** Pop-up notice in the site's standard gold notice style. */
+function showSiteNotice(title, message) {
+  let overlay = document.getElementById("siteNoticeModal");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.id = "siteNoticeModal";
+    overlay.innerHTML = `
+      <div class="modal" style="max-width: 440px">
+        <button class="modal-close" type="button" aria-label="Close">&times;</button>
+        <h3 id="siteNoticeTitle"></h3>
+        <p class="site-notice" id="siteNoticeText" style="margin-bottom: 0"></p>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.classList.remove("active");
+    overlay.querySelector(".modal-close").addEventListener("click", close);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+  }
+  overlay.querySelector("#siteNoticeTitle").textContent = title;
+  overlay.querySelector("#siteNoticeText").textContent = message || "";
+  overlay.classList.add("active");
+}
+
+/** Out-of-service pop-up: title + the reason the admin typed. */
+function showOutOfServiceNotice(reason) {
+  showSiteNotice(OUT_OF_SERVICE_TITLE, reason || "Please check back soon.");
+}
+
+function renderOutOfServiceNotice(el, config) {
+  el.innerHTML = "";
+  const strong = document.createElement("strong");
+  strong.textContent = OUT_OF_SERVICE_TITLE;
+  el.appendChild(strong);
+  if (config.out_of_service_reason) {
+    const span = document.createElement("span");
+    span.textContent = config.out_of_service_reason;
+    el.appendChild(span);
+  }
+  el.style.display = "block";
+}
+
+async function loadConfig() {
+  const config = await fetchStoreConfig();
+  if (!config) return; // non-critical - everything just stays hidden
+
+  // Buffet section (home page)
+  const buffetSection = document.getElementById("buffetSection");
+  if (buffetSection && config.is_buffet_visible) {
+    buffetSection.style.display = "block";
+    try {
+      loadPublicBuffet();
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  // Out of service: hero notice on the home page, banner on the menu page
+  const heroNotice = document.getElementById("heroServiceNotice");
+  if (heroNotice) {
+    if (config.is_out_of_service) renderOutOfServiceNotice(heroNotice, config);
+    else heroNotice.style.display = "none";
+  } else if (config.is_out_of_service && document.getElementById("checkoutBtn")) {
+    const banner = document.createElement("div");
+    banner.className = "site-notice service-banner";
+    renderOutOfServiceNotice(banner, config);
+    const anchor = document.getElementById("paymentBanner");
+    if (anchor) anchor.insertAdjacentElement("afterend", banner);
+  }
+
+  // Admin announcement: white rounded bar under the hero buttons
+  const annWrap = document.getElementById("heroAnnouncementWrap");
+  const annEl = document.getElementById("heroAnnouncement");
+  if (annWrap && annEl) {
+    if (config.announcement_message) {
+      annEl.textContent = config.announcement_message;
+      annWrap.style.display = "block";
+    } else {
+      annWrap.style.display = "none";
+    }
   }
 }
 
@@ -1676,3 +1930,31 @@ async function confirmPasswordChange(token) {
   alert(message);
   if (ok) openAuthModal("signin");
 }
+
+// ---------------------------------------------------------------------
+// "Install app" button - shown when the browser says the site can be
+// installed as a real app (Chrome/Edge/Android). iPhone: Share > Add to Home Screen.
+// ---------------------------------------------------------------------
+(function setupInstallPrompt() {
+  let deferred = null;
+  const isStandalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+  if (isStandalone) return;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.innerHTML = '<i class="fas fa-download"></i> Install app';
+  btn.style.cssText = "display:none;position:fixed;left:16px;bottom:16px;z-index:150;background:#000;color:#fff;border:1.5px solid #b8963f;border-radius:999px;padding:10px 18px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.3)";
+  document.body.appendChild(btn);
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferred = e;
+    btn.style.display = "block";
+  });
+  btn.addEventListener("click", async () => {
+    if (!deferred) return;
+    deferred.prompt();
+    await deferred.userChoice.catch(() => {});
+    deferred = null;
+    btn.style.display = "none";
+  });
+  window.addEventListener("appinstalled", () => (btn.style.display = "none"));
+})();

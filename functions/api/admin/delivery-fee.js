@@ -8,7 +8,7 @@
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { sanitizeText } from "../../_lib/security.js";
-import { logAudit } from "../../_lib/audit.js";
+import { logAudit, money } from "../../_lib/audit.js";
 import { getRequestIp } from "../../_lib/security.js";
 
 export async function onRequestGet(context) {
@@ -50,10 +50,24 @@ export async function onRequestPost(context) {
   const { bands, cafe_latitude, cafe_longitude, cafe_phone, cafe_email } = body;
 
   try {
+    // Snapshot the "before" values so the audit log can show exactly what changed.
+    const [beforeBandsRes, beforeCfgRes] = await Promise.all([
+      runQuery(env, `SELECT id, up_to_km, fee FROM delivery_fee_bands ORDER BY sort_order;`),
+      runQuery(env, `SELECT cafe_latitude, cafe_longitude, cafe_phone, cafe_email FROM app_config WHERE id = 1;`),
+    ]);
+    const beforeBands = Object.fromEntries((beforeBandsRes.rows || []).map((b) => [b.id, b]));
+    const beforeCfg = beforeCfgRes.rows[0] || {};
+    const bandLabel = (b) => (b && b.up_to_km != null ? `Up to ${Number(b.up_to_km)} km` : "Band");
+
+    const feeChanges = [];
     // Update fee bands (only fee is editable, up_to_km and sort_order are fixed)
     if (Array.isArray(bands)) {
       for (const band of bands) {
         if (typeof band.id === "number" && typeof band.fee === "number" && band.fee >= 0) {
+          const old = beforeBands[band.id];
+          if (old && Number(old.fee) !== band.fee) {
+            feeChanges.push({ label: bandLabel(old), from: money(old.fee), to: money(band.fee) });
+          }
           await runQuery(
             env,
             `UPDATE delivery_fee_bands SET fee = $1, updated_at = NOW() WHERE id = $2;`,
@@ -66,24 +80,20 @@ export async function onRequestPost(context) {
     // Update cafe location and contact
     const updates = [];
     const params = [];
+    const cfgChanges = [];
     let paramIdx = 1;
+    const track = (col, label, value, oldValue) => {
+      updates.push(`${col} = $${paramIdx++}`);
+      params.push(value);
+      const a = oldValue == null || oldValue === "" ? "none" : String(oldValue);
+      const b = value == null || value === "" ? "none" : String(value);
+      if (a !== b) cfgChanges.push({ label, from: a, to: b });
+    };
 
-    if (cafe_latitude != null) {
-      updates.push(`cafe_latitude = $${paramIdx++}`);
-      params.push(parseFloat(cafe_latitude));
-    }
-    if (cafe_longitude != null) {
-      updates.push(`cafe_longitude = $${paramIdx++}`);
-      params.push(parseFloat(cafe_longitude));
-    }
-    if (cafe_phone != null) {
-      updates.push(`cafe_phone = $${paramIdx++}`);
-      params.push(sanitizeText(cafe_phone, 50));
-    }
-    if (cafe_email != null) {
-      updates.push(`cafe_email = $${paramIdx++}`);
-      params.push(sanitizeText(cafe_email, 200));
-    }
+    if (cafe_latitude != null) track("cafe_latitude", "Cafe latitude", parseFloat(cafe_latitude), beforeCfg.cafe_latitude != null ? parseFloat(beforeCfg.cafe_latitude) : null);
+    if (cafe_longitude != null) track("cafe_longitude", "Cafe longitude", parseFloat(cafe_longitude), beforeCfg.cafe_longitude != null ? parseFloat(beforeCfg.cafe_longitude) : null);
+    if (cafe_phone != null) track("cafe_phone", "Cafe phone", sanitizeText(cafe_phone, 50), beforeCfg.cafe_phone);
+    if (cafe_email != null) track("cafe_email", "Cafe email", sanitizeText(cafe_email, 200), beforeCfg.cafe_email);
 
     if (updates.length > 0) {
       await runQuery(
@@ -93,14 +103,29 @@ export async function onRequestPost(context) {
       );
     }
 
-    await logAudit(env, {
-      actor_type: "admin",
-      actor_role: "admin",
-      actor_ip: requestIp,
-      action: "delivery_fee_updated",
-      target_type: "delivery_fee_bands",
-      details: { bands_count: bands?.length || 0 },
-    });
+    const auditBase = { actor_type: "admin", actor_role: "admin", actor_ip: requestIp };
+    if (feeChanges.length) {
+      await logAudit(env, {
+        ...auditBase,
+        action: "delivery_fee_updated",
+        target_type: "delivery_fee_bands",
+        details: {
+          summary: "Delivery fee changed: " + feeChanges.map((c) => `${c.label} ${c.from} → ${c.to}`).join("; "),
+          changes: feeChanges,
+        },
+      });
+    }
+    if (cfgChanges.length) {
+      await logAudit(env, {
+        ...auditBase,
+        action: "cafe_details_updated",
+        target_type: "app_config",
+        details: {
+          summary: "Cafe location/contact changed: " + cfgChanges.map((c) => `${c.label} ${c.from} → ${c.to}`).join("; "),
+          changes: cfgChanges,
+        },
+      });
+    }
 
     return jsonResponse({ success: true });
   } catch (err) {

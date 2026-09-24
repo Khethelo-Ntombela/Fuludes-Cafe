@@ -2887,3 +2887,137 @@ button.kpi-card {
 .res-new-form .res-full {
   grid-column: 1 / -1;
 }
+
+/* ---------------- Out of Service banner + store status ---------------- */
+.oos-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--sa-red);
+  color: #fff;
+  padding: 10px 20px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+.oos-banner .oos-banner-short {
+  display: none;
+}
+.oos-banner-btn {
+  margin-left: auto;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 8px;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.oos-banner-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+@media (max-width: 720px) {
+  .oos-banner .oos-banner-full {
+    display: none;
+  }
+  .oos-banner .oos-banner-short {
+    display: inline;
+  }
+}
+.oos-reason-row {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--sa-red-soft);
+  border: 1px solid #fecdca;
+  border-radius: 10px;
+}
+.oos-reason-text {
+  color: var(--sa-red);
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin: 4px 0 8px;
+  word-break: break-word;
+}
+.store-status-card input[type="text"],
+#oosReasonInput {
+  width: 100%;
+  border: 1px solid var(--sa-border-strong);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  background: var(--sa-card);
+  font-family: inherit;
+}
+
+/* ---------------- Readable audit log ---------------- */
+#auditTable .audit-action-tag {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  background: var(--sa-gold-soft);
+  color: var(--sa-gold);
+  margin-bottom: 4px;
+  white-space: nowrap;
+}
+#auditTable .audit-action-tag.danger {
+  background: var(--sa-red-soft);
+  color: var(--sa-red);
+}
+#auditTable .audit-action-tag.good {
+  background: var(--sa-green-soft);
+  color: var(--sa-green-deep);
+}
+#auditTable .audit-summary {
+  display: block;
+  color: var(--sa-text);
+  line-height: 1.4;
+}
+#auditTable td.audit-changes {
+  font-family: inherit;
+  max-width: none;
+  white-space: normal;
+  cursor: pointer;
+}
+#auditTable td.audit-changes:hover {
+  text-decoration: none;
+}
+.audit-change-line {
+  display: block;
+  padding: 2px 0;
+}
+.audit-change-line b {
+  font-weight: 600;
+}
+.audit-from {
+  color: var(--sa-muted);
+  text-decoration: line-through;
+}
+.audit-to {
+  color: var(--sa-green-deep);
+  font-weight: 600;
+}
+#auditTable thead th:nth-child(2),
+#auditTable tbody td:nth-child(2) {
+  width: 300px;
+}
+
+/* Dashboard KPI "Clear" button (Pending / Delivery / Reservations Today) */
+.kpi-card { position: relative; }
+.kpi-clear-btn {
+  align-self: flex-start;
+  margin-top: 8px;
+  background: transparent;
+  border: 1px solid var(--sa-border, #d0d5dd);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: inherit;
+  cursor: pointer;
+}
+.kpi-clear-btn:hover { background: rgba(0, 0, 0, 0.06); }
+.kpi-clears { display:block; margin-top:6px; font-size:0.7rem; font-style:italic; color: var(--sa-faint, #667085); }

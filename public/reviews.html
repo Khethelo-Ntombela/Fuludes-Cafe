@@ -12,7 +12,7 @@
     <meta name="robots" content="index, follow" />
     <link rel="canonical" href="https://fuludescafe.co.za/reviews" />
 
-    <link rel="stylesheet" href="css/style.css" />
+    <link rel="stylesheet" href="css/style.css?v=2" />
     <link
       href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap"
       rel="stylesheet"
@@ -263,7 +263,7 @@
       </div>
     </div>
 
-    <!-- My Orders: every order ever placed on this account -->
+    <!-- My Orders: orders from the last 24 hours -->
     <div class="modal-overlay" id="myOrdersModal">
       <div class="modal">
         <button class="modal-close" id="myOrdersModalClose">&times;</button>
@@ -415,7 +415,7 @@
         </button>
         <button
           type="button"
-          class="btn btn-secondary btn-block"
+          class="btn btn-block btn-account-settings"
           id="openSettingsBtn"
         >
           <i class="fas fa-gear"></i> Settings
@@ -427,7 +427,10 @@
     </div>
 
     <script src="https://accounts.google.com/gsi/client" async defer onload="if (typeof initGoogleSignIn === 'function') initGoogleSignIn();"></script>
-    <script src="js/site.js"></script>
+    <script src="js/site.js?v=2"></script>
     <script src="js/reviews.js"></script>
-  </body>
+  <script>
+  if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+</script>
+</body>
 </html>

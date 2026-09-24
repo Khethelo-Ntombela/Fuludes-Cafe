@@ -259,6 +259,7 @@ CREATE TABLE IF NOT EXISTS customer_reservations (
   created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE customer_reservations ADD COLUMN IF NOT EXISTS admin_cleared BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS idx_customer_reservations_customer ON customer_reservations(customer_id);
 
 CREATE TABLE IF NOT EXISTS admin_accounts (
@@ -409,8 +410,12 @@ CREATE TABLE IF NOT EXISTS app_config (
   is_buffet_visible  BOOLEAN NOT NULL DEFAULT FALSE,
   is_out_of_service  BOOLEAN NOT NULL DEFAULT FALSE,
   out_of_service_reason TEXT,
+  announcement_message  TEXT,
   CONSTRAINT single_row CHECK (id = 1)
 );
+ALTER TABLE app_config ADD COLUMN IF NOT EXISTS is_out_of_service BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE app_config ADD COLUMN IF NOT EXISTS out_of_service_reason TEXT;
+ALTER TABLE app_config ADD COLUMN IF NOT EXISTS announcement_message TEXT;
 INSERT INTO app_config (id, is_buffet_visible) VALUES (1, FALSE)
   ON CONFLICT (id) DO NOTHING;
 
@@ -456,7 +461,7 @@ CREATE TABLE IF NOT EXISTS buffet_bookings (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- booking lifecycle status: confirmed|cancelled
+-- booking lifecycle status: pending|confirmed|cancelled|expired (new bookings start as pending; admin confirms)
 ALTER TABLE buffet_bookings ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'confirmed';
 
 -- ---------------------------------------------------------------------

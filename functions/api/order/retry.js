@@ -30,8 +30,8 @@ export async function onRequestPost(context) {
         customerName: order.customer_name,
         customerEmail: customer.email,
         customerPhone: order.customer_phone,
-        returnUrl: `${origin}/?payment=success&order_id=${order.id}`,
-        cancelUrl: `${origin}/?payment=cancelled&order_id=${order.id}`,
+        returnUrl: `${origin}/home.html?payment=success&order_id=${order.id}`,
+        cancelUrl: `${origin}/home.html?payment=cancelled&order_id=${order.id}`,
         notifyUrl: `${origin}/api/payment/notify`,
       }),
     });

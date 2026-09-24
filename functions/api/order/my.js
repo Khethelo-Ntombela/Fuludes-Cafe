@@ -2,8 +2,9 @@
  * functions/api/order/my.js
  * -----------------------------------------------------------------------
  * GET /api/order/my  (Authorization: Bearer <customer session token>)
- * The "My Orders" listing - every order ever placed by the signed-in
- * account, newest first. This replaced the old guest system entirely
+ * The "My Orders" listing - orders placed by the signed-in account in the
+ * last 24 hours, newest first (older ones drop off this list automatically;
+ * the cafe's own order history is unaffected). This replaced the old guest system entirely
  * (remembering {order id, phone} in localStorage with a 24-hour expiry) -
  * now that accounts are required to check out, order history just lives
  * on the account and is available for as long as the account exists, no
@@ -29,6 +30,7 @@ export async function onRequestGet(context) {
              kitchen_release_at, created_at
       FROM orders
       WHERE customer_id = $1
+        AND created_at > NOW() - INTERVAL '24 hours'
       ORDER BY created_at DESC
       LIMIT $2;
     `, [customer.id, MAX_ORDERS]);

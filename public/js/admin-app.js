@@ -165,6 +165,10 @@ function activateTab(tabName) {
 
 document.querySelectorAll(".admin-tab-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
+    try {
+      sessionStorage.setItem("fulude_admin_tab", btn.dataset.tab);
+      history.replaceState(null, "", `#${btn.dataset.tab}`);
+    } catch { /* ignore */ }
     $id("topbarTitle").textContent = TAB_TITLES[btn.dataset.tab] || "Dashboard";
     dashShell.classList.remove("sidebar-open");
     $id("topbarSearch").value = "";
@@ -297,6 +301,37 @@ async function fetchAwaitingOrders() {
   return window.adminAwaiting;
 }
 
+// ---------------------------------------------------------------------
+// Manual "Clear" for the dashboard's Pending Orders / Delivery Orders /
+// Reservations Today cards.
+//  - Pending Orders: really deletes the unpaid orders (paid ones are never
+//    touched) - stale "awaiting payment" orders otherwise pile up forever.
+//  - Delivery Orders / Reservations Today: these are real records, so
+//    clearing only resets the card's counter for today (remembered in this
+//    browser); anything new that comes in afterwards is counted again.
+// ---------------------------------------------------------------------
+const localDayKey = (d = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+function getDismissedIds(kind) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(`fulude_dash_cleared_${kind}`) || "null");
+    if (raw && raw.day === localDayKey()) return new Set(raw.ids);
+  } catch { /* ignore */ }
+  return new Set();
+}
+function dismissIds(kind, ids) {
+  const merged = new Set([...getDismissedIds(kind), ...ids]);
+  localStorage.setItem(`fulude_dash_cleared_${kind}`, JSON.stringify({ day: localDayKey(), ids: [...merged] }));
+}
+
+/** "5h 12m" until local midnight, when the "today" numbers roll over. */
+function clearsInMidnight() {
+  const n = new Date();
+  const mins = Math.ceil((new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1) - n) / 60000);
+  return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`;
+}
+
 function renderDashKpis(history, stats, months) {
   // Everything below counts PAID orders only - unpaid ones live under "Pending Orders".
   const todays = history.filter((o) => isPaidOrder(o) && isToday(o.created_at));
@@ -304,10 +339,14 @@ function renderDashKpis(history, stats, months) {
   const avgOrder = todays.length ? revenueToday / todays.length : 0;
   const { awaiting } = window.adminAwaiting;
   const awaitingValue = awaiting.reduce((s, o) => s + Number(o.total_amount || 0), 0);
-  const deliveryToday = todays.filter((o) => o.order_type === "delivery").length;
-  const todayKey = new Date().toISOString().slice(0, 10);
+  const dismissedDelivery = getDismissedIds("delivery");
+  const deliveryList = todays.filter((o) => o.order_type === "delivery" && !dismissedDelivery.has(o.id));
+  const deliveryToday = deliveryList.length;
+  const todayKey = localDayKey();
   const allReservations = typeof reservations !== "undefined" ? reservations : [];
-  const resToday = allReservations.filter((r) => r.reservation_date === todayKey && r.status !== "Cancelled").length;
+  const dismissedRes = getDismissedIds("reservations");
+  const resList = allReservations.filter((r) => r.reservation_date === todayKey && r.status !== "Cancelled" && !dismissedRes.has(r.id));
+  const resToday = resList.length;
 
   const revSpark = sparklineSvg(months.map((m) => Number(m.revenue || 0)));
   const ordSpark = sparklineSvg(months.map((m) => Number(m.order_count || 0)));
@@ -315,30 +354,71 @@ function renderDashKpis(history, stats, months) {
   const kpis = [
     { label: "Today's Orders", sub: "paid", icon: "fa-receipt", value: todays.length, spark: ordSpark, trend: trendHtml(months, "order_count") },
     { label: "Revenue Today", icon: "fa-coins", value: `R${revenueToday.toFixed(0)}`, spark: revSpark, trend: trendHtml(months, "revenue") },
-    { label: "Avg Order Value", icon: "fa-basket-shopping", value: `R${avgOrder.toFixed(0)}`, spark: "", trend: "" },
+    { label: "Avg Order Value", icon: "fa-basket-shopping", value: `R${avgOrder.toFixed(0)}`, spark: "", trend: "", note: "Based on today's orders" },
     {
       label: "Pending Orders", sub: "awaiting payment", icon: "fa-hourglass-half", value: awaiting.length,
       spark: "", trend: `<span class="kpi-hint">${awaiting.length ? `R${awaitingValue.toFixed(0)} unpaid · ` : ""}View <i class="fas fa-arrow-right"></i></span>`,
-      action: "awaiting"
+      action: "awaiting", clear: awaiting.length ? "pending" : "", note: "Clears: manually only"
     },
-    { label: "Delivery Orders", sub: "paid", icon: "fa-motorcycle", value: deliveryToday, spark: "", trend: "" },
-    { label: "Reservations Today", icon: "fa-calendar-check", value: resToday, spark: "", trend: "" }
+    { label: "Delivery Orders", sub: "paid", icon: "fa-motorcycle", value: deliveryToday, spark: "", trend: "", clear: deliveryToday ? "delivery" : "" },
+    { label: "Reservations Today", icon: "fa-calendar-check", value: resToday, spark: "", trend: "", clear: resToday ? "reservations" : "" }
   ];
 
   $id("dashKpis").innerHTML = kpis
     .map(
       (k) => `
-      <${k.action ? `button type="button" data-kpi-action="${k.action}"` : "div"} class="kpi-card${k.action ? " kpi-clickable" : ""}">
+      <div class="kpi-card${k.action ? " kpi-clickable" : ""}"${k.action ? ` data-kpi-action="${k.action}" role="button" tabindex="0"` : ""}>
         <div class="kpi-top"><span class="kpi-label">${k.label}${k.sub ? `<small class="kpi-sub">${k.sub}</small>` : ""}</span><span class="kpi-icon"><i class="fas ${k.icon}"></i></span></div>
         <span class="kpi-value">${k.value}</span>
         <div class="kpi-foot">${k.trend || "<span></span>"}${k.spark}</div>
-      </${k.action ? "button" : "div"}>`
+        <span class="kpi-clears">${k.note || `Clears in: ${clearsInMidnight()}`}</span>
+        ${k.clear ? `<button type="button" class="kpi-clear-btn" data-kpi-clear="${k.clear}"><i class="fas fa-eraser"></i> Clear</button>` : ""}
+      </div>`
     )
     .join("");
+
+  window._dashClearable = {
+    delivery: deliveryList.map((o) => o.id),
+    reservations: resList.map((r) => r.id)
+  };
 }
+
+async function clearPendingOrders(singleId) {
+  const msg = singleId
+    ? `Delete unpaid order #${singleId}? This can't be undone.`
+    : "Delete ALL unpaid (awaiting payment / failed) orders? Paid orders are never affected. This can't be undone.";
+  if (!confirm(msg)) return false;
+  try {
+    const qs = singleId ? `&id=${singleId}` : "";
+    const res = await adminFetch(`/api/admin/orders?scope=unpaid${qs}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || "Couldn't clear.");
+  } catch (err) {
+    alert(err.message || "Couldn't clear pending orders.");
+    return false;
+  }
+  await fetchAwaitingOrders();
+  loadDashboardKpisOnly();
+  return true;
+}
+
+// "Clear" buttons on the KPI cards
+$id("dashKpis").addEventListener("click", async (e) => {
+  const clearBtn = e.target.closest("[data-kpi-clear]");
+  if (!clearBtn) return;
+  e.stopPropagation();
+  const kind = clearBtn.dataset.kpiClear;
+  if (kind === "pending") {
+    await clearPendingOrders();
+  } else if (kind === "delivery" || kind === "reservations") {
+    dismissIds(kind, (window._dashClearable || {})[kind] || []);
+    loadDashboardKpisOnly();
+  }
+}, true);
 
 // Click the Pending Orders card -> list of orders awaiting payment + stats
 $id("dashKpis").addEventListener("click", (e) => {
+  if (e.target.closest("[data-kpi-clear]")) return;
   const card = e.target.closest("[data-kpi-action]");
   if (card && card.dataset.kpiAction === "awaiting") openAwaitingModal();
 });
@@ -353,6 +433,7 @@ async function openAwaitingModal() {
       <div class="sa-modal" role="dialog" aria-modal="true" aria-labelledby="awaitingTitle">
         <div class="sa-modal-head">
           <h3 id="awaitingTitle">Orders awaiting payment</h3>
+          <button type="button" class="admin-mini-btn" id="awaitingClearAll"><i class="fas fa-eraser"></i> Clear all</button>
           <button type="button" class="admin-mini-btn" id="awaitingRefresh"><i class="fas fa-rotate"></i> Refresh</button>
           <button type="button" class="admin-mini-btn" id="awaitingClose" aria-label="Close">&times;</button>
         </div>
@@ -362,6 +443,11 @@ async function openAwaitingModal() {
     overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.classList.remove("active"); });
     $id("awaitingClose").addEventListener("click", () => overlay.classList.remove("active"));
     $id("awaitingRefresh").addEventListener("click", async () => { await fetchAwaitingOrders(); renderAwaitingModal(); loadDashboardKpisOnly(); });
+    $id("awaitingClearAll").addEventListener("click", async () => { if (await clearPendingOrders()) renderAwaitingModal(); });
+    $id("awaitingBody").addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-clear-pending]");
+      if (btn && (await clearPendingOrders(parseInt(btn.dataset.clearPending, 10)))) renderAwaitingModal();
+    });
   }
   overlay.classList.add("active");
   $id("awaitingBody").innerHTML = '<p class="menu-loading">Loading&hellip;</p>';
@@ -393,7 +479,7 @@ function renderAwaitingModal() {
               <div class="sa-list-sub">${items || "—"}</div>
               <div class="sa-list-sub">${new Date(o.created_at).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" })} · waiting ${waitingFor(o.created_at)}${phone ? ` · <a href="tel:${phone}">${phone}</a>` : ""}</div>
             </div>
-            <span class="sa-list-end">${money(o.total_amount)}</span>
+            <span class="sa-list-end">${money(o.total_amount)}<br><button type="button" class="admin-mini-btn" data-clear-pending="${o.id}" title="Delete this unpaid order"><i class="fas fa-trash"></i></button></span>
           </div>`;
         })
         .join("")
@@ -1382,3 +1468,16 @@ document.querySelectorAll("[data-goto-tab]").forEach((btn) => {
     }
   });
 })();
+
+
+// Refreshing the admin page keeps you on the tab you were on (not back on Dashboard).
+function restoreAdminTab() {
+  const wanted = (location.hash || "").replace("#", "") || sessionStorage.getItem("fulude_admin_tab");
+  if (wanted && wanted !== "dashboard") activateTab(wanted);
+}
+if ($id("dashboard").style.display !== "none") restoreAdminTab();
+const _showDashboardForRestore = showDashboard;
+showDashboard = function () {
+  _showDashboardForRestore();
+  setTimeout(restoreAdminTab, 0);
+};

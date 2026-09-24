@@ -276,6 +276,7 @@ function loadEverything() {
   loadAdminReviews();
   loadBuffetSetting();
   initBuffetAdminHandlers();
+  initStoreStatusHandlers();
   initAuditHandlers();
   loadStaffAccounts();
   loadReservations();
@@ -2199,7 +2200,7 @@ async function handleStaffAccountAction(action, id) {
 
 /** Confirmation text for a table booking (opened in WhatsApp for the admin to send). */
 function reservationWhatsAppText(r) {
-  const d = new Date(`${r.reservation_date}T00:00:00`);
+  const d = new Date(`${String(r.reservation_date).slice(0, 10)}T00:00:00`);
   const dateLabel = d.toLocaleDateString("en-ZA", { weekday: "long", day: "numeric", month: "long" });
   const time = r.reservation_time ? String(r.reservation_time).slice(0, 5) : "";
   const cancelled = r.status === "Cancelled";
@@ -2227,15 +2228,18 @@ function renderReservationSummary() {
   const wrap = document.getElementById("resSummary");
   if (!wrap) return;
 
-  const todayKey = new Date().toISOString().slice(0, 10);
+  const nowD = new Date();
+  const todayKey = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, "0")}-${String(nowD.getDate()).padStart(2, "0")}`;
+  // Completed (fulfilled) bookings still count towards today's stats even
+  // after the admin has cleared them from the list.
   const today = reservations.filter(
     (r) => r.reservation_date === todayKey && r.status !== "Cancelled",
   );
   const upcoming = reservations.filter(
-    (r) => r.reservation_date > todayKey && r.status !== "Cancelled",
+    (r) => r.reservation_date > todayKey && r.status !== "Cancelled" && r.status !== "Completed",
   );
   const pending = reservations.filter((r) => r.status === "Pending");
-  const guestsToday = today.reduce((s, r) => s + (r.party_size || 0), 0);
+  const guestsToday = today.reduce((s, r) => s + (Number(r.party_size) || 0), 0);
 
   wrap.innerHTML = `
     <div class="kpi-card"><span class="kpi-label">Today's Reservations</span><span class="kpi-value">${today.length}</span></div>
@@ -2249,15 +2253,21 @@ function renderReservations() {
   const list = document.getElementById("reservationsList");
   renderReservationSummary();
 
-  if (reservations.length === 0) {
-    list.innerHTML = `<p class="menu-empty">No reservations yet.</p>`;
+  const visible = reservations.filter((r) => !r.admin_cleared);
+  const finishedCount = visible.filter((r) => r.status === "Completed" || r.status === "Cancelled").length;
+  if (visible.length === 0) {
+    list.innerHTML = `<p class="menu-empty">No reservations to show.</p>`;
     return;
   }
 
-  list.innerHTML = reservations
+  const clearBar = finishedCount
+    ? `<div style="margin-bottom:10px"><button type="button" class="btn admin-mini-btn" id="clearFinishedReservationsBtn"><i class="fas fa-eraser"></i> Clear completed &amp; cancelled (${finishedCount})</button> <span class="admin-hint" style="margin:0">Completed bookings stay in today's stats.</span></div>`
+    : "";
+
+  list.innerHTML = clearBar + visible
     .map((reservation) => {
       const dateLabel = new Date(
-        `${reservation.reservation_date}T00:00:00`,
+        `${String(reservation.reservation_date).slice(0, 10)}T00:00:00`,
       ).toLocaleDateString("en-ZA", {
         weekday: "short",
         day: "2-digit",
@@ -2284,6 +2294,7 @@ function renderReservations() {
               <option value="Completed" ${reservation.status === "Completed" ? "selected" : ""}>Completed</option>
             </select>
             <button type="button" class="btn btn-primary admin-mini-btn" data-reservation-update="${reservation.id}">Save</button>
+            ${reservation.status === "Completed" || reservation.status === "Cancelled" ? `<button type="button" class="btn admin-mini-btn" data-reservation-clear="${reservation.id}" title="Remove from this list"><i class="fas fa-eraser"></i> Clear</button>` : ""}
             <a class="btn admin-mini-btn wa-btn" target="_blank" rel="noopener" title="Send the customer a WhatsApp confirmation"
                href="${window.waLink ? window.waLink(reservation.customer_phone, reservationWhatsAppText(reservation)) : "#"}"><i class="fab fa-whatsapp"></i> WhatsApp</a>
           </div>
@@ -2291,6 +2302,25 @@ function renderReservations() {
       `;
     })
     .join("");
+
+  const doClear = async (payload) => {
+    try {
+      await adminFetch("/api/admin/reservations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      loadReservations();
+    } catch {
+      alert("Couldn't clear.");
+    }
+  };
+  list.querySelectorAll("[data-reservation-clear]").forEach((btn) =>
+    btn.addEventListener("click", () => doClear({ action: "clear", reservation_id: parseInt(btn.dataset.reservationClear, 10) })),
+  );
+  document.getElementById("clearFinishedReservationsBtn")?.addEventListener("click", () => {
+    if (confirm("Clear all completed & cancelled bookings from this list? Completed ones still count in today's stats.")) doClear({ action: "clear_finished" });
+  });
 
   list.querySelectorAll("[data-reservation-update]").forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -2312,9 +2342,115 @@ function renderReservations() {
 }
 
 async function loadBuffetSetting() {
-  const res = await fetch("/api/config");
+  const res = await fetch("/api/config", { cache: "no-store" });
   const data = await res.json();
   document.getElementById("buffetToggle").checked = !!data.is_buffet_visible;
+  applyStoreStatus(data);
+}
+
+// ---------------- Store status: Out of Service + hero announcement ----------------
+function applyStoreStatus(data) {
+  const on = !!data.is_out_of_service;
+  const reason = data.out_of_service_reason || "";
+  const toggle = document.getElementById("oosToggle");
+  if (toggle) toggle.checked = on;
+  const banner = document.getElementById("oosBanner");
+  if (banner) banner.style.display = on ? "flex" : "none";
+  const row = document.getElementById("oosReasonRow");
+  if (row) row.style.display = on ? "block" : "none";
+  const text = document.getElementById("oosReasonText");
+  if (text) text.textContent = reason;
+  const ann = document.getElementById("announcementInput");
+  if (ann && document.activeElement !== ann) ann.value = data.announcement_message || "";
+}
+
+async function saveConfig(patch) {
+  const res = await adminFetch("/api/admin/config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) throw new Error(data.error || "Couldn't save that setting.");
+  applyStoreStatus(data);
+  return data;
+}
+
+let oosModalMode = "enable"; // "enable" | "edit"
+function openOosModal(mode, currentReason = "") {
+  oosModalMode = mode;
+  document.querySelector("#oosModal h3").textContent =
+    mode === "edit" ? "Edit Out of Service reason" : "Turn on Out of Service";
+  document.getElementById("oosConfirmBtn").textContent = mode === "edit" ? "Save" : "Turn on";
+  document.getElementById("oosReasonInput").value = currentReason;
+  document.getElementById("oosModalError").style.display = "none";
+  document.getElementById("oosModal").classList.add("active");
+  document.getElementById("oosReasonInput").focus();
+}
+function closeOosModal() {
+  document.getElementById("oosModal").classList.remove("active");
+  // Toggle reflects the saved state, not the cancelled click.
+  const banner = document.getElementById("oosBanner");
+  document.getElementById("oosToggle").checked = banner && banner.style.display !== "none";
+}
+
+function initStoreStatusHandlers() {
+  const toggle = document.getElementById("oosToggle");
+  if (!toggle) return;
+
+  toggle.addEventListener("change", async (e) => {
+    if (e.target.checked) {
+      openOosModal("enable");
+      return;
+    }
+    try {
+      await saveConfig({ is_out_of_service: false });
+    } catch (err) {
+      alert(err.message);
+      toggle.checked = true;
+    }
+  });
+
+  document.getElementById("oosEditReasonBtn").addEventListener("click", () =>
+    openOosModal("edit", document.getElementById("oosReasonText").textContent),
+  );
+  document.getElementById("oosBannerManage").addEventListener("click", () => {
+    document.querySelector('[data-tab="settings"]')?.click();
+    document.querySelector('[data-settings-tab="general"]')?.click();
+  });
+  document.getElementById("oosCancelBtn").addEventListener("click", closeOosModal);
+
+  document.getElementById("oosConfirmBtn").addEventListener("click", async () => {
+    const reason = document.getElementById("oosReasonInput").value.trim();
+    const err = document.getElementById("oosModalError");
+    if (!reason) {
+      err.textContent = "Please enter a reason - your customers will see it.";
+      err.style.display = "block";
+      return;
+    }
+    try {
+      await saveConfig({ is_out_of_service: true, out_of_service_reason: reason });
+      document.getElementById("oosModal").classList.remove("active");
+    } catch (e) {
+      err.textContent = e.message;
+      err.style.display = "block";
+    }
+  });
+
+  const status = document.getElementById("announcementStatus");
+  const saveAnnouncement = async (value) => {
+    try {
+      await saveConfig({ announcement_message: value });
+      document.getElementById("announcementInput").value = value;
+      status.textContent = value ? "Saved - it's now showing on the home page." : "Removed - nothing is showing on the home page.";
+    } catch (e) {
+      status.textContent = e.message;
+    }
+  };
+  document.getElementById("announcementSaveBtn").addEventListener("click", () =>
+    saveAnnouncement(document.getElementById("announcementInput").value.trim()),
+  );
+  document.getElementById("announcementClearBtn").addEventListener("click", () => saveAnnouncement(""));
 }
 
 // ----------------- Buffet admin UI handlers -----------------
@@ -2349,7 +2485,27 @@ function initBuffetAdminHandlers() {
       const booking_closes_at = booking_closes_at_raw
         ? new Date(booking_closes_at_raw).toISOString()
         : null;
+      // Dates matter - ask for anything that's missing instead of failing quietly.
+      const missing = [];
+      if (!title) missing.push("Title");
+      if (!event_date) missing.push("Date & time of the buffet");
+      if (!booking_closes_at) missing.push("Date & time booking closes");
+      if (missing.length) {
+        alert(`Please fill in: ${missing.join(", ")}.`);
+        return;
+      }
+      if (new Date(event_date) < new Date() && !id) {
+        alert("The buffet date is in the past. Please pick a future date & time.");
+        return;
+      }
+      if (new Date(booking_closes_at) > new Date(event_date)) {
+        alert("Booking must close before (or at) the buffet start time. Please fix the 'Booking closes at' date.");
+        return;
+      }
+      const saveBtn = form.querySelector('button[type="submit"]');
+      const saveLabel = saveBtn ? saveBtn.textContent : "";
       try {
+        if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = "Saving…"; }
         const photoInput = document.getElementById("buffetEventPhotos");
         const existingPhotos = JSON.parse(form.dataset.existingPhotos || "[]");
         const photos = [...existingPhotos];
@@ -2357,12 +2513,15 @@ function initBuffetAdminHandlers() {
           0,
           6 - photos.length,
         )) {
+          // Phone photos are several MB - shrink to WebP (<300KB) first,
+          // otherwise the server rejects them and the picture never shows.
+          const webpBlob = await compressImageToWebP(file, 300 * 1024);
           const upload = await adminFetch(
-            `/api/admin/upload?filename=${encodeURIComponent(file.name)}`,
+            `/api/admin/upload?filename=${encodeURIComponent(`${Date.now()}.webp`)}`,
             {
               method: "POST",
-              headers: { "Content-Type": file.type },
-              body: await file.arrayBuffer(),
+              headers: { "Content-Type": "image/webp" },
+              body: webpBlob,
             },
           );
           const uploadData = await upload.json();
@@ -2394,15 +2553,37 @@ function initBuffetAdminHandlers() {
         form.reset();
         form.dataset.existingPhotos = "[]";
         document.getElementById("buffetEventPhotoPreview").innerHTML = "";
+        document.getElementById("buffetEventId").value = "";
         await loadBuffetEventsAdmin();
       } catch (err) {
         alert(err.message || "Failed to save event");
+      } finally {
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = saveLabel; }
       }
     });
   }
 }
 
 let buffetEventsById = {};
+
+/** Photo thumbnails in the buffet form, each with a remove (x) button. */
+function renderBuffetPhotoPreview(form) {
+  const photos = JSON.parse(form.dataset.existingPhotos || "[]");
+  const box = document.getElementById("buffetEventPhotoPreview");
+  box.innerHTML = photos
+    .map(
+      (photo, i) =>
+        `<span style="position:relative;display:inline-block;margin-right:6px"><img src="${photo}" alt="Buffet event" style="width:72px;height:54px;object-fit:cover;border-radius:4px;" /><button type="button" data-remove-buffet-photo="${i}" style="position:absolute;top:-6px;right:-6px;border:none;border-radius:50%;width:18px;height:18px;line-height:16px;background:#b42318;color:#fff;cursor:pointer">&times;</button></span>`,
+    )
+    .join("");
+  box.querySelectorAll("[data-remove-buffet-photo]").forEach((b) =>
+    b.addEventListener("click", () => {
+      photos.splice(Number(b.dataset.removeBuffetPhoto), 1);
+      form.dataset.existingPhotos = JSON.stringify(photos);
+      renderBuffetPhotoPreview(form);
+    }),
+  );
+}
 
 function buffetWhatsAppText(bk) {
   const evt = buffetEventsById[bk.event_id] || {};
@@ -2411,6 +2592,9 @@ function buffetWhatsAppText(bk) {
     : "";
   if (bk.status === "cancelled") {
     return `Hi ${bk.name}, your buffet booking${evt.title ? ` for "${evt.title}"` : ""} at Fulude's Cafe has been cancelled. Please contact us if you'd like to rebook.`;
+  }
+  if (bk.status === "pending") {
+    return `Hi ${bk.name}, we've received your buffet booking${evt.title ? ` for "${evt.title}"` : ""} at Fulude's Cafe for ${bk.seats} seat${bk.seats > 1 ? "s" : ""}. We'll confirm it shortly.`;
   }
   return `Hi ${bk.name}, your buffet booking at Fulude's Cafe is confirmed${evt.title ? `: "${evt.title}"` : ""}${when ? ` on ${when}` : ""} for ${bk.seats} seat${bk.seats > 1 ? "s" : ""}. We look forward to seeing you! Reply here if you need to change anything.`;
 }
@@ -2422,7 +2606,7 @@ async function showBuffetBookings(eventId) {
     const res = await adminFetch(`/api/admin/buffet-bookings?event_id=${eventId}`);
     const data = await res.json();
     const evt = buffetEventsById[eventId] || {};
-    const active = (data.bookings || []).filter((bk) => bk.status === "confirmed").reduce((n, bk) => n + Number(bk.seats), 0);
+    const active = (data.bookings || []).filter((bk) => bk.status === "confirmed" || bk.status === "pending").reduce((n, bk) => n + Number(bk.seats), 0);
     container.innerHTML = `
       <h4 style="margin:0 0 8px">${evt.title || "Buffet"} - ${active}/${evt.capacity || "?"} seats booked</h4>
       <form id="buffetAdminBookForm" class="res-new-form">
@@ -2440,7 +2624,7 @@ async function showBuffetBookings(eventId) {
       row.className = "sa-list-item";
       const wa = window.waLink ? window.waLink(bk.phone, buffetWhatsAppText(bk)) : "#";
       row.innerHTML = `<div class="sa-list-main"><div class="sa-list-title">${bk.name} (${bk.seats} seat${bk.seats > 1 ? "s" : ""}) - ${bk.status}</div><div class="sa-list-sub">${bk.email || "no email"} • ${bk.phone || ""} • ${new Date(bk.created_at).toLocaleString()}</div></div>
-        <div style="margin-top:8px"><button class="admin-mini-btn btn-confirm" data-id="${bk.id}">Confirm</button> <button class="admin-mini-btn danger btn-cancel" data-id="${bk.id}">Cancel</button> ${bk.phone ? `<a class="admin-mini-btn wa-btn" target="_blank" rel="noopener" href="${wa}"><i class="fab fa-whatsapp"></i> WhatsApp</a>` : ""}</div>`;
+        <div style="margin-top:8px">${bk.status === "pending" ? `<button class="admin-mini-btn btn-confirm" data-id="${bk.id}">Confirm</button> ` : ""}${bk.status === "pending" || bk.status === "confirmed" ? `<button class="admin-mini-btn danger btn-cancel" data-id="${bk.id}">Cancel</button>` : ""} ${bk.phone ? `<a class="admin-mini-btn wa-btn" target="_blank" rel="noopener" href="${wa}"><i class="fab fa-whatsapp"></i> WhatsApp</a>` : ""}</div>`;
       rows.appendChild(row);
     });
     const act = (cls, action) =>
@@ -2500,6 +2684,7 @@ async function loadBuffetEventsAdmin() {
     const res = await adminFetch("/api/admin/buffet-events");
     const data = await res.json();
     const list = document.getElementById("buffetEventsList");
+    const form = document.getElementById("buffetEventForm");
     if (!list) return;
     list.innerHTML = "";
     (data.events || []).forEach((evt) => {
@@ -2547,13 +2732,7 @@ async function loadBuffetEventsAdmin() {
           evt.description || "";
         const eventPhotos = Array.isArray(evt.photos) ? evt.photos : [];
         form.dataset.existingPhotos = JSON.stringify(eventPhotos);
-        document.getElementById("buffetEventPhotoPreview").innerHTML =
-          eventPhotos
-            .map(
-              (photo) =>
-                `<img src="${photo}" alt="Buffet event" style="width:72px;height:54px;object-fit:cover;border-radius:4px;" />`,
-            )
-            .join("");
+        renderBuffetPhotoPreview(form);
         document.getElementById("buffetEventPublished").checked =
           !!evt.is_published;
         if (evt.booking_closes_at) {
@@ -2685,6 +2864,62 @@ async function loadAudit(reset = true) {
   }
 }
 
+const AUDIT_LABELS = {
+  menu_item_created: "Menu item added",
+  menu_item_updated: "Menu item updated",
+  menu_item_deleted: "Menu item deleted",
+  special_added: "Special added",
+  special_updated: "Special updated",
+  special_removed: "Special removed",
+  delivery_fee_updated: "Delivery fee updated",
+  cafe_details_updated: "Cafe details updated",
+  out_of_service_enabled: "Out of service ON",
+  out_of_service_disabled: "Out of service OFF",
+  out_of_service_reason_updated: "Out-of-service reason changed",
+  announcement_updated: "Announcement updated",
+  buffet_visibility_updated: "Buffet visibility changed",
+};
+
+function auditLabel(action) {
+  if (AUDIT_LABELS[action]) return AUDIT_LABELS[action];
+  const t = String(action || "").replace(/_/g, " ").trim();
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+function auditTone(action) {
+  if (/deleted|removed|enabled$|refund/.test(action || "")) return "danger";
+  if (/disabled$|created|added/.test(action || "")) return "good";
+  return "";
+}
+
+// Turns a details object into readable lines. New-style entries carry
+// details.changes [{label, from, to}]; older entries fall back to key: value.
+function auditChangesHtml(details) {
+  if (!details || typeof details !== "object") return escapeHtml(details || "");
+  if (Array.isArray(details.changes) && details.changes.length) {
+    return details.changes
+      .map(
+        (c) =>
+          `<span class="audit-change-line"><b>${escapeHtml(c.label)}:</b> <span class="audit-from">${escapeHtml(c.from)}</span> → <span class="audit-to">${escapeHtml(c.to)}</span></span>`,
+      )
+      .join("");
+  }
+  const skip = new Set(["summary", "changes"]);
+  const lines = Object.entries(details)
+    .filter(([k, v]) => !skip.has(k) && v !== null && v !== undefined && v !== "")
+    .map(([k, v]) => {
+      const label = k.replace(/_/g, " ");
+      const val = typeof v === "object" ? JSON.stringify(v) : String(v);
+      return `<span class="audit-change-line"><b>${escapeHtml(label.charAt(0).toUpperCase() + label.slice(1))}:</b> ${escapeHtml(val)}</span>`;
+    });
+  return lines.join("") || "-";
+}
+
+function parseAuditDetails(d) {
+  if (d && typeof d === "object") return d;
+  try { return JSON.parse(d); } catch { return d || {}; }
+}
+
 function renderAuditTable(rows) {
   const body = document.getElementById("auditTableBody");
   if (!body) return;
@@ -2694,18 +2929,18 @@ function renderAuditTable(rows) {
     return;
   }
   rows.forEach((r) => {
-    const details =
-      typeof r.details === "object"
-        ? JSON.stringify(r.details)
-        : String(r.details || "");
+    const details = parseAuditDetails(r.details);
+    const raw = typeof details === "object" ? JSON.stringify(details) : String(details);
+    const summary = details && details.summary ? details.summary : "";
+    const tone = auditTone(r.action);
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${new Date(r.created_at).toLocaleString()}</td>
-      <td>${escapeHtml(r.action)}</td>
+      <td><span class="audit-action-tag ${tone}">${escapeHtml(auditLabel(r.action))}</span>${summary ? `<span class="audit-summary">${escapeHtml(summary)}</span>` : ""}</td>
       <td>${escapeHtml(r.actor_role || "")}</td>
       <td>${escapeHtml(r.actor_type || "")}${r.actor_id ? " #" + r.actor_id : ""}</td>
       <td>${escapeHtml(r.target_type || "")}${r.target_id ? " #" + r.target_id : ""}</td>
-      <td class="audit-details" data-raw="${escapeHtml(details)}" title="Click to copy">${escapeHtml(details)}</td>
+      <td class="audit-details audit-changes" data-raw="${escapeHtml(raw)}" title="Click to copy the raw details">${auditChangesHtml(details)}</td>
     `;
     body.appendChild(tr);
   });

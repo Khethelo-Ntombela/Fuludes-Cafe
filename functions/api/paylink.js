@@ -35,8 +35,8 @@ export async function onRequestGet(context) {
       customerName: order.customer_name || '',
       customerEmail: '',
       customerPhone: '',
-      returnUrl: `${origin}/?payment=success&order_id=${order.id}`,
-      cancelUrl: `${origin}/?payment=cancelled&order_id=${order.id}`,
+      returnUrl: `${origin}/home.html?payment=success&order_id=${order.id}`,
+      cancelUrl: `${origin}/home.html?payment=cancelled&order_id=${order.id}`,
       notifyUrl: `${origin}/api/payment/notify`
     });
 

@@ -20,20 +20,33 @@ import { requireAdmin } from "../../_lib/auth.js";
 import { sanitizeText } from "../../_lib/security.js";
 import { logAudit } from "../../_lib/audit.js";
 
+let _colReady = false;
+async function ensureClearedColumn(env) {
+  if (_colReady) return;
+  try {
+    await runQuery(env, "ALTER TABLE customer_reservations ADD COLUMN IF NOT EXISTS admin_cleared BOOLEAN NOT NULL DEFAULT FALSE;");
+    _colReady = true;
+  } catch { /* table may be managed elsewhere */ }
+}
+
 export async function onRequestGet(context) {
   const { request, env } = context;
   const authError = await requireAdmin(request, env);
   if (authError) return authError;
 
   try {
+    await ensureClearedColumn(env);
     const result = await runQuery(
       env,
       `
-      SELECT id, customer_name, customer_email, customer_phone, reservation_date,
-             reservation_time, party_size, table_number, notes,
-             advance_order_requested, advance_order_details, status, created_at
+      SELECT id, customer_name, customer_email, customer_phone,
+             to_char(reservation_date, 'YYYY-MM-DD') AS reservation_date,
+             to_char(reservation_time, 'HH24:MI') AS reservation_time,
+             party_size, table_number, notes,
+             advance_order_requested, advance_order_details, advance_order_id,
+             status, admin_cleared, created_at
       FROM customer_reservations
-      ORDER BY reservation_date ASC, reservation_time ASC, created_at DESC;
+      ORDER BY customer_reservations.reservation_date ASC, customer_reservations.reservation_time ASC, created_at DESC;
     `,
     );
 
@@ -59,6 +72,22 @@ export async function onRequestPost(context) {
   }
 
   if (body.action === "create") return createReservation(env, body);
+
+  // "Clear": take a fulfilled (Completed) or Cancelled booking off the admin
+  // list. The row is kept, so Completed ones still count in today's stats.
+  if (body.action === "clear" || body.action === "clear_finished") {
+    try {
+      await ensureClearedColumn(env);
+      const id = parseInt(body.reservation_id || body.id, 10);
+      const result =
+        body.action === "clear" && Number.isInteger(id)
+          ? await runQuery(env, `UPDATE customer_reservations SET admin_cleared = TRUE WHERE id = $1 AND status IN ('Completed','Cancelled') RETURNING id;`, [id])
+          : await runQuery(env, `UPDATE customer_reservations SET admin_cleared = TRUE WHERE status IN ('Completed','Cancelled') AND admin_cleared = FALSE RETURNING id;`);
+      return jsonResponse({ success: true, cleared: result.rows.length });
+    } catch (err) {
+      return jsonResponse({ error: "Failed to clear.", message: err.message }, 500);
+    }
+  }
 
   const reservationId = parseInt(body.reservation_id || body.id, 10);
   const status = sanitizeText(body.status || "", 50);

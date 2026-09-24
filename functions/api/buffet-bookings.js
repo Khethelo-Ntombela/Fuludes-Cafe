@@ -27,12 +27,12 @@ export async function onRequestGet(context) {
     const res = await runQuery(env, `
       SELECT bb.id AS booking_id, bb.event_id, bb.seats, bb.status, bb.created_at,
              be.title, be.event_date, be.capacity, be.price_cents,
-             COALESCE((SELECT SUM(seats) FROM buffet_bookings bb2 WHERE bb2.event_id = be.id AND bb2.status != 'cancelled'),0) AS seats_taken
+             COALESCE((SELECT SUM(seats) FROM buffet_bookings bb2 WHERE bb2.event_id = be.id AND bb2.status IN ('pending','confirmed')),0) AS seats_taken
       FROM buffet_bookings bb
       JOIN buffet_events be ON be.id = bb.event_id
-      WHERE bb.customer_id = $1 AND be.event_date >= now() AND bb.status != 'cancelled'
+      WHERE (bb.customer_id = $1 OR LOWER(bb.email) = LOWER($2)) AND be.event_date >= now() AND bb.status != 'expired'
       ORDER BY be.event_date ASC;
-    `, [customer.id]);
+    `, [customer.id, customer.email || '']);
 
     const bookings = res.rows.map(r => ({
       booking_id: r.booking_id,
@@ -78,9 +78,9 @@ export async function onRequestPut(context) {
       SELECT bb.id, bb.event_id, bb.status, be.event_date, be.booking_closes_at
       FROM buffet_bookings bb
       JOIN buffet_events be ON be.id = bb.event_id
-      WHERE bb.id = $1 AND bb.customer_id = $2
+      WHERE bb.id = $1 AND (bb.customer_id = $2 OR LOWER(bb.email) = LOWER($3))
       LIMIT 1;
-    `, [booking_id, customer.id]);
+    `, [booking_id, customer.id, customer.email || '']);
     if (!q.rows.length) return jsonResponse({ error: 'Booking not found' }, 404);
     const row = q.rows[0];
     if (row.status === 'cancelled' || row.status === 'expired') return jsonResponse({ error: 'Booking already cancelled or expired' }, 400);

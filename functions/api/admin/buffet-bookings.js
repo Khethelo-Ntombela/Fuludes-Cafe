@@ -62,7 +62,7 @@ export async function onRequestPost(context) {
       if (!evt.rows.length) return jsonResponse({ error: "Buffet event not found." }, 404);
       const taken = await runQuery(
         env,
-        "SELECT COALESCE(SUM(seats),0) AS taken FROM buffet_bookings WHERE event_id = $1 AND status = 'confirmed';",
+        "SELECT COALESCE(SUM(seats),0) AS taken FROM buffet_bookings WHERE event_id = $1 AND status IN ('pending','confirmed');",
         [event_id],
       );
       const left = Number(evt.rows[0].capacity || 0) - Number(taken.rows[0].taken || 0);

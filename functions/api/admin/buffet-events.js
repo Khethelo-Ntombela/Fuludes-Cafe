@@ -45,8 +45,19 @@ export async function onRequestPost(context) {
     const photos = Array.isArray(body.photos) ? body.photos.slice(0, 6) : [];
     const is_published = !!body.is_published;
     const booking_closes_at = body.booking_closes_at || null;
-    if (!title || !event_date)
-      return jsonResponse({ error: "Missing title or event_date" }, 400);
+    if (!title || !event_date || isNaN(new Date(event_date).getTime()))
+      return jsonResponse(
+        { error: "Please add a title and a valid event date & time." },
+        400,
+      );
+    if (
+      !booking_closes_at ||
+      isNaN(new Date(booking_closes_at).getTime())
+    )
+      return jsonResponse(
+        { error: "Please add the date & time booking closes." },
+        400,
+      );
     const res = await runQuery(
       env,
       "INSERT INTO buffet_events (title,description,event_date,capacity,price_cents,photos,is_published,booking_closes_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id;",
@@ -86,6 +97,19 @@ export async function onRequestPut(context) {
     const photos = Array.isArray(body.photos) ? body.photos.slice(0, 6) : [];
     const is_published = !!body.is_published;
     const booking_closes_at = body.booking_closes_at || null;
+    if (!title || !event_date || isNaN(new Date(event_date).getTime()))
+      return jsonResponse(
+        { error: "Please add a title and a valid event date & time." },
+        400,
+      );
+    if (
+      !booking_closes_at ||
+      isNaN(new Date(booking_closes_at).getTime())
+    )
+      return jsonResponse(
+        { error: "Please add the date & time booking closes." },
+        400,
+      );
     await runQuery(
       env,
       "UPDATE buffet_events SET title=$1, description=$2, event_date=$3, capacity=$4, price_cents=$5, photos=$6, is_published=$7, booking_closes_at=$8, updated_at = NOW() WHERE id=$9;",

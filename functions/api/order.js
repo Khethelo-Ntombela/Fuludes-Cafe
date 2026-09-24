@@ -54,6 +54,7 @@ import {
 } from "../_lib/customerAuth.js";
 import { sanitizeText, getRequestIp } from "../_lib/security.js";
 import { logAudit } from "../_lib/audit.js";
+import { isOpenNow, CLOSED_MESSAGE } from "../_lib/hours.js";
 
 const CUSTOMER_CANCEL_WINDOW_MS = 2 * 60 * 1000; // keep in sync with CUSTOMER_CANCEL_WINDOW_MS in public/js/main.js
 const ROAD_BUFFER = 1.3; // straight-line * 1.3 ≈ road distance
@@ -262,7 +263,7 @@ export async function onRequestPost(context) {
     if (cfg && cfg.is_out_of_service) {
       const reason =
         cfg.out_of_service_reason || "Checkout is temporarily unavailable.";
-      return jsonResponse({ error: reason }, 503);
+      return jsonResponse({ error: reason, out_of_service: true, reason }, 503);
     }
   } catch (cfgErr) {
     // don't fail hard on config read problems; let normal validation continue
@@ -290,6 +291,11 @@ export async function onRequestPost(context) {
     orderData.special_instructions || "",
     500,
   );
+  // Closed? No new orders - except a pre-order tied to a table reservation (for a later time).
+  if (!isOpenNow() && !(orderType === "dine_in" && Number.isInteger(parseInt(orderData.reservation_id, 10)))) {
+    return jsonResponse({ error: CLOSED_MESSAGE, closed: true }, 503);
+  }
+
   const paymentMethod = "online"; // payment is strictly online - no pay-at-pickup/delivery path
   const cartItems = Array.isArray(orderData.cart_items)
     ? orderData.cart_items
@@ -607,6 +613,16 @@ export async function onRequestPost(context) {
       throw itemError;
     }
 
+    // ---- Pre-order for a table reservation: link this order to it ----
+    const reservationId = parseInt(orderData.reservation_id, 10);
+    if (orderType === "dine_in" && Number.isInteger(reservationId)) {
+      await runQuery(
+        env,
+        `UPDATE customer_reservations SET advance_order_id = $1 WHERE id = $2 AND customer_id = $3;`,
+        [newOrderId, reservationId, customer.id],
+      ).catch(() => {});
+    }
+
     // ---- Hand back the Yoco checkout redirect payload ----
     const origin = new URL(request.url).origin;
     const payment = buildYocoCheckout(env, {
@@ -616,8 +632,8 @@ export async function onRequestPost(context) {
       customerName,
       customerEmail: customer.email,
       customerPhone: phoneNumber,
-      returnUrl: `${origin}/?payment=success&order_id=${newOrderId}`,
-      cancelUrl: `${origin}/?payment=cancelled&order_id=${newOrderId}`,
+      returnUrl: `${origin}/home.html?payment=success&order_id=${newOrderId}`,
+      cancelUrl: `${origin}/home.html?payment=cancelled&order_id=${newOrderId}`,
       notifyUrl: `${origin}/api/payment/notify`,
     });
 
