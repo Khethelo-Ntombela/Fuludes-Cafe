@@ -130,6 +130,9 @@
           </div>
 
           <div class="cart-panel">
+            <button type="button" class="cart-page-back" id="cartPageBack">
+              <i class="fas fa-arrow-left"></i> Back to menu
+            </button>
             <h3>Your Order</h3>
             <div class="cart-items" id="cartItems">
               <p class="cart-empty">Your cart is empty</p>
@@ -152,6 +155,15 @@
         </div>
       </div>
     </section>
+
+    <!-- Phones: fixed bar that opens Your Order as its own page -->
+    <button type="button" class="mobile-cart-bar" id="mobileCartBar" aria-label="View your order">
+      <span class="mcb-left">
+        <i class="fas fa-shopping-bag"></i> Your Order
+        <span class="mcb-count" id="mobileCartCount">0</span>
+      </span>
+      <span class="mcb-total" id="mobileCartTotal">R0.00</span>
+    </button>
 
     <footer class="footer">
       <div class="container footer-content">
@@ -176,7 +188,8 @@
           ></a>
         </div>
         <p class="footer-policy-link">
-          <a href="contact.html#policies">Privacy &amp; Refund Policy</a>
+          <a href="privacy.html">Privacy Policy</a> &middot;
+          <a href="contact.html#policies">Refund Policy</a>
         </p>
         <p class="copyright">© 2026 Fulude's Cafe. All rights reserved.</p>
       </div>
@@ -506,6 +519,10 @@
             Back to Sign In
           </button>
         </form>
+        <p class="legal-consent">
+          By signing in or creating an account you agree to our
+          <a href="privacy.html">Privacy Policy</a>.
+        </p>
       </div>
     </div>
 
@@ -545,20 +562,6 @@
         <button class="modal-close" id="accountModalClose">&times;</button>
         <h3>My Account</h3>
         <p id="accountWelcome" class="auth-hint"></p>
-        <label
-          ><input type="checkbox" id="marketingEmailOptIn" /> Email
-          marketing</label
-        >
-        <label
-          ><input type="checkbox" id="marketingSmsOptIn" /> SMS marketing</label
-        >
-        <button
-          type="button"
-          class="btn btn-secondary btn-block"
-          id="saveMarketingPreferencesBtn"
-        >
-          Save preferences
-        </button>
         <button
           type="button"
           class="btn btn-primary btn-block"
@@ -566,21 +569,21 @@
         >
           View My Orders
         </button>
-        <button type="button" class="auth-link-btn" id="logoutBtn">
-          Log Out
-        </button>
         <button
           type="button"
-          class="auth-link-btn danger"
-          id="deleteAccountBtn"
+          class="btn btn-secondary btn-block"
+          id="openSettingsBtn"
         >
-          Delete Account
+          <i class="fas fa-gear"></i> Settings
+        </button>
+        <button type="button" class="auth-link-btn" id="logoutBtn">
+          Log Out
         </button>
       </div>
     </div>
 
     <script src="https://accounts.google.com/gsi/client" async defer onload="if (typeof initGoogleSignIn === 'function') initGoogleSignIn();"></script>
     <script src="js/site.js"></script>
-    <script src="js/menu.js?v=5"></script>
+    <script src="js/menu.js?v=6"></script>
   </body>
 </html>

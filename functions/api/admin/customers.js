@@ -12,7 +12,7 @@ export async function onRequestGet(context) {
       env,
       `
       SELECT id, name, email, phone_number, delivery_address, is_verified,
-             marketing_email_opt_in, marketing_sms_opt_in, created_at
+             marketing_email_opt_in, created_at
       FROM customers
       WHERE ($1 = '' OR name ILIKE $2 OR email ILIKE $2 OR phone_number ILIKE $2)
       ORDER BY created_at DESC LIMIT 200;

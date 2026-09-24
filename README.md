@@ -21,6 +21,7 @@ public/
   catering.html         catering services (cards, inspiration gallery, inquiry form)
   reviews.html           review wall + leave-a-review form
   contact.html            Visit Us (address/map), FAQ, and Privacy & Refund policies
+  privacy.html            full Privacy Policy (incl. Google user data disclosure) - linked from every footer
   admin.html           admin dashboard (password-gated, owner only)
   staff.html            kitchen Staff Portal (separate password, own login)
   css/style.css         customer site styles (black/gold/cream, Playfair Display + Inter)
@@ -263,3 +264,14 @@ The `menu images/` folder (chicken, tripe & cow heels, tilapia, meat platter, ca
 4. Save. The dish appears live on the customer menu immediately (unless "Show on Menu" is off).
 
 Repeat for each photo — this also lets you write a proper name/description/price per dish rather than guessing from a filename.
+
+
+---
+
+## Recent changes
+
+- Standalone Privacy Policy (`public/privacy.html`) with Google user data / Limited Use disclosure.
+- Menu: per-dish quantity stepper, in-card photo slideshow, quantity-only "Your Order", and a phone "Your Order" page opened from a bottom bar.
+- Delivery: geocoding now searches near the cafe first and picks the closest match; delivery orders require a located address.
+- Customer Settings (details, password change via emailed confirmation link, email marketing, delete account) - new endpoints `api/auth/change-password.js` and `api/auth/confirm-password-change.js`.
+- SMS marketing removed. Run `db/migrations/005_remove_sms_marketing.sql` in Neon after deploying.

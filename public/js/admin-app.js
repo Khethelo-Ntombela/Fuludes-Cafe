@@ -87,9 +87,9 @@ window.adminHistoryAll = window.adminHistoryAll || [];
 
 async function fetchHistoryAll() {
   try {
-    const res = await adminFetch("/api/admin/orders?limit=200&offset=0&payment_status=paid");
+    const res = await adminFetch("/api/admin/orders?limit=200&offset=0");
     const data = await res.json();
-    window.adminHistoryAll = (data.orders || []).filter((o) => o.payment_status === "paid");
+    window.adminHistoryAll = data.orders || [];
   } catch {
     window.adminHistoryAll = [];
   }
@@ -215,8 +215,12 @@ function updateBell(orders) {
 // Restaurant status card (sidebar)
 // ---------------------------------------------------------------------
 function updateStatusCard() {
-  const hour = new Date().getHours();
-  const open = hour >= 9 && hour < 21;
+  // Opening hours: Mon-Thu 09:00-18:00, Fri & Sun 09:00-20:00, Sat 09:00-21:00
+  const nowDate = new Date();
+  const day = nowDate.getDay(); // 0 = Sunday ... 6 = Saturday
+  const closeHour = day === 6 ? 21 : day === 5 || day === 0 ? 20 : 18;
+  const minutesNow = nowDate.getHours() * 60 + nowDate.getMinutes();
+  const open = minutesNow >= 9 * 60 && minutesNow < closeHour * 60;
   $id("statusOpenLabel").textContent = open ? "Open" : "Closed";
   $id("statusOpenDot").classList.toggle("closed", !open);
 
@@ -628,88 +632,147 @@ if ($id("dashboard").style.display !== "none") {
 // ---------------------------------------------------------------------
 let adminCart = [];
 let adminMenuData = [];
+let adminMenuLoadError = "";
+let adminMenuCategory = "all";
+let adminMenuQuery = "";
 let orderGenerating = false;
 
-function loadAdminMenu() {
-  return adminFetch("/api/admin/menu")
-    .then((r) => r.json())
-    .then((data) => {
-      adminMenuData = data.items || [];
-      return adminMenuData;
-    })
-    .catch(() => {
-      adminMenuData = [];
-      return [];
-    });
+const escHtml = (v) =>
+  String(v ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+const cleanText = (v, max) => String(v || "").replace(/[<>]/g, "").trim().slice(0, max);
+
+/** The price the customer would actually pay right now (special only counts inside its window). */
+function adminEffectivePrice(item) {
+  const now = Date.now();
+  const sp = item.special_price;
+  const active =
+    sp !== null && sp !== undefined &&
+    (!item.special_starts_at || new Date(item.special_starts_at).getTime() <= now) &&
+    (!item.special_ends_at || new Date(item.special_ends_at).getTime() >= now);
+  return Number(active ? sp : item.price);
+}
+
+async function loadAdminMenu() {
+  adminMenuLoadError = "";
+  try {
+    const res = await adminFetch("/api/admin/menu");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Menu request failed (${res.status})`);
+    // Hidden dishes aren't orderable; sold-out ones are shown but disabled.
+    adminMenuData = (data.items || []).filter((i) => i.is_visible !== false);
+  } catch (err) {
+    adminMenuData = [];
+    adminMenuLoadError = err.message || "Couldn't load the menu.";
+  }
+  return adminMenuData;
 }
 
 function renderAdminMenu() {
   const container = $id("adminMenuGrid");
   if (!container) return;
+
+  if (adminMenuLoadError) {
+    container.innerHTML = `<p class="menu-empty">Couldn't load the menu: ${escHtml(adminMenuLoadError)}
+      <br><button type="button" class="btn btn-primary admin-mini-btn" id="retryAdminMenu" style="margin-top:10px">Try again</button></p>`;
+    $id("retryAdminMenu")?.addEventListener("click", refreshPlaceOrderMenu);
+    return;
+  }
   if (!adminMenuData.length) {
     container.innerHTML = '<p class="menu-empty">No menu items found.</p>';
     return;
   }
-  container.innerHTML = adminMenuData
+
+  // Category chips (rebuilt from the data every time)
+  const cats = [...new Map(adminMenuData.map((i) => [i.category_id, i.category_name])).entries()];
+  const chipsEl = $id("adminMenuCats");
+  if (chipsEl) {
+    chipsEl.innerHTML =
+      `<button type="button" class="po-chip${adminMenuCategory === "all" ? " active" : ""}" data-cat="all">All</button>` +
+      cats.map(([id, name]) =>
+        `<button type="button" class="po-chip${String(adminMenuCategory) === String(id) ? " active" : ""}" data-cat="${id}">${escHtml(name)}</button>`
+      ).join("");
+    chipsEl.querySelectorAll(".po-chip").forEach((b) =>
+      b.addEventListener("click", () => {
+        adminMenuCategory = b.dataset.cat;
+        renderAdminMenu();
+      }),
+    );
+  }
+
+  const q = adminMenuQuery.trim().toLowerCase();
+  const shown = adminMenuData.filter(
+    (i) =>
+      (adminMenuCategory === "all" || String(i.category_id) === String(adminMenuCategory)) &&
+      (!q || `${i.name} ${i.description || ""}`.toLowerCase().includes(q)),
+  );
+  if (!shown.length) {
+    container.innerHTML = '<p class="menu-empty">Nothing matches that search.</p>';
+    return;
+  }
+
+  container.innerHTML = shown
     .map((item) => {
-      const price = item.special_price !== null && item.special_price !== undefined
-        ? item.special_price
-        : item.price;
+      const soldOut = item.is_available === false;
+      const price = adminEffectivePrice(item);
+      const onSpecial = price < Number(item.price);
+      const qty = adminCart.find((c) => c.id === item.id)?.quantity || 0;
       return `
-      <div class="admin-menu-item" data-id="${item.id}">
+      <div class="admin-menu-item${soldOut ? " sold-out" : ""}" data-id="${item.id}">
         <div class="admin-menu-item-info">
-          <strong>${item.name}</strong>
-          <span class="admin-menu-item-price">R${Number(price).toFixed(2)}</span>
-          ${item.description ? `<small>${item.description}</small>` : ""}
+          <strong>${escHtml(item.name)}</strong>
+          <span class="admin-menu-item-price">${onSpecial ? `<s>R${Number(item.price).toFixed(2)}</s> ` : ""}R${price.toFixed(2)}</span>
+          ${item.description ? `<small>${escHtml(item.description)}</small>` : ""}
         </div>
         <div class="admin-menu-item-actions">
-          <button type="button" class="btn btn-primary admin-mini-btn add-to-cart-btn" data-id="${item.id}">
-            <i class="fas fa-plus"></i> Add
+          <button type="button" class="btn btn-primary admin-mini-btn add-to-cart-btn" data-id="${item.id}" ${soldOut ? "disabled" : ""}>
+            ${soldOut ? "Sold out" : `<i class="fas fa-plus"></i> Add${qty ? ` (${qty})` : ""}`}
           </button>
         </div>
       </div>`;
     })
     .join("");
   container.querySelectorAll(".add-to-cart-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = parseInt(btn.dataset.id, 10);
-      addToCart(id);
-    });
+    btn.addEventListener("click", () => addToCart(parseInt(btn.dataset.id, 10)));
   });
 }
 
 function addToCart(menuItemId) {
   const item = adminMenuData.find((m) => m.id === menuItemId);
-  if (!item) return;
+  if (!item || item.is_available === false) return;
   const existing = adminCart.find((c) => c.id === menuItemId);
   if (existing) {
     existing.quantity++;
   } else {
-    adminCart.push({ id: item.id, name: item.name, price: item.price, special_price: item.special_price, quantity: 1 });
+    adminCart.push({ id: item.id, name: item.name, unit: adminEffectivePrice(item), quantity: 1 });
   }
   renderAdminCart();
+  renderAdminMenu();
 }
 
 function removeFromCart(menuItemId) {
   adminCart = adminCart.filter((c) => c.id !== menuItemId);
   renderAdminCart();
+  renderAdminMenu();
 }
 
 function updateCartQty(menuItemId, delta) {
   const item = adminCart.find((c) => c.id === menuItemId);
   if (!item) return;
   item.quantity += delta;
-  if (item.quantity <= 0) {
-    removeFromCart(menuItemId);
-    return;
-  }
+  if (item.quantity <= 0) return removeFromCart(menuItemId);
   renderAdminCart();
+  renderAdminMenu();
 }
 
 function renderAdminCart() {
   const cartContainer = $id("adminCartList");
   const cartCount = $id("adminCartCount");
   const cartEmpty = $id("adminCartEmpty");
+  const totalEl = $id("adminCartTotal");
   if (!cartContainer) return;
 
   if (cartCount) cartCount.textContent = adminCart.reduce((s, c) => s + c.quantity, 0);
@@ -717,53 +780,41 @@ function renderAdminCart() {
   if (adminCart.length === 0) {
     if (cartEmpty) cartEmpty.style.display = "";
     cartContainer.innerHTML = "";
+    if (totalEl) totalEl.textContent = "";
     return;
   }
-
   if (cartEmpty) cartEmpty.style.display = "none";
 
-  const total = adminCart.reduce((sum, c) => {
-    const price = c.special_price !== null && c.special_price !== undefined ? c.special_price : c.price;
-    return sum + price * c.quantity;
-  }, 0);
-
+  const total = adminCart.reduce((sum, c) => sum + c.unit * c.quantity, 0);
   cartContainer.innerHTML = adminCart
-    .map((c) => {
-      const price = c.special_price !== null && c.special_price !== undefined ? c.special_price : c.price;
-      return `
+    .map(
+      (c) => `
       <div class="admin-cart-item" data-id="${c.id}">
         <div class="admin-cart-item-info">
-          <strong>${c.name}</strong>
+          <strong>${escHtml(c.name)}</strong>
           <span class="admin-cart-item-qty">
-            <button type="button" class="admin-mini-btn qty-btn" data-id="${c.id}" data-delta="-1">-</button>
+            <button type="button" class="admin-mini-btn qty-btn" data-id="${c.id}" data-delta="-1">&minus;</button>
             <span>${c.quantity}</span>
             <button type="button" class="admin-mini-btn qty-btn" data-id="${c.id}" data-delta="1">+</button>
           </span>
-          <span class="admin-cart-item-price">R${(price * c.quantity).toFixed(2)}</span>
+          <span class="admin-cart-item-price">R${(c.unit * c.quantity).toFixed(2)}</span>
         </div>
         <button type="button" class="admin-mini-btn danger remove-from-cart-btn" data-id="${c.id}" title="Remove">
           <i class="fas fa-xmark"></i>
         </button>
-      </div>`;
-    })
+      </div>`,
+    )
     .join("");
 
-  cartContainer.querySelectorAll(".qty-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = parseInt(btn.dataset.id, 10);
-      const delta = parseInt(btn.dataset.delta, 10);
-      updateCartQty(id, delta);
-    });
-  });
-  cartContainer.querySelectorAll(".remove-from-cart-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = parseInt(btn.dataset.id, 10);
-      removeFromCart(id);
-    });
-  });
-
-  const totalEl = $id("adminCartTotal");
-  if (totalEl) totalEl.textContent = `R${total.toFixed(2)}`;
+  cartContainer.querySelectorAll(".qty-btn").forEach((btn) =>
+    btn.addEventListener("click", () =>
+      updateCartQty(parseInt(btn.dataset.id, 10), parseInt(btn.dataset.delta, 10)),
+    ),
+  );
+  cartContainer.querySelectorAll(".remove-from-cart-btn").forEach((btn) =>
+    btn.addEventListener("click", () => removeFromCart(parseInt(btn.dataset.id, 10))),
+  );
+  if (totalEl) totalEl.textContent = `Total: R${total.toFixed(2)}`;
 }
 
 async function generatePaymentLink() {
@@ -772,9 +823,9 @@ async function generatePaymentLink() {
     toast("Add items to the cart first.");
     return;
   }
-  const customerName = sanitizeText(($id("orderCustomerName")?.value || "").trim(), 100);
-  const customerEmail = sanitizeText(($id("orderCustomerEmail")?.value || "").trim(), 200).toLowerCase();
-  const customerPhone = sanitizeText(($id("orderCustomerPhone")?.value || "").trim(), 50);
+  const customerName = cleanText($id("orderCustomerName")?.value, 100);
+  const customerEmail = cleanText($id("orderCustomerEmail")?.value, 200).toLowerCase();
+  const customerPhone = cleanText($id("orderCustomerPhone")?.value, 50);
 
   if (!customerName || !customerEmail || !customerPhone) {
     toast("Enter customer name, email and phone.");
@@ -796,13 +847,10 @@ async function generatePaymentLink() {
         customer_name: customerName,
         customer_email: customerEmail,
         customer_phone: customerPhone,
-        cart_items: adminCart.map((c) => ({
-          id: c.id,
-          quantity: c.quantity,
-        })),
+        cart_items: adminCart.map((c) => ({ id: c.id, quantity: c.quantity })),
       }),
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
 
     if (!res.ok || !data.success) {
       toast(data.error || "Failed to generate payment link.");
@@ -815,38 +863,34 @@ async function generatePaymentLink() {
       linkEl.innerHTML = `
         <div class="payment-link-card">
           <div class="payment-link-info">
-            <strong>Order #${data.order_id}</strong>
+            <strong>Order #${escHtml(data.order_id)}</strong>
             <span class="payment-link-total">R${Number(data.total_amount).toFixed(2)}</span>
           </div>
           <div class="payment-link-url-wrap">
-            <input type="text" id="paymentLinkUrl" value="${data.pay_url}" readonly>
+            <input type="text" id="paymentLinkUrl" value="${escHtml(data.pay_url)}" readonly>
             <button type="button" class="btn btn-primary copy-paylink-btn">Copy</button>
           </div>
           <small class="admin-hint">Send this link to the customer to complete payment.</small>
         </div>`;
-      $id("paymentLinkUrl").addEventListener("click", (e) => {
-        e.target.select();
-      });
-      $id("paymentLinkUrl").addEventListener("keydown", (e) => {
-        e.preventDefault();
-      });
-      $id("copy-paylink-btn")?.addEventListener("click", () => {
+      $id("paymentLinkUrl").addEventListener("click", (e) => e.target.select());
+      linkEl.querySelector(".copy-paylink-btn").addEventListener("click", () => {
         const input = $id("paymentLinkUrl");
-        if (input) {
-          input.select();
-          navigator.clipboard.writeText(input.value).then(() => toast("Payment link copied!")).catch(() => {
+        input.select();
+        navigator.clipboard
+          .writeText(input.value)
+          .then(() => toast("Payment link copied!"))
+          .catch(() => {
             document.execCommand("copy");
             toast("Payment link copied!");
           });
-        }
       });
     }
     toast("Payment link generated!");
-    // Clear cart after successful order
     adminCart = [];
     renderAdminCart();
+    renderAdminMenu();
   } catch (err) {
-    toast("Failed to generate payment link.");
+    toast(err.message || "Failed to generate payment link.");
   } finally {
     orderGenerating = false;
     if (btn) {
@@ -856,12 +900,24 @@ async function generatePaymentLink() {
   }
 }
 
-function initPlaceOrderTab() {
-  if ($id("placeOrderContent")?.dataset.loaded === "true") return;
-  $id("placeOrderContent") = null; // will render into innerHTML
+async function refreshPlaceOrderMenu() {
+  const grid = $id("adminMenuGrid");
+  if (grid) grid.innerHTML = '<p class="menu-loading">Loading&hellip;</p>';
+  await loadAdminMenu();
+  renderAdminMenu();
+  renderAdminCart();
+}
 
+function initPlaceOrderTab() {
   const container = $id("placeOrderContent");
   if (!container) return;
+
+  // Already built: keep the cart and typed details, just refresh the menu
+  // (dishes/prices/stock may have changed - or the first load may have failed).
+  if (container.dataset.loaded === "true") {
+    refreshPlaceOrderMenu();
+    return;
+  }
 
   container.innerHTML = `
     <div class="place-order-layout">
@@ -869,6 +925,8 @@ function initPlaceOrderTab() {
         <div class="admin-panel-header">
           <h3>Menu</h3>
         </div>
+        <input type="search" id="adminMenuSearch" class="po-search" placeholder="Search dishes&hellip;" />
+        <div id="adminMenuCats" class="po-chips"></div>
         <div id="adminMenuGrid" class="admin-menu-grid">
           <p class="menu-loading">Loading&hellip;</p>
         </div>
@@ -904,14 +962,19 @@ function initPlaceOrderTab() {
       </div>
     </div>`;
 
-  $id("placeOrderContent").dataset.loaded = "true";
+  container.dataset.loaded = "true";
+  $id("generatePayLinkBtn").addEventListener("click", generatePaymentLink);
+  $id("adminMenuSearch").addEventListener("input", (e) => {
+    adminMenuQuery = e.target.value;
+    renderAdminMenu();
+  });
   loadAdminMenu().then(() => {
     renderAdminMenu();
     renderAdminCart();
   });
 }
 
-// Hook: when Place Order tab is activated
+// Hook: quick-action buttons that jump to the Place Order tab
 document.querySelectorAll("[data-goto-tab]").forEach((btn) => {
   btn.addEventListener("click", () => {
     if (btn.dataset.gotoTab === "placeorder") {

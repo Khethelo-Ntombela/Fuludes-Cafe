@@ -37,10 +37,6 @@ export async function ensureCustomerProfileColumns(env) {
   );
   await runQuery(
     env,
-    `ALTER TABLE customers ADD COLUMN IF NOT EXISTS marketing_sms_opt_in BOOLEAN NOT NULL DEFAULT FALSE;`,
-  );
-  await runQuery(
-    env,
     `ALTER TABLE customers ADD COLUMN IF NOT EXISTS google_id TEXT;`,
   );
   await runQuery(
@@ -65,7 +61,8 @@ export async function requireCustomer(request, env) {
     env,
     `
         SELECT c.id, c.name, c.email, c.phone_number, c.delivery_address, c.google_id, c.is_verified,
-          c.marketing_email_opt_in, c.marketing_sms_opt_in
+          c.marketing_email_opt_in,
+          (c.password_hash IS NOT NULL) AS has_password
     FROM customer_sessions s
     JOIN customers c ON c.id = s.customer_id
     WHERE s.token = $1 AND s.expires_at > NOW();

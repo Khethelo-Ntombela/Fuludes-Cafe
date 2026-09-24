@@ -1,6 +1,7 @@
 User-agent: *
 Allow: /
 Allow: /home.html
+Allow: /privacy.html
 Allow: /css/
 Allow: /js/
 Disallow: /admin.html

@@ -228,35 +228,19 @@
             </button>
             <div class="faq-answer">
               <p>
-                To place an order, you create an account with your name, email
-                address, and a password. We also collect your phone number, and
-                where relevant your delivery address or table number, each time
-                you check out. This information is stored securely and used to
-                process your order, keep you updated on its status, and show you
-                your order history when you are signed in.
+                We collect only what we need to run your account and orders:
+                your name, email, phone number, and (for delivery) your
+                address. If you sign in with Google we receive only your name,
+                email and Google account ID, and use them only to create and
+                sign you in to your account. We never store card details, we
+                do not sell your information, and email marketing is strictly
+                opt-in (we do not send SMS marketing). You can update your
+                details, change your password (with an emailed confirmation)
+                or delete your account under My Account &rarr; Settings.
               </p>
               <p>
-                Your password is never stored in plain text. We store it as a
-                one way cryptographic hash, meaning even we cannot see or
-                recover your actual password.
-              </p>
-              <p>
-                We never collect or store your card number, CVV, or expiry date.
-                All online payments are handled entirely by Yoco, a licensed
-                South African payment gateway, on their own secure page, so your
-                banking details never pass through our systems.
-              </p>
-              <p>
-                Staying signed in works through a secure session on your device,
-                which remains active until you sign out. If you ever forget your
-                password, you can request a reset link sent to your email
-                address.
-              </p>
-              <p>
-                We do not sell, rent, or share your personal information with
-                third parties for marketing purposes. If you have any questions
-                about how your information is used, please contact us using the
-                details in the Visit Us section above.
+                <a href="privacy.html"><strong>Read our full Privacy Policy</strong></a>
+                for how we use, store and share your information.
               </p>
             </div>
           </div>
@@ -320,7 +304,8 @@
           ></a>
         </div>
         <p class="footer-policy-link">
-          <a href="#policies">Privacy &amp; Refund Policy</a>
+          <a href="privacy.html">Privacy Policy</a> &middot;
+          <a href="#policies">Refund Policy</a>
         </p>
         <p class="copyright">© 2026 Fulude's Cafe. All rights reserved.</p>
       </div>
@@ -539,6 +524,10 @@
             Back to Sign In
           </button>
         </form>
+        <p class="legal-consent">
+          By signing in or creating an account you agree to our
+          <a href="privacy.html">Privacy Policy</a>.
+        </p>
       </div>
     </div>
 
@@ -578,20 +567,6 @@
         <button class="modal-close" id="accountModalClose">&times;</button>
         <h3>My Account</h3>
         <p id="accountWelcome" class="auth-hint"></p>
-        <label
-          ><input type="checkbox" id="marketingEmailOptIn" /> Email
-          marketing</label
-        >
-        <label
-          ><input type="checkbox" id="marketingSmsOptIn" /> SMS marketing</label
-        >
-        <button
-          type="button"
-          class="btn btn-secondary btn-block"
-          id="saveMarketingPreferencesBtn"
-        >
-          Save preferences
-        </button>
         <button
           type="button"
           class="btn btn-primary btn-block"
@@ -599,15 +574,15 @@
         >
           View My Orders
         </button>
-        <button type="button" class="auth-link-btn" id="logoutBtn">
-          Log Out
-        </button>
         <button
           type="button"
-          class="auth-link-btn danger"
-          id="deleteAccountBtn"
+          class="btn btn-secondary btn-block"
+          id="openSettingsBtn"
         >
-          Delete Account
+          <i class="fas fa-gear"></i> Settings
+        </button>
+        <button type="button" class="auth-link-btn" id="logoutBtn">
+          Log Out
         </button>
       </div>
     </div>

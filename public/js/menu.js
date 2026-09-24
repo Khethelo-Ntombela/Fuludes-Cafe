@@ -50,22 +50,35 @@ function saveCart() {
 // ---------------------------------------------------------------------
 // Load menu from the server
 // ---------------------------------------------------------------------
+let lastMenuSignature = "";
+
 async function loadMenu(silent = false) {
   const grid = document.getElementById("orderItems");
   try {
-    const res = await fetch(`/api/menu?t=${Date.now()}`, { cache: "no-store" });
+    const res = await fetch("/api/menu", { cache: "no-store" });
     if (!res.ok) throw new Error("Menu request failed");
     const data = await res.json();
+    const signature = JSON.stringify([data.categories, data.items, data.spice_levels]);
+    const menuChanged = signature !== lastMenuSignature;
+    lastMenuSignature = signature;
+
     categories = data.categories || [];
     menuItems = data.items || [];
     spiceLevels = data.spice_levels || [];
+
+    // Re-price anything already in the cart against the live menu, so a
+    // special that ended (price goes back up) or one that just started
+    // (price drops) is reflected before the customer pays.
     const pricesChanged = repriceCart();
-    renderCategoryTabs();
-    renderOrderItems();
-    renderSpecialsBar();
+
+    if (menuChanged || !silent) {
+      renderCategoryTabs();
+      renderOrderItems();
+      renderSpecialsBar();
+    }
     if (pricesChanged) {
       renderCart();
-      showCartToast("Prices in your cart were updated");
+      showCartToast("Prices in your cart were updated", "info");
     }
   } catch (err) {
     if (!silent) {
@@ -74,7 +87,11 @@ async function loadMenu(silent = false) {
   }
 }
 
-/** Syncs every cart line's price with the item's live price (special price while a special runs, normal price otherwise). Returns true if anything changed. */
+/**
+ * Syncs every cart line's price with the item's current effective price
+ * (special price while a special is running, normal price otherwise).
+ * Returns true if any line's price changed.
+ */
 function repriceCart() {
   let changed = false;
   for (const line of cart) {
@@ -89,26 +106,41 @@ function repriceCart() {
   return changed;
 }
 
-/** Quick pop-up message (e.g. "Item added to cart"). */
-function showCartToast(message) {
+// Keep prices fresh while the page is open: poll every 30s, and refresh
+// when the customer returns to the tab.
+setInterval(() => {
+  if (!document.hidden) loadMenu(true);
+}, 30000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) loadMenu(true);
+});
+
+// ---------------------------------------------------------------------
+// Quick pop-up message (e.g. "Item added to cart")
+// ---------------------------------------------------------------------
+function showCartToast(message, kind = "success") {
   let stack = document.getElementById("cartToastStack");
   if (!stack) {
     const style = document.createElement("style");
-    style.textContent =
-      "#cartToastStack{position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:2147483647;display:flex;flex-direction:column;gap:10px;align-items:center;pointer-events:none;width:calc(100% - 32px);max-width:420px}" +
-      ".cart-toast{background:#1f7a3d;color:#fff;padding:16px 22px;border-radius:12px;font-size:1.05rem;font-weight:600;box-shadow:0 10px 30px rgba(0,0,0,.35);opacity:0;transform:translateY(-16px);transition:opacity .25s ease,transform .25s ease;display:flex;align-items:center;gap:12px;width:100%}" +
-      ".cart-toast.show{opacity:1;transform:translateY(0)}" +
-      ".cart-toast-icon{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#fff;color:#1f7a3d;font-weight:800}";
+    style.textContent = `
+      #cartToastStack{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:100000;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none;width:calc(100% - 32px);max-width:360px}
+      .cart-toast{background:#2b2b2b;color:#fff;padding:12px 18px;border-radius:10px;font-size:.95rem;box-shadow:0 6px 20px rgba(0,0,0,.25);opacity:0;transform:translateY(12px);transition:opacity .25s ease,transform .25s ease;display:flex;align-items:center;gap:8px}
+      .cart-toast.show{opacity:1;transform:translateY(0)}
+      .cart-toast .cart-toast-icon{color:#4caf50;font-weight:700}
+      .cart-toast.info .cart-toast-icon{color:#ffb300}
+    `;
     document.head.appendChild(style);
     stack = document.createElement("div");
     stack.id = "cartToastStack";
+    stack.setAttribute("role", "status");
+    stack.setAttribute("aria-live", "polite");
     document.body.appendChild(stack);
   }
   const el = document.createElement("div");
-  el.className = "cart-toast";
+  el.className = `cart-toast ${kind}`;
   const icon = document.createElement("span");
   icon.className = "cart-toast-icon";
-  icon.textContent = "\u2713";
+  icon.textContent = kind === "info" ? "ℹ" : "✓";
   const text = document.createElement("span");
   text.textContent = message;
   el.appendChild(icon);
@@ -118,17 +150,8 @@ function showCartToast(message) {
   setTimeout(() => {
     el.classList.remove("show");
     setTimeout(() => el.remove(), 300);
-  }, 2600);
+  }, 1800);
 }
-
-// Keep cart prices fresh while the page is open.
-setInterval(() => {
-  if (!document.hidden) loadMenu(true);
-}, 10000);
-document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) loadMenu(true);
-});
-window.addEventListener("focus", () => loadMenu(true));
 
 function renderCategoryTabs() {
   const tabsContainer = document.getElementById("categoryTabs");
@@ -192,18 +215,33 @@ function renderOrderItems() {
 
   grid.innerHTML = items
     .map((item) => {
-      const photos = item.images && item.images.length > 0 ? item.images : (item.image_url ? [item.image_url] : []);
+      const photos = getPhotos(item);
       const onSpecial = item.is_on_special === true;
       const priceHtml = onSpecial
         ? `<span class="was-price">${money(item.price)}</span>${money(item.effective_price)}`
         : money(item.price);
       return `
-    <div class="order-card${item.is_available ? "" : " sold-out"}">
-      <div class="order-card-image" ${photos.length > 0 ? `data-id="${item.id}"` : ""}>
-        ${photos.length > 0 ? `<img src="${photos[0]}" alt="${item.name}" loading="lazy" />` : ""}
+    <div class="order-card${item.is_available ? "" : " sold-out"}" data-item="${item.id}">
+      <div class="order-card-image${photos.length > 1 ? " has-slides" : ""}">
+        ${
+          photos.length > 0
+            ? `<div class="slides-track" data-index="0">${photos
+                .map(
+                  (src, i) =>
+                    `<img src="${src}" alt="${item.name}${photos.length > 1 ? ` (photo ${i + 1} of ${photos.length})` : ""}" ${i === 0 ? "" : 'loading="lazy"'} draggable="false" />`,
+                )
+                .join("")}</div>`
+            : ""
+        }
         ${onSpecial ? `<span class="special-badge">Special</span>` : ""}
         ${item.is_available ? "" : `<span class="sold-out-badge">Sold Out</span>`}
-        ${photos.length > 1 ? `<span class="photo-count-badge"><i class="fas fa-images"></i> ${photos.length}</span>` : ""}
+        ${
+          photos.length > 1
+            ? `<button type="button" class="slide-arrow slide-prev" aria-label="Previous photo">&#10094;</button>
+               <button type="button" class="slide-arrow slide-next" aria-label="Next photo">&#10095;</button>
+               <span class="slide-counter">1 / ${photos.length}</span>`
+            : ""
+        }
       </div>
       <div class="order-card-body">
         <div class="order-card-header">
@@ -212,33 +250,122 @@ function renderOrderItems() {
           <span class="order-card-price">${priceHtml}</span>
         </div>
         <p class="order-card-desc">${item.description || ""}</p>
-        <div class="order-card-footer">
-          <button class="add-to-order-btn" data-id="${item.id}" ${item.is_available ? "" : "disabled"}>
-            ${item.is_available ? "Add to Order" : "Sold Out"}
-          </button>
-        </div>
+        <div class="order-card-footer" data-id="${item.id}">${cardControlsHtml(item)}</div>
       </div>
     </div>
   `;
     })
     .join("");
+}
 
-  grid.querySelectorAll(".add-to-order-btn:not([disabled])").forEach((btn) => {
-    btn.addEventListener("click", () => handleAddClick(parseInt(btn.dataset.id, 10)));
-  });
+function getPhotos(item) {
+  return item.images && item.images.length > 0 ? item.images : item.image_url ? [item.image_url] : [];
+}
 
-  grid.querySelectorAll(".order-card-image[data-id]").forEach((el) => {
-    el.addEventListener("click", () => openLightbox(parseInt(el.dataset.id, 10)));
+// ---------------------------------------------------------------------
+// Per-dish quantity controls. Each dish card owns its own "Add to Order"
+// button, which turns into a  -  2  +  stepper once the dish is in the
+// cart. (The Your Order panel only displays quantities.)
+// ---------------------------------------------------------------------
+function itemQuantityInCart(itemId) {
+  return cart.filter((l) => l.itemId === itemId).reduce((sum, l) => sum + l.quantity, 0);
+}
+
+function cardControlsHtml(item) {
+  if (!item.is_available) {
+    return `<button class="add-to-order-btn" disabled>Sold Out</button>`;
+  }
+  const qty = itemQuantityInCart(item.id);
+  if (qty === 0) {
+    return `<button class="add-to-order-btn" data-action="add" data-id="${item.id}">Add to Order</button>`;
+  }
+  return `
+    <div class="order-qty card-qty" role="group" aria-label="Quantity of ${item.name}">
+      <button type="button" class="qty-btn" data-action="minus" data-id="${item.id}" aria-label="Remove one ${item.name}">&minus;</button>
+      <span class="qty-value">${qty}</span>
+      <button type="button" class="qty-btn" data-action="plus" data-id="${item.id}" aria-label="Add one ${item.name}">+</button>
+    </div>`;
+}
+
+/** Refreshes only the quantity controls on the visible cards (keeps any photo the customer has slid to). */
+function syncCardControls() {
+  document.querySelectorAll("#orderItems .order-card-footer[data-id]").forEach((footer) => {
+    const item = menuItems.find((i) => i.id === parseInt(footer.dataset.id, 10));
+    if (item) footer.innerHTML = cardControlsHtml(item);
   });
 }
 
-/** Opens the shared lightbox (site.js) for a dish's photo set. */
-function openLightbox(itemId) {
-  const item = menuItems.find((i) => i.id === itemId);
-  if (!item) return;
-  const photos = item.images && item.images.length > 0 ? item.images : (item.image_url ? [item.image_url] : []);
-  openLightboxWithPhotos(photos, 0);
+/** Takes one unit off a dish. For dishes with several variants (spice/extras) it trims the most recently added one. */
+function decrementItem(itemId) {
+  for (let i = cart.length - 1; i >= 0; i--) {
+    if (cart[i].itemId === itemId) {
+      changeLineQuantity(cart[i].lineId, -1);
+      return;
+    }
+  }
 }
+
+// ---------------------------------------------------------------------
+// Photo slideshow inside each dish card - arrows + swipe, no full-screen
+// lightbox. The customer stays right where they are on the menu.
+// ---------------------------------------------------------------------
+function slideTo(imageEl, index) {
+  const track = imageEl.querySelector(".slides-track");
+  if (!track) return;
+  const count = track.children.length;
+  const next = ((index % count) + count) % count;
+  track.dataset.index = next;
+  track.style.transform = `translateX(-${next * 100}%)`;
+  const counter = imageEl.querySelector(".slide-counter");
+  if (counter) counter.textContent = `${next + 1} / ${count}`;
+}
+
+(function wireMenuGrid() {
+  const grid = document.getElementById("orderItems");
+
+  grid.addEventListener("click", (e) => {
+    const arrow = e.target.closest(".slide-arrow");
+    if (arrow) {
+      const imageEl = arrow.closest(".order-card-image");
+      const idx = parseInt(imageEl.querySelector(".slides-track").dataset.index, 10) || 0;
+      slideTo(imageEl, idx + (arrow.classList.contains("slide-next") ? 1 : -1));
+      return;
+    }
+    const btn = e.target.closest("[data-action]");
+    if (!btn || btn.disabled) return;
+    const id = parseInt(btn.dataset.id, 10);
+    if (btn.dataset.action === "minus") decrementItem(id);
+    else handleAddClick(id); // "add" and "plus"
+  });
+
+  // Swipe left/right on the photo (touch screens)
+  let startX = null;
+  let startY = null;
+  grid.addEventListener(
+    "touchstart",
+    (e) => {
+      const img = e.target.closest(".order-card-image.has-slides");
+      if (!img) return;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+    },
+    { passive: true },
+  );
+  grid.addEventListener(
+    "touchend",
+    (e) => {
+      if (startX === null) return;
+      const imageEl = e.target.closest(".order-card-image.has-slides");
+      const dx = e.changedTouches[0].clientX - startX;
+      const dy = e.changedTouches[0].clientY - startY;
+      startX = startY = null;
+      if (!imageEl || Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy)) return;
+      const idx = parseInt(imageEl.querySelector(".slides-track").dataset.index, 10) || 0;
+      slideTo(imageEl, idx + (dx < 0 ? 1 : -1));
+    },
+    { passive: true },
+  );
+})();
 
 // ---------------------------------------------------------------------
 // Specials - the red "Save on Meals" button + the modal listing every
@@ -415,10 +542,11 @@ function addToCart(item, { spiceLevel, extras, quantity }) {
   const extraIds = extras.map((e) => e.id).sort().join(",");
   const lineId = `${item.id}|${spiceLevel || ""}|${extraIds}`;
   const existing = cart.find((line) => line.lineId === lineId);
-  // Special price (when set) is the real selling price - the server
-  // re-checks and re-prices this from the live DB at checkout regardless,
-  // but reflecting it here keeps the cart total from looking wrong.
-  const effectivePrice = item.effective_price !== undefined && item.effective_price !== null ? item.effective_price : item.price;
+  // effective_price is the special price only while the special is
+  // actually running (start/end dates respected); otherwise the normal
+  // price. The server re-prices from the live DB at checkout regardless.
+  const effectivePrice =
+    item.effective_price !== undefined && item.effective_price !== null ? item.effective_price : item.price;
 
   if (existing) {
     existing.quantity += quantity;
@@ -434,7 +562,7 @@ function addToCart(item, { spiceLevel, extras, quantity }) {
       extras
     });
   }
-  showCartToast(`${item.name} successfully added to cart`);
+  showCartToast(`${item.name} added to cart`);
   renderCart();
 }
 
@@ -525,8 +653,8 @@ document.getElementById("customizeConfirmBtn").addEventListener("click", () => {
 // Cart rendering + edit/remove
 // ---------------------------------------------------------------------
 function renderCart() {
-  repriceCart();
   saveCart();
+  syncCardControls();
 
   const cartItemsEl = document.getElementById("cartItems");
   const cartTotalEl = document.getElementById("cartTotal");
@@ -536,6 +664,7 @@ function renderCart() {
     cartItemsEl.innerHTML = `<p class="cart-empty">Your cart is empty</p>`;
     cartTotalEl.textContent = money(0);
     checkoutBtn.disabled = true;
+    updateMobileCartBar(0, 0);
     return;
   }
 
@@ -558,11 +687,7 @@ function renderCart() {
         <div class="cart-item-info">
           <span class="cart-item-name">${line.name}</span>
           ${optionsText ? `<div class="cart-item-options">${optionsText}</div>` : ""}
-          <div class="cart-item-qty">
-            <button class="cart-qty-minus" data-line="${line.lineId}">-</button>
-            <span>${line.quantity}</span>
-            <button class="cart-qty-plus" data-line="${line.lineId}">+</button>
-          </div>
+          <span class="cart-item-qty-label">Qty: ${line.quantity}</span>
           <span class="cart-item-price">${money(lineTotal)}</span>
         </div>
         <button class="cart-item-remove" data-line="${line.lineId}" aria-label="Remove item">&times;</button>
@@ -610,13 +735,8 @@ function renderCart() {
   }
 
   cartTotalEl.textContent = money(total);
+  updateMobileCartBar(cart.reduce((n, l) => n + l.quantity, 0), total);
 
-  cartItemsEl.querySelectorAll(".cart-qty-minus").forEach((btn) => {
-    btn.addEventListener("click", () => changeLineQuantity(btn.dataset.line, -1));
-  });
-  cartItemsEl.querySelectorAll(".cart-qty-plus").forEach((btn) => {
-    btn.addEventListener("click", () => changeLineQuantity(btn.dataset.line, 1));
-  });
   cartItemsEl.querySelectorAll(".cart-item-remove").forEach((btn) => {
     btn.addEventListener("click", () => {
       cart = cart.filter((line) => line.lineId !== btn.dataset.line);
@@ -624,6 +744,48 @@ function renderCart() {
     });
   });
 }
+
+// ---------------------------------------------------------------------
+// Phones/tablets: "Your Order" lives on its own page instead of sitting at
+// the very bottom of a long menu. A bar fixed to the bottom of the screen
+// (the order nav bar) shows the item count + total and opens it in one tap;
+// the browser's Back button (or the Back arrow) returns to the menu.
+// ---------------------------------------------------------------------
+const cartPanelEl = document.querySelector(".cart-panel");
+const mobileCartBar = document.getElementById("mobileCartBar");
+const mobileCartCount = document.getElementById("mobileCartCount");
+const mobileCartTotal = document.getElementById("mobileCartTotal");
+const cartPageBack = document.getElementById("cartPageBack");
+
+function updateMobileCartBar(count, total) {
+  if (!mobileCartBar) return;
+  mobileCartCount.textContent = count;
+  mobileCartTotal.textContent = money(total);
+  mobileCartBar.classList.toggle("has-items", count > 0);
+}
+
+function openCartPage() {
+  if (cartPanelEl.classList.contains("cart-page-open")) return;
+  cartPanelEl.classList.add("cart-page-open");
+  document.body.classList.add("cart-page-active");
+  history.pushState({ cartPage: true }, "", "#your-order");
+  window.scrollTo(0, 0);
+}
+
+function closeCartPage({ fromPopState = false } = {}) {
+  if (!cartPanelEl.classList.contains("cart-page-open")) return;
+  cartPanelEl.classList.remove("cart-page-open");
+  document.body.classList.remove("cart-page-active");
+  if (!fromPopState && location.hash === "#your-order") history.back();
+}
+
+if (mobileCartBar) mobileCartBar.addEventListener("click", openCartPage);
+if (cartPageBack) cartPageBack.addEventListener("click", () => closeCartPage());
+window.addEventListener("popstate", () => closeCartPage({ fromPopState: true }));
+// Leaving the phone layout (e.g. rotating a tablet) drops the "page" state.
+window.matchMedia("(min-width: 901px)").addEventListener("change", (e) => {
+  if (e.matches) closeCartPage({ fromPopState: true });
+});
 
 function changeLineQuantity(lineId, delta) {
   const line = cart.find((l) => l.lineId === lineId);
@@ -655,6 +817,8 @@ checkoutBtn.addEventListener("click", () => {
     openAuthModal("signin", "Please sign in or create an account to continue to checkout.");
     return;
   }
+  // Pull the latest prices first so a special that started/ended while the
+  // item sat in the cart is reflected before the customer pays.
   loadMenu(true).finally(proceedToCheckout);
 });
 
@@ -671,24 +835,36 @@ function updateCheckoutFieldVisibility() {
   }
 }
 
-/** Sets up geocoding on blur for the delivery address field. */
-function setupDeliveryGeocoding(addressInput) {
-  if (!addressInput) return;
+let lastQuotedAddressInput = ""; // the exact text we last looked up
+let deliveryTooFar = false;
 
-  // Remove any existing blur listener to avoid duplicates
-  addressInput.removeEventListener("blur", handleDeliveryAddressBlur);
-  addressInput.addEventListener("blur", handleDeliveryAddressBlur);
+function resetDeliveryQuote() {
+  deliveryFee = 0;
+  deliveryDistanceKm = 0;
+  geocodedDeliveryLat = null;
+  geocodedDeliveryLng = null;
+  geocodedDisplayAddress = "";
+  deliveryFeeLoading = false;
+  deliveryTooFar = false;
+  lastQuotedAddressInput = "";
 }
 
+/**
+ * Looks the typed address up (geocode -> distance -> fee). Runs when the
+ * address field loses focus, when a saved address is filled in, and once
+ * more at submit time if there is still no quote - so a delivery order is
+ * never sent without coordinates.
+ */
 async function handleDeliveryAddressBlur() {
   const addressInput = document.getElementById("delivery-address");
   const address = addressInput?.value?.trim();
-  if (!address) return;
+  if (!address || orderTypeSelect.value !== "delivery") return;
 
-  // Don't re-geocode the same address
-  if (address === geocodedDisplayAddress && geocodedDeliveryLat !== null) return;
+  // Don't re-look-up the same text
+  if (address === lastQuotedAddressInput && geocodedDeliveryLat !== null) return;
 
   deliveryFeeLoading = true;
+  deliveryTooFar = false;
   renderCart(); // show loading state
 
   try {
@@ -701,12 +877,8 @@ async function handleDeliveryAddressBlur() {
     const geoData = await geoRes.json();
 
     if (!geoRes.ok || !geoData.lat || !geoData.lng) {
-      throw new Error(geoData.error || "Could not find that address");
+      throw new Error(geoData.error || "We couldn't find that address.");
     }
-
-    geocodedDeliveryLat = geoData.lat;
-    geocodedDeliveryLng = geoData.lng;
-    geocodedDisplayAddress = geoData.display_name;
 
     // Step 2: Calculate delivery fee
     const feeRes = await fetch("/api/delivery/fee", {
@@ -720,26 +892,46 @@ async function handleDeliveryAddressBlur() {
       throw new Error(feeData.error || "Failed to calculate delivery fee");
     }
 
+    geocodedDeliveryLat = geoData.lat;
+    geocodedDeliveryLng = geoData.lng;
+    geocodedDisplayAddress = geoData.display_name;
+    lastQuotedAddressInput = address;
+
     if (feeData.too_far) {
       deliveryFee = 0;
       deliveryDistanceKm = feeData.distance_km;
+      deliveryTooFar = true;
       showCheckoutError(
-        `${feeData.message} Call ${feeData.cafe_phone} or email ${feeData.cafe_email}.`
+        `${feeData.message} We found "${geoData.display_name}" (about ${feeData.distance_km} km away). If that's not the right place, add your suburb or village to the address. Otherwise call ${feeData.cafe_phone} or email ${feeData.cafe_email}.`
       );
     } else {
       deliveryFee = feeData.fee;
       deliveryDistanceKm = feeData.distance_km;
+      checkoutError.style.display = "none";
     }
   } catch (err) {
-    deliveryFee = 0;
-    deliveryDistanceKm = 0;
-    geocodedDeliveryLat = null;
-    geocodedDeliveryLng = null;
-    geocodedDisplayAddress = "";
-    // Don't show error for geocoding failures - let user correct address
-    console.warn("Delivery geocoding/fee failed:", err.message);
+    resetDeliveryQuote();
+    showCheckoutError(err.message || "We couldn't find that address. Please check it and try again.");
   } finally {
     deliveryFeeLoading = false;
+    renderCart();
+  }
+}
+
+/** Sets up geocoding on blur for the delivery address field. */
+function setupDeliveryGeocoding(addressInput) {
+  if (!addressInput) return;
+  addressInput.removeEventListener("blur", handleDeliveryAddressBlur);
+  addressInput.addEventListener("blur", handleDeliveryAddressBlur);
+  // Editing the text invalidates the previous quote
+  addressInput.removeEventListener("input", invalidateQuoteOnEdit);
+  addressInput.addEventListener("input", invalidateQuoteOnEdit);
+}
+
+function invalidateQuoteOnEdit() {
+  const typed = document.getElementById("delivery-address").value.trim();
+  if (typed !== lastQuotedAddressInput && geocodedDeliveryLat !== null) {
+    resetDeliveryQuote();
     renderCart();
   }
 }
@@ -754,13 +946,7 @@ function proceedToCheckout() {
   const phoneInput = document.getElementById("customer-phone");
   const addressInput = document.getElementById("delivery-address");
 
-  // Reset delivery fee state
-  deliveryFee = 0;
-  deliveryDistanceKm = 0;
-  geocodedDeliveryLat = null;
-  geocodedDeliveryLng = null;
-  geocodedDisplayAddress = "";
-  deliveryFeeLoading = false;
+  resetDeliveryQuote();
 
   if (currentCustomer) {
     if (!nameInput.value.trim()) {
@@ -773,6 +959,9 @@ function proceedToCheckout() {
       if (shouldUseSaved) {
         phoneInput.value = currentCustomer.phone_number || "";
         addressInput.value = currentCustomer.delivery_address || "";
+        // A saved address was never looked up in this visit - do it now
+        // if they're already choosing delivery.
+        if (orderTypeSelect.value === "delivery") handleDeliveryAddressBlur();
       }
     }
   }
@@ -791,13 +980,11 @@ checkoutModal.addEventListener("click", (e) => {
 orderTypeSelect.addEventListener("change", () => {
   updateCheckoutFieldVisibility();
   // Reset delivery fee state when order type changes
-  deliveryFee = 0;
-  deliveryDistanceKm = 0;
-  geocodedDeliveryLat = null;
-  geocodedDeliveryLng = null;
-  geocodedDisplayAddress = "";
-  deliveryFeeLoading = false;
+  resetDeliveryQuote();
+  checkoutError.style.display = "none";
   renderCart();
+  // Switching to delivery with an address already typed/saved: quote it.
+  if (orderTypeSelect.value === "delivery") handleDeliveryAddressBlur();
 });
 
 /** "18:5" -> "6:05 PM" - friendlier than raw 24-hour input for a printed/displayed ticket. */
@@ -850,6 +1037,18 @@ async function submitOrderCheckout(event) {
   if (cart.length === 0) {
     showCheckoutError("Your cart is empty.");
     return;
+  }
+
+  // Delivery: make sure the address has been located and priced (the
+  // customer may tap "Continue" straight after typing, before the field
+  // has lost focus).
+  if (orderType === "delivery") {
+    if (geocodedDeliveryLat === null || deliveryAddress !== lastQuotedAddressInput) {
+      await handleDeliveryAddressBlur();
+    }
+    if (deliveryFeeLoading) return;
+    if (geocodedDeliveryLat === null) return; // error already shown by the lookup
+    if (deliveryTooFar) return; // message already shown - don't send an order we can't deliver
   }
 
   const pickupTime =

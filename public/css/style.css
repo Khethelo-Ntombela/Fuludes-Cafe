@@ -2458,3 +2458,257 @@ textarea:focus-visible {
     font-size: 0.92rem;
   }
 }
+
+/* =====================================================================
+   Menu: per-dish photo slideshow, per-dish quantity stepper,
+   quantity-only cart lines, and the phone "Your Order" page + bar
+   ===================================================================== */
+
+/* --- Photo slideshow inside the dish card (no full-screen lightbox) --- */
+.order-card .order-card-image {
+  cursor: default;
+}
+
+.order-card-image .slides-track {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  transition: transform 0.35s ease;
+}
+
+.order-card-image .slides-track img {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* keep the hover zoom off the slideshow - it fights with sliding */
+.order-card:hover .order-card-image .slides-track img {
+  transform: none;
+}
+
+.slide-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(10, 10, 10, 0.6);
+  color: var(--white);
+  font-size: 0.85rem;
+  cursor: pointer;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.slide-arrow:hover {
+  background: rgba(10, 10, 10, 0.85);
+}
+
+.slide-prev {
+  left: 8px;
+}
+
+.slide-next {
+  right: 8px;
+}
+
+.slide-counter {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  z-index: 2;
+  background: rgba(10, 10, 10, 0.75);
+  color: var(--white);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 100px;
+}
+
+/* --- Quantity stepper on the dish card --- */
+.card-qty {
+  gap: 14px;
+}
+
+.card-qty .qty-value {
+  font-size: 1.05rem;
+}
+
+/* --- Your Order shows quantity only --- */
+.cart-item-qty-label {
+  display: inline-block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 100px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: rgba(255, 255, 255, 0.8);
+  margin-right: 10px;
+}
+
+/* --- Phone / tablet: Your Order becomes its own page --- */
+.mobile-cart-bar,
+.cart-page-back {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .order-layout .cart-panel {
+    display: none;
+  }
+
+  .order-layout .cart-panel.cart-page-open {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 150;
+    overflow-y: auto;
+    border-radius: 0;
+    border: none;
+    padding: 20px 20px 48px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .cart-page-open .cart-items {
+    max-height: none;
+  }
+
+  .cart-page-open .cart-page-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: none;
+    border: none;
+    color: var(--gold);
+    font-family: inherit;
+    font-size: 0.95rem;
+    font-weight: 600;
+    padding: 8px 0 16px;
+    cursor: pointer;
+  }
+
+  .mobile-cart-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 120;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 20px calc(14px + env(safe-area-inset-bottom, 0px));
+    background: var(--black);
+    color: var(--white);
+    border: none;
+    border-top: 2px solid var(--gold-dark);
+    font-family: inherit;
+    font-size: 0.98rem;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.25);
+  }
+
+  .mobile-cart-bar.has-items {
+    display: flex;
+  }
+
+  .mobile-cart-bar .mcb-left {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .mobile-cart-bar .mcb-count {
+    min-width: 24px;
+    height: 24px;
+    padding: 0 7px;
+    border-radius: 100px;
+    background: var(--gold);
+    color: var(--black);
+    font-size: 0.8rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .mobile-cart-bar .mcb-total {
+    color: var(--gold);
+  }
+
+  body.cart-page-active {
+    overflow: hidden;
+  }
+
+  body.cart-page-active .mobile-cart-bar {
+    display: none;
+  }
+
+  /* room so the bar never hides the last dishes */
+  .section.order {
+    padding-bottom: 96px;
+  }
+}
+
+/* --- Settings modal --- */
+.settings-danger-zone {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-danger-zone h4 {
+  font-size: 0.95rem;
+  color: var(--danger);
+  margin-bottom: 4px;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: var(--white);
+  border: 1px solid var(--danger);
+  margin-top: 12px;
+}
+
+.btn-danger:hover {
+  background: #8f1f14;
+  border-color: #8f1f14;
+}
+
+.legal-consent {
+  font-size: 0.78rem;
+  color: var(--gray);
+  text-align: center;
+  margin-top: 14px;
+  line-height: 1.5;
+}
+
+.legal-consent a {
+  color: var(--gold-dark);
+  text-decoration: underline;
+}
+
+/* --- Menu photos: show the WHOLE picture (no zoomed-in crop) and a bit larger --- */
+.order-card .order-card-image {
+  height: auto;
+  aspect-ratio: 4 / 3;
+  background: #efebe5;
+}
+
+.order-card .order-card-image img,
+.order-card-image .slides-track img {
+  object-fit: contain;
+  background: #efebe5;
+}
+
+.order-card:hover .order-card-image img {
+  transform: none;
+}

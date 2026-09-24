@@ -93,7 +93,7 @@ async function calculateDeliveryFee(env, deliveryLat, deliveryLng) {
     `SELECT up_to_km, fee FROM delivery_fee_bands ORDER BY sort_order;`
   );
   const bands = bandsRes.rows || [];
-  const matchedBand = bands.find((b) => roadKm <= b.up_to_km);
+  const matchedBand = bands.find((b) => roadKm <= Number(b.up_to_km));
 
   if (!matchedBand) {
     return { fee: 0, distance_km: Math.round(roadKm * 100) / 100, too_far: true };
@@ -462,29 +462,46 @@ export async function onRequestPost(context) {
     let tooFar = false;
 
     if (orderType === "delivery") {
-      // The client should have sent geocoded coordinates; if not, we can't calculate
-      // but we still allow the order through with 0 fee (client will show warning)
-      const clientLat = Number(orderData.delivery_lat);
-      const clientLng = Number(orderData.delivery_lng);
-      if (Number.isFinite(clientLat) && Number.isFinite(clientLng)) {
-        const feeCalc = await calculateDeliveryFee(env, clientLat, clientLng);
-        deliveryFee = feeCalc.fee;
-        deliveryDistanceKm = feeCalc.distance_km;
-        deliveryLat = clientLat;
-        deliveryLng = clientLng;
-        tooFar = feeCalc.too_far;
-        if (tooFar) {
-          return jsonResponse(
-            {
-              error: "Delivery address is too far. Please contact us first.",
-              too_far: true,
-              distance_km: deliveryDistanceKm,
-              cafe_phone: (await runQuery(env, "SELECT cafe_phone FROM app_config WHERE id = 1;")).rows[0]?.cafe_phone,
-              cafe_email: (await runQuery(env, "SELECT cafe_email FROM app_config WHERE id = 1;")).rows[0]?.cafe_email,
-            },
-            400
-          );
-        }
+      // Coordinates come from the checkout's address lookup. Without them we
+      // can't price the delivery, so don't let the order through at R0.
+      // (Number(null) is 0, which would read as "middle of the ocean" - so
+      // treat null/blank as missing rather than as zero.)
+      const hasCoords =
+        orderData.delivery_lat != null &&
+        orderData.delivery_lng != null &&
+        orderData.delivery_lat !== "" &&
+        orderData.delivery_lng !== "";
+      const clientLat = hasCoords ? Number(orderData.delivery_lat) : NaN;
+      const clientLng = hasCoords ? Number(orderData.delivery_lng) : NaN;
+      if (!Number.isFinite(clientLat) || !Number.isFinite(clientLng)) {
+        return jsonResponse(
+          {
+            error:
+              "We couldn't locate your delivery address. Please check it (add your suburb or village) and try again.",
+          },
+          400
+        );
+      }
+      const feeCalc = await calculateDeliveryFee(env, clientLat, clientLng);
+      deliveryFee = feeCalc.fee;
+      deliveryDistanceKm = feeCalc.distance_km;
+      deliveryLat = clientLat;
+      deliveryLng = clientLng;
+      tooFar = feeCalc.too_far;
+      if (tooFar) {
+        const contact = (
+          await runQuery(env, "SELECT cafe_phone, cafe_email FROM app_config WHERE id = 1;")
+        ).rows[0];
+        return jsonResponse(
+          {
+            error: "Delivery address is too far. Please contact us first.",
+            too_far: true,
+            distance_km: deliveryDistanceKm,
+            cafe_phone: contact?.cafe_phone,
+            cafe_email: contact?.cafe_email,
+          },
+          400
+        );
       }
     }
 

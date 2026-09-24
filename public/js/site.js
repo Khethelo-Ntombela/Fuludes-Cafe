@@ -129,11 +129,6 @@ const forgotPasswordSuccess = document.getElementById("forgotPasswordSuccess");
 const accountModal = document.getElementById("accountModal");
 const accountModalClose = document.getElementById("accountModalClose");
 const accountWelcome = document.getElementById("accountWelcome");
-const marketingEmailOptIn = document.getElementById("marketingEmailOptIn");
-const marketingSmsOptIn = document.getElementById("marketingSmsOptIn");
-const saveMarketingPreferencesBtn = document.getElementById(
-  "saveMarketingPreferencesBtn",
-);
 const resetPasswordModal = document.getElementById("resetPasswordModal");
 const resetPasswordModalClose = document.getElementById(
   "resetPasswordModalClose",
@@ -203,6 +198,11 @@ async function initAuth() {
   }
 
   const params = new URLSearchParams(window.location.search);
+  const confirmPasswordToken = params.get("confirm_password");
+  if (confirmPasswordToken) {
+    window.history.replaceState({}, document.title, window.location.pathname);
+    confirmPasswordChange(confirmPasswordToken);
+  }
   const resetToken = params.get("reset_token");
   if (resetToken) {
     openResetPasswordModal(resetToken);
@@ -291,37 +291,11 @@ if (myBuffetClose)
 function openAccountMenu() {
   if (currentCustomer) {
     accountWelcome.textContent = `Signed in as ${currentCustomer.name} (${currentCustomer.email})`;
-    if (marketingEmailOptIn)
-      marketingEmailOptIn.checked = Boolean(
-        currentCustomer.marketing_email_opt_in,
-      );
-    if (marketingSmsOptIn)
-      marketingSmsOptIn.checked = Boolean(currentCustomer.marketing_sms_opt_in);
     accountModal.classList.add("active");
   } else {
     openAuthModal("signin");
   }
 }
-
-if (saveMarketingPreferencesBtn)
-  saveMarketingPreferencesBtn.addEventListener("click", async () => {
-    const response = await fetch("/api/auth/account", {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${customerToken}`,
-      },
-      body: JSON.stringify({
-        marketing_email_opt_in: marketingEmailOptIn.checked,
-        marketing_sms_opt_in: marketingSmsOptIn.checked,
-      }),
-    });
-    const data = await response.json();
-    if (!response.ok || !data.success)
-      return alert(data.error || "Failed to save preferences.");
-    currentCustomer = { ...currentCustomer, ...data };
-    alert("Marketing preferences saved.");
-  });
 
 accountNavBtn.addEventListener("click", openAccountMenu);
 
@@ -787,32 +761,6 @@ document.getElementById("logoutBtn").addEventListener("click", async () => {
   updateAccountNav();
   accountModal.classList.remove("active");
 });
-
-document
-  .getElementById("deleteAccountBtn")
-  ?.addEventListener("click", async () => {
-    if (
-      !confirm("Delete your account? This is permanent and cannot be undone.")
-    )
-      return;
-    try {
-      const res = await fetch("/api/auth/account", {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${customerToken}` },
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to delete account");
-      // Clear local session and UI
-      customerToken = null;
-      currentCustomer = null;
-      localStorage.removeItem(CUSTOMER_TOKEN_KEY);
-      updateAccountNav();
-      accountModal.classList.remove("active");
-      alert("Your account has been deleted.");
-    } catch (err) {
-      alert(err.message || "Failed to delete account");
-    }
-  });
 
 // ---------------------------------------------------------------------
 // Reservation modal - reachable from the nav on every page (plus the
@@ -1462,3 +1410,268 @@ document.querySelectorAll(".faq-question").forEach((btn) => {
 initAuth();
 checkPaymentReturn();
 loadConfig();
+
+
+// ---------------------------------------------------------------------
+// Settings (signed-in customers): update username / contact details,
+// change password (needs email confirmation), email marketing, and
+// delete the account. The markup is injected here so every page that
+// loads site.js gets it without duplicating HTML.
+// ---------------------------------------------------------------------
+(function setupSettings() {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.id = "settingsModal";
+  overlay.innerHTML = `
+    <div class="modal">
+      <button class="modal-close" id="settingsModalClose" aria-label="Close">&times;</button>
+      <h3>Settings</h3>
+      <div class="auth-tabs" id="settingsTabs">
+        <button type="button" class="auth-tab active" data-settings-tab="details">Details</button>
+        <button type="button" class="auth-tab" data-settings-tab="password">Password</button>
+        <button type="button" class="auth-tab" data-settings-tab="account">Account</button>
+      </div>
+
+      <!-- Details: username + contact -->
+      <div class="settings-pane" data-settings-pane="details">
+        <form id="settingsDetailsForm">
+          <div class="form-group">
+            <label for="settings-name">Username</label>
+            <input type="text" id="settings-name" required maxlength="100" />
+          </div>
+          <div class="form-group">
+            <label for="settings-phone">Phone (optional)</label>
+            <input type="tel" id="settings-phone" maxlength="30" />
+          </div>
+          <div class="form-group">
+            <label for="settings-address">Delivery address (optional)</label>
+            <input type="text" id="settings-address" maxlength="500" placeholder="Include your suburb or village" />
+          </div>
+          <p class="auth-hint" style="margin-bottom:14px">Your email (<span id="settings-email"></span>) can't be changed here.</p>
+          <p id="settingsDetailsMsg" class="form-success" style="display:none"></p>
+          <p id="settingsDetailsErr" class="form-error" style="display:none"></p>
+          <button type="submit" class="btn btn-primary btn-block">Save changes</button>
+        </form>
+      </div>
+
+      <!-- Password: needs email confirmation -->
+      <div class="settings-pane" data-settings-pane="password" style="display:none">
+        <p id="settingsGooglePwNote" class="auth-hint" style="display:none">
+          You signed in with Google, so there is no password on this account to change here.
+        </p>
+        <form id="settingsPasswordForm">
+          <div class="form-group">
+            <label for="settings-current-password">Current password</label>
+            <input type="password" id="settings-current-password" required autocomplete="current-password" />
+          </div>
+          <div class="form-group">
+            <label for="settings-new-password">New password</label>
+            <input type="password" id="settings-new-password" required minlength="8" autocomplete="new-password" />
+            <span class="auth-hint">At least 8 characters. We'll email you a link to confirm - your password only changes after you open it.</span>
+          </div>
+          <p id="settingsPasswordMsg" class="form-success" style="display:none"></p>
+          <p id="settingsPasswordErr" class="form-error" style="display:none"></p>
+          <button type="submit" class="btn btn-primary btn-block">Send confirmation link</button>
+        </form>
+      </div>
+
+      <!-- Account: marketing + delete -->
+      <div class="settings-pane" data-settings-pane="account" style="display:none">
+        <label class="checkbox-option" style="margin-bottom:8px">
+          <input type="checkbox" id="settingsEmailOptIn" /> Send me email offers and news
+        </label>
+        <p id="settingsAccountMsg" class="form-success" style="display:none"></p>
+        <p id="settingsAccountErr" class="form-error" style="display:none"></p>
+        <button type="button" class="btn btn-secondary btn-block" id="settingsSaveMarketingBtn">Save preference</button>
+        <div class="settings-danger-zone">
+          <h4>Delete account</h4>
+          <p class="auth-hint">This permanently removes your account and saved details. It can't be undone. Past orders may be kept for our accounting records without your login.</p>
+          <button type="button" class="btn btn-danger btn-block" id="deleteAccountBtn">Delete my account</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const $ = (id) => document.getElementById(id);
+  const show = (el, text) => {
+    el.textContent = text;
+    el.style.display = "block";
+  };
+  const hide = (...els) => els.forEach((el) => (el.style.display = "none"));
+  const authHeaders = () => ({
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${customerToken}`,
+  });
+
+  function switchTab(tab) {
+    overlay.querySelectorAll("#settingsTabs .auth-tab").forEach((b) =>
+      b.classList.toggle("active", b.dataset.settingsTab === tab),
+    );
+    overlay.querySelectorAll(".settings-pane").forEach((pane) => {
+      pane.style.display = pane.dataset.settingsPane === tab ? "block" : "none";
+    });
+  }
+  overlay.querySelectorAll("#settingsTabs .auth-tab").forEach((b) =>
+    b.addEventListener("click", () => switchTab(b.dataset.settingsTab)),
+  );
+
+  window.openSettingsModal = async function () {
+    if (!currentCustomer) return;
+    // Sign-in responses don't carry every profile field (marketing opt-in,
+    // whether the account has a password) - pull the full profile first.
+    try {
+      const res = await fetch("/api/auth/me", {
+        headers: { Authorization: `Bearer ${customerToken}` },
+      });
+      if (res.ok) currentCustomer = { ...currentCustomer, ...(await res.json()).customer };
+    } catch {
+      /* fall back to what we already have */
+    }
+    $("settings-name").value = currentCustomer.name || "";
+    $("settings-phone").value = currentCustomer.phone_number || "";
+    $("settings-address").value = currentCustomer.delivery_address || "";
+    $("settings-email").textContent = currentCustomer.email || "";
+    $("settingsEmailOptIn").checked = Boolean(currentCustomer.marketing_email_opt_in);
+    const hasPassword = currentCustomer.has_password !== false;
+    $("settingsPasswordForm").style.display = hasPassword ? "block" : "none";
+    $("settingsGooglePwNote").style.display = hasPassword ? "none" : "block";
+    hide(
+      $("settingsDetailsMsg"), $("settingsDetailsErr"),
+      $("settingsPasswordMsg"), $("settingsPasswordErr"),
+      $("settingsAccountMsg"), $("settingsAccountErr"),
+    );
+    $("settingsPasswordForm").reset();
+    switchTab("details");
+    accountModal.classList.remove("active");
+    overlay.classList.add("active");
+  };
+
+  $("settingsModalClose").addEventListener("click", () => overlay.classList.remove("active"));
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) overlay.classList.remove("active");
+  });
+  const openBtn = document.getElementById("openSettingsBtn");
+  if (openBtn) openBtn.addEventListener("click", () => window.openSettingsModal());
+
+  async function saveAccount(fields) {
+    const res = await fetch("/api/auth/account", {
+      method: "PUT",
+      headers: authHeaders(),
+      body: JSON.stringify(fields),
+    });
+    const data = await readApiResponse(res);
+    if (!res.ok || !data.success) throw new Error(data.error || "Couldn't save your changes.");
+    currentCustomer = { ...currentCustomer, ...data.customer };
+    updateAccountNav();
+    return data;
+  }
+
+  // Username / details - just confirm with a message, no email needed
+  $("settingsDetailsForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    hide($("settingsDetailsMsg"), $("settingsDetailsErr"));
+    const before = currentCustomer.name;
+    try {
+      const name = $("settings-name").value.trim();
+      await saveAccount({
+        name,
+        phone_number: $("settings-phone").value.trim(),
+        delivery_address: $("settings-address").value.trim(),
+      });
+      show(
+        $("settingsDetailsMsg"),
+        name !== before
+          ? `Username updated to "${name}". Your changes have been saved.`
+          : "Your changes have been saved.",
+      );
+    } catch (err) {
+      show($("settingsDetailsErr"), userFriendlyError(err, "Couldn't save your changes."));
+    }
+  });
+
+  // Password - emails a confirmation link; nothing changes until it's opened
+  $("settingsPasswordForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    hide($("settingsPasswordMsg"), $("settingsPasswordErr"));
+    const btn = e.target.querySelector("button[type=submit]");
+    btn.disabled = true;
+    try {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          current_password: $("settings-current-password").value,
+          new_password: $("settings-new-password").value,
+        }),
+      });
+      const data = await readApiResponse(res);
+      if (!res.ok || !data.success) throw new Error(data.error || "Couldn't start the password change.");
+      $("settingsPasswordForm").reset();
+      show($("settingsPasswordMsg"), data.message);
+    } catch (err) {
+      show($("settingsPasswordErr"), userFriendlyError(err, "Couldn't start the password change."));
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // Email marketing preference
+  $("settingsSaveMarketingBtn").addEventListener("click", async () => {
+    hide($("settingsAccountMsg"), $("settingsAccountErr"));
+    try {
+      await saveAccount({ marketing_email_opt_in: $("settingsEmailOptIn").checked });
+      show($("settingsAccountMsg"), "Preference saved.");
+    } catch (err) {
+      show($("settingsAccountErr"), userFriendlyError(err, "Couldn't save your preference."));
+    }
+  });
+
+  // Delete account
+  $("deleteAccountBtn").addEventListener("click", async () => {
+    if (!confirm("Delete your account? This is permanent and cannot be undone.")) return;
+    hide($("settingsAccountMsg"), $("settingsAccountErr"));
+    try {
+      const res = await fetch("/api/auth/account", {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${customerToken}` },
+      });
+      const data = await readApiResponse(res);
+      if (!res.ok) throw new Error(data.error || "Failed to delete account");
+      customerToken = null;
+      currentCustomer = null;
+      localStorage.removeItem(CUSTOMER_TOKEN_KEY);
+      updateAccountNav();
+      overlay.classList.remove("active");
+      alert("Your account has been deleted.");
+    } catch (err) {
+      show($("settingsAccountErr"), userFriendlyError(err, "Failed to delete account."));
+    }
+  });
+})();
+
+/** Opened from the emailed "confirm your password change" link (?confirm_password=...). */
+async function confirmPasswordChange(token) {
+  let message;
+  let ok = false;
+  try {
+    const res = await fetch("/api/auth/confirm-password-change", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+    const data = await readApiResponse(res);
+    ok = res.ok && data.success;
+    message = ok ? data.message : data.error || "We couldn't confirm this password change.";
+  } catch (err) {
+    message = userFriendlyError(err, "We couldn't confirm this password change.");
+  }
+  if (ok) {
+    // Every session was ended server-side; forget the stale token here too.
+    customerToken = null;
+    currentCustomer = null;
+    localStorage.removeItem(CUSTOMER_TOKEN_KEY);
+    updateAccountNav();
+  }
+  alert(message);
+  if (ok) openAuthModal("signin");
+}

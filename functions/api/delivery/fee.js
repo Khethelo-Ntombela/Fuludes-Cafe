@@ -74,7 +74,15 @@ export async function onRequestPost(context) {
 
     // Find matching band (first where roadKm <= up_to_km)
     const bands = bandsRes.rows || [];
-    const matchedBand = bands.find((b) => roadKm <= b.up_to_km);
+    if (bands.length === 0) {
+      // Not "too far" - the fee table simply hasn't been set up. Say so
+      // instead of turning every customer away.
+      return jsonResponse(
+        { error: "Delivery fees haven't been set up yet. Please contact the cafe." },
+        500
+      );
+    }
+    const matchedBand = bands.find((b) => roadKm <= Number(b.up_to_km));
 
     if (!matchedBand) {
       // Beyond all bands
