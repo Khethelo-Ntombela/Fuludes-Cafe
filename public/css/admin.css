@@ -2673,3 +2673,217 @@
     position: static;
   }
 }
+
+/* =====================================================================
+   Dashboard: clickable "Pending Orders" card + awaiting-payment panel
+   ===================================================================== */
+button.kpi-card {
+  font-family: inherit;
+  color: inherit;
+  text-align: left;
+  width: 100%;
+}
+.kpi-clickable {
+  cursor: pointer;
+  border-color: var(--sa-gold);
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+.kpi-clickable:hover {
+  box-shadow: 0 6px 18px rgba(168, 139, 74, 0.25);
+  transform: translateY(-1px);
+}
+.kpi-sub {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--sa-faint);
+  text-transform: lowercase;
+}
+.kpi-hint {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--sa-gold);
+}
+.sa-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(16, 24, 40, 0.55);
+  display: none;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 5vh 16px;
+  overflow-y: auto;
+}
+.sa-modal-overlay.active {
+  display: flex;
+}
+.sa-modal {
+  background: var(--sa-card);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 720px;
+  padding: 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+.sa-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.sa-modal-head h3 {
+  flex: 1;
+  font-size: 1.05rem;
+}
+.sa-mini-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.sa-mini-stat {
+  background: var(--sa-bg);
+  border: 1px solid var(--sa-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sa-mini-stat span {
+  font-size: 0.72rem;
+  color: var(--sa-muted);
+}
+.sa-mini-stat strong {
+  font-size: 1.1rem;
+}
+
+/* --- Place Order: options picker, itemised cart, totals --- */
+.po-tags {
+  color: var(--sa-gold);
+  font-weight: 600;
+}
+.po-line-head,
+.po-total-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.po-line-head em {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--sa-muted);
+}
+.po-breakdown {
+  list-style: none;
+  margin: 4px 0;
+  padding: 0 0 0 10px;
+  border-left: 2px solid var(--sa-gold-soft);
+  font-size: 0.82rem;
+  color: var(--sa-muted);
+}
+.po-breakdown li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 1px 0;
+}
+.po-free {
+  font-style: italic;
+  color: var(--sa-faint);
+}
+.po-line-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+}
+.admin-cart-total {
+  margin-top: 10px;
+  border-top: 1px solid var(--sa-border);
+  padding-top: 8px;
+  text-align: left;
+  font-weight: 500;
+}
+.po-total-row {
+  padding: 2px 0;
+  font-size: 0.9rem;
+}
+.po-total-row.po-grand {
+  font-size: 1.1rem;
+  font-weight: 700;
+  border-top: 1px solid var(--sa-border);
+  margin-top: 4px;
+  padding-top: 6px;
+}
+.po-total-row.po-warn {
+  color: var(--sa-red);
+}
+.po-opt-group {
+  margin-bottom: 14px;
+}
+.po-opt-group > label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.85rem;
+  margin-bottom: 6px;
+}
+.po-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.po-pill {
+  padding: 7px 14px;
+  border-radius: 100px;
+  border: 1px solid var(--sa-border-strong);
+  background: var(--sa-card);
+  font-family: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.po-pill.selected {
+  background: var(--sa-text);
+  border-color: var(--sa-text);
+  color: #fff;
+}
+.place-order-sidebar select,
+.place-order-sidebar input[type="text"],
+.place-order-sidebar input[type="tel"],
+.place-order-sidebar input[type="email"] {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--sa-border-strong);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+.wa-btn {
+  background: #25d366 !important;
+  border-color: #25d366 !important;
+  color: #fff !important;
+}
+.res-new-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+  background: var(--sa-card);
+  border: 1px solid var(--sa-border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.res-new-form .form-group input,
+.res-new-form .form-group select,
+.res-new-form .form-group textarea {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--sa-border-strong);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+.res-new-form .res-full {
+  grid-column: 1 / -1;
+}

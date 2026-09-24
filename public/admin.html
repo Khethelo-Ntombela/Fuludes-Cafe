@@ -695,6 +695,12 @@
                 </div>
 
                 <div class="form-group">
+                  <label>Choice of Side (free, optional)</label>
+                  <div id="itemSideCheckboxes" class="checkbox-options"></div>
+                  <span class="admin-hint">Tick the sides customers can choose from with this dish. Leave all unticked if it doesn't come with a side choice.</span>
+                </div>
+
+                <div class="form-group">
                   <label for="itemIngredients"
                     >Ingredients (optional, one per line)</label
                   >
@@ -830,6 +836,16 @@
               <button type="submit" class="btn btn-primary">Add</button>
             </form>
             <div id="spiceLevelsList" class="admin-chip-list"></div>
+
+            <div class="admin-panel-header" style="margin-top: 32px">
+              <h2>Choice of Side (free)</h2>
+            </div>
+            <p class="admin-hint">Sides like Chips, Pap or Rice that come free with a dish. Add them here, then tick them on the dishes that offer a side choice (Menu &amp; Stock &rarr; add/edit item).</p>
+            <form id="sideForm" class="admin-form admin-form-inline">
+              <input type="text" id="sideName" placeholder="e.g. Chips" required />
+              <button type="submit" class="btn btn-primary">Add</button>
+            </form>
+            <div id="sidesList" class="admin-chip-list"></div>
           </section>
 
           <!-- ---------------- Reviews ---------------- -->
@@ -843,7 +859,30 @@
 
           <!-- ---------------- Reservations ---------------- -->
           <section id="tab-reservations" class="admin-tab-panel">
-            <div class="admin-panel-header"><h2>Reservations</h2></div>
+            <div class="admin-panel-header">
+              <h2>Reservations</h2>
+              <button type="button" class="btn btn-primary admin-mini-btn" id="resNewToggle">
+                <i class="fas fa-plus"></i> Book for a customer
+              </button>
+            </div>
+            <form id="resNewForm" class="res-new-form" style="display: none">
+              <div class="form-group"><label for="resNewName">Customer name</label><input type="text" id="resNewName" required /></div>
+              <div class="form-group"><label for="resNewPhone">Phone / WhatsApp</label><input type="tel" id="resNewPhone" required /></div>
+              <div class="form-group"><label for="resNewEmail">Email (optional)</label><input type="email" id="resNewEmail" /></div>
+              <div class="form-group"><label for="resNewDate">Date</label><input type="date" id="resNewDate" required /></div>
+              <div class="form-group"><label for="resNewTime">Time</label><input type="time" id="resNewTime" required /></div>
+              <div class="form-group"><label for="resNewParty">Party size</label><input type="number" id="resNewParty" min="1" value="2" required /></div>
+              <div class="form-group"><label for="resNewTable">Table (optional)</label><input type="text" id="resNewTable" /></div>
+              <div class="form-group">
+                <label for="resNewStatus">Status</label>
+                <select id="resNewStatus"><option value="Confirmed">Confirmed</option><option value="Pending">Pending</option></select>
+              </div>
+              <div class="form-group res-full"><label for="resNewNotes">Notes (optional)</label><input type="text" id="resNewNotes" /></div>
+              <div class="res-full">
+                <button type="submit" class="btn btn-primary">Save reservation</button>
+                <span id="resNewMsg" class="admin-hint" style="margin-left: 10px"></span>
+              </div>
+            </form>
             <div class="kpi-grid kpi-4 sa-section" id="resSummary"></div>
             <div id="reservationsList" class="admin-items-list">
               <div class="skel skel-card"></div>

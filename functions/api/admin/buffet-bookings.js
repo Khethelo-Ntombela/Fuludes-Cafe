@@ -4,6 +4,9 @@
  * Admin endpoints to list and update buffet bookings.
  * GET  /api/admin/buffet-bookings?event_id=1  -> { bookings: [...] }
  * POST /api/admin/buffet-bookings            -> { action: 'confirm'|'cancel', booking_id }
+ * POST /api/admin/buffet-bookings            -> { action: 'create', event_id, name, phone, seats, email? }
+ *   books seats on behalf of a customer who phoned in (email optional). Seats are
+ *   still capped by the event's capacity; the booking starts as 'confirmed'.
  * -----------------------------------------------------------------------
  */
 import { runQuery, jsonResponse } from "../../_lib/db.js";
@@ -45,6 +48,40 @@ export async function onRequestPost(context) {
   if (authErr) return authErr;
   try {
     const body = await request.json();
+
+    if (body.action === "create") {
+      const event_id = Number(body.event_id);
+      const name = String(body.name || "").replace(/[<>]/g, "").trim().slice(0, 100);
+      const phone = String(body.phone || "").replace(/[<>]/g, "").trim().slice(0, 50);
+      const email = String(body.email || "").replace(/[<>]/g, "").trim().toLowerCase().slice(0, 100);
+      const seats = Math.max(1, parseInt(body.seats, 10) || 0);
+      if (!event_id || !name || !phone || !seats) {
+        return jsonResponse({ error: "Event, name, phone and number of seats are required." }, 400);
+      }
+      const evt = await runQuery(env, "SELECT id, capacity FROM buffet_events WHERE id = $1;", [event_id]);
+      if (!evt.rows.length) return jsonResponse({ error: "Buffet event not found." }, 404);
+      const taken = await runQuery(
+        env,
+        "SELECT COALESCE(SUM(seats),0) AS taken FROM buffet_bookings WHERE event_id = $1 AND status = 'confirmed';",
+        [event_id],
+      );
+      const left = Number(evt.rows[0].capacity || 0) - Number(taken.rows[0].taken || 0);
+      if (seats > left) {
+        return jsonResponse({ error: `Only ${Math.max(left, 0)} seat${left === 1 ? "" : "s"} left for this event.` }, 400);
+      }
+      let customer_id = null;
+      if (email) {
+        const c = await runQuery(env, "SELECT id FROM customers WHERE email = $1;", [email]);
+        customer_id = c.rows[0]?.id || null;
+      }
+      const ins = await runQuery(
+        env,
+        "INSERT INTO buffet_bookings (event_id, customer_id, name, email, phone, seats, status) VALUES ($1,$2,$3,$4,$5,$6,'confirmed') RETURNING id;",
+        [event_id, customer_id, name, email, phone, seats],
+      );
+      return jsonResponse({ success: true, booking_id: ins.rows[0].id, seats_left: left - seats }, 201);
+    }
+
     const booking_id = Number(body.booking_id);
     const action = body.action;
     if (!booking_id || !action)

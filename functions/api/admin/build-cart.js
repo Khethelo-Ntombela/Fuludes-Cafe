@@ -6,7 +6,14 @@
  * time-limited secure payment link the customer can open to complete
  * payment. The resulting order follows the same rules as a normal order
  * (stock validation, server-side pricing).
- * Body: { customer_name, customer_email, customer_phone, cart_items: [...] }
+ * Body: { customer_name, customer_email, customer_phone,
+ *         order_type ("collection"|"delivery"|"dine_in"),
+ *         delivery_address, delivery_lat, delivery_lng, table_number,
+ *         pickup_time, special_instructions,
+ *         cart_items: [{ id, quantity, spice_level, extras: [addonId], side: sideId }] }
+ * Prices, extras, sides and the delivery fee are all computed here on the
+ * server - nothing is trusted from the browser. Stock is NOT taken until the
+ * payment is confirmed (functions/api/payment/notify.js), same as checkout.
  * -----------------------------------------------------------------------
  */
 import { runQuery, jsonResponse } from "../../_lib/db.js";
@@ -15,6 +22,7 @@ import { sanitizeText } from "../../_lib/security.js";
 import { buildYocoCheckout } from "../../_lib/yoco.js";
 import { generateToken } from "../../_lib/password.js";
 import { logAudit } from "../../_lib/audit.js";
+import { calculateDeliveryFee } from "../../_lib/delivery.js";
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -35,21 +43,24 @@ export async function onRequestPost(context) {
   ).toLowerCase();
   const customerPhone = sanitizeText(body.customer_phone || "", 50);
   const cartItems = Array.isArray(body.cart_items) ? body.cart_items : [];
+  const orderType = ["delivery", "dine_in"].includes(body.order_type) ? body.order_type : "collection";
+  const deliveryAddress = sanitizeText(body.delivery_address || "", 500);
+  const tableNumber = sanitizeText(body.table_number || "", 30);
+  const pickupTime = sanitizeText(body.pickup_time || "As soon as possible", 60);
+  const specialInstructions = sanitizeText(body.special_instructions || "", 500);
 
-  if (!customerName || !customerEmail || cartItems.length === 0) {
+  if (!customerName || !customerPhone || cartItems.length === 0) {
     return jsonResponse(
-      { error: "Incomplete details: name, email and cart items are required." },
+      { error: "Incomplete details: customer name, phone and cart items are required." },
       400,
     );
   }
 
   try {
     // Look up an existing customer by email (optional)
-    const custRes = await runQuery(
-      env,
-      "SELECT id FROM customers WHERE email = $1;",
-      [customerEmail],
-    );
+    const custRes = customerEmail
+      ? await runQuery(env, "SELECT id FROM customers WHERE email = $1;", [customerEmail])
+      : { rows: [] };
     const customerId = custRes.rows[0] ? custRes.rows[0].id : null;
 
     // Re-price cart like normal order endpoint
@@ -70,10 +81,22 @@ export async function onRequestPost(context) {
     if (itemIds.length === 0)
       return jsonResponse({ error: "Cart contains no valid items." }, 400);
 
+    const sideLinkResult = await runQuery(
+      env,
+      `SELECT mis.menu_item_id, s.id, s.name
+         FROM menu_item_sides mis JOIN sides s ON s.id = mis.side_id
+        WHERE s.is_active = TRUE AND mis.menu_item_id = ANY($1::int[]);`,
+      [itemIds],
+    ).catch(() => ({ rows: [] }));
+    const sidesByItem = {};
+    for (const row of sideLinkResult.rows) {
+      (sidesByItem[row.menu_item_id] || (sidesByItem[row.menu_item_id] = [])).push(row);
+    }
+
     const menuResult = await runQuery(
       env,
       `
-      SELECT id, name, price, special_price, is_available, stock_quantity, is_visible, accepts_spice, accepts_addons
+      SELECT id, name, price, special_price, special_starts_at, special_ends_at, is_available, stock_quantity, is_visible, accepts_spice, accepts_addons
       FROM menu_items WHERE id = ANY($1::int[]);
     `,
       [itemIds],
@@ -144,10 +167,24 @@ export async function onRequestPost(context) {
         }
       }
 
-      const itemPrice =
-        menuItem.special_price !== null
-          ? parseFloat(menuItem.special_price)
-          : parseFloat(menuItem.price);
+      // Free side (required when the dish offers sides) - stored as a R0 extra.
+      const offeredSides = sidesByItem[menuItem.id] || [];
+      if (offeredSides.length > 0) {
+        const chosen = offeredSides.find((sd) => sd.id === parseInt(cartItem.side, 10));
+        if (!chosen)
+          return jsonResponse({ error: `Please choose a side for "${menuItem.name}".` }, 400);
+        extras.unshift({ name: `Side: ${chosen.name}`, price: 0 });
+      }
+
+      // Special price only counts while its schedule is active.
+      const now = new Date();
+      const starts = menuItem.special_starts_at ? new Date(menuItem.special_starts_at) : null;
+      const ends = menuItem.special_ends_at ? new Date(menuItem.special_ends_at) : null;
+      const specialActive =
+        menuItem.special_price !== null && (!starts || now >= starts) && (!ends || now < ends);
+      const itemPrice = specialActive
+        ? parseFloat(menuItem.special_price)
+        : parseFloat(menuItem.price);
       const extrasTotal = extras.reduce((sum, e) => sum + e.price, 0);
       const subtotal = (itemPrice + extrasTotal) * quantity;
 
@@ -162,17 +199,60 @@ export async function onRequestPost(context) {
       });
     }
 
-    const totalAmount = lineItems.reduce((s, li) => s + li.subtotal, 0);
+    // Delivery: price it from the coordinates the admin's address lookup found.
+    let deliveryFee = 0;
+    let deliveryDistanceKm = 0;
+    let deliveryLat = null;
+    let deliveryLng = null;
+    if (orderType === "delivery") {
+      const hasCoords =
+        body.delivery_lat != null && body.delivery_lng != null &&
+        body.delivery_lat !== "" && body.delivery_lng !== "";
+      const lat = hasCoords ? Number(body.delivery_lat) : NaN;
+      const lng = hasCoords ? Number(body.delivery_lng) : NaN;
+      if (!deliveryAddress || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return jsonResponse(
+          { error: "Enter the delivery address and let it be located (tap outside the box) before generating the link." },
+          400,
+        );
+      }
+      const feeCalc = await calculateDeliveryFee(env, lat, lng);
+      if (feeCalc.too_far) {
+        return jsonResponse(
+          { error: `That address is too far to deliver to (about ${feeCalc.distance_km} km).`, too_far: true },
+          400,
+        );
+      }
+      deliveryFee = feeCalc.fee;
+      deliveryDistanceKm = feeCalc.distance_km;
+      deliveryLat = lat;
+      deliveryLng = lng;
+    }
+    if (orderType === "dine_in" && !tableNumber) {
+      return jsonResponse({ error: "Enter the table number for a dine-in order." }, 400);
+    }
+
+    const itemsTotal = lineItems.reduce((s, li) => s + li.subtotal, 0);
+    const totalAmount = itemsTotal + deliveryFee;
 
     // Create order row
     const orderInsert = await runQuery(
       env,
       `
-      INSERT INTO orders (customer_id, customer_name, customer_phone, order_type, pickup_time, special_instructions, total_amount, status, payment_method, payment_status)
-      VALUES ($1, $2, $3, 'collection', 'As soon as possible', NULL, $4, 'New', 'online', 'awaiting')
+      INSERT INTO orders
+        (customer_id, customer_name, customer_phone, order_type, delivery_address, delivery_lat, delivery_lng,
+         delivery_distance_km, delivery_fee, table_number, pickup_time, special_instructions,
+         total_amount, status, payment_method, payment_status, stock_decremented)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'New', 'online', 'awaiting', FALSE)
       RETURNING id, created_at;
     `,
-      [customerId, customerName, customerPhone, totalAmount],
+      [
+        customerId, customerName, customerPhone, orderType,
+        orderType === "delivery" ? deliveryAddress : null,
+        deliveryLat, deliveryLng, deliveryDistanceKm, deliveryFee,
+        orderType === "dine_in" ? tableNumber : null,
+        pickupTime, specialInstructions || null, totalAmount,
+      ],
     );
     const newOrderId = orderInsert.rows[0].id;
 
@@ -197,18 +277,8 @@ export async function onRequestPost(context) {
       );
     }
 
-    // Decrement stock
-    for (const [menuItemId, qty] of Object.entries(orderedQtyByItem)) {
-      await runQuery(
-        env,
-        `
-        UPDATE menu_items
-        SET stock_quantity = GREATEST(stock_quantity - $1, 0), is_available = (GREATEST(stock_quantity - $1, 0) > 0)
-        WHERE id = $2 AND stock_quantity IS NOT NULL;
-      `,
-        [qty, parseInt(menuItemId, 10)],
-      ).catch(() => {});
-    }
+    // Stock is deliberately NOT decremented here: payment/notify.js does it once the
+    // payment is confirmed (decrementing now would take stock twice and hold it for unpaid links).
 
     // Create a time-limited payment link (24h)
     const token = generateToken();
@@ -225,7 +295,7 @@ export async function onRequestPost(context) {
       action: "admin_build_cart",
       target_type: "order",
       target_id: newOrderId,
-      details: { customer_email: customerEmail, total_amount: totalAmount },
+      details: { customer_email: customerEmail, total_amount: totalAmount, order_type: orderType, delivery_fee: deliveryFee },
     });
 
     const origin = new URL(request.url).origin;
@@ -235,6 +305,8 @@ export async function onRequestPost(context) {
       success: true,
       order_id: newOrderId,
       total_amount: totalAmount,
+      items_total: itemsTotal,
+      delivery_fee: deliveryFee,
       pay_url: payUrl,
       token,
     });

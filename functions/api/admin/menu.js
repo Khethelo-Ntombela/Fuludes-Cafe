@@ -94,6 +94,21 @@ async function syncAddonLinks(env, menuItemId, addonIds) {
   return ids;
 }
 
+async function syncSideLinks(env, menuItemId, sideIds) {
+  // Only touch links when the client actually sent side_ids (older admin pages don't).
+  if (!Array.isArray(sideIds)) return undefined;
+  await runQuery(env, "DELETE FROM menu_item_sides WHERE menu_item_id = $1;", [menuItemId]);
+  const ids = [...new Set(sideIds.map((id) => parseInt(id, 10)).filter(Number.isInteger))];
+  for (const sideId of ids) {
+    await runQuery(
+      env,
+      "INSERT INTO menu_item_sides (menu_item_id, side_id) VALUES ($1, $2) ON CONFLICT DO NOTHING;",
+      [menuItemId, sideId],
+    );
+  }
+  return ids;
+}
+
 async function syncIngredients(env, menuItemId, ingredients) {
   // ingredients is an array of strings (ingredient names)
   const names = Array.isArray(ingredients)
@@ -143,7 +158,7 @@ export async function onRequestGet(context) {
   const authError = await requireAdmin(context.request, context.env);
   if (authError) return authError;
 
-  const [itemsResult, linksResult, imagesResult, ingredientsResult] = await Promise.all([
+  const [itemsResult, linksResult, imagesResult, ingredientsResult, sideLinksResult] = await Promise.all([
     runQuery(
       context.env,
       `
@@ -166,7 +181,16 @@ export async function onRequestGet(context) {
       context.env,
       "SELECT menu_item_id, ingredient_name FROM dish_ingredients ORDER BY ingredient_name ASC;",
     ),
+    runQuery(
+      context.env,
+      "SELECT menu_item_id, side_id FROM menu_item_sides;",
+    ).catch(() => ({ rows: [] })), // sides table not created yet (migration 006)
   ]);
+
+  const sideIdsByItem = {};
+  for (const row of sideLinksResult.rows) {
+    (sideIdsByItem[row.menu_item_id] || (sideIdsByItem[row.menu_item_id] = [])).push(row.side_id);
+  }
 
   const addonIdsByItem = {};
   for (const row of linksResult.rows) {
@@ -202,6 +226,7 @@ export async function onRequestGet(context) {
       ? new Date(item.special_ends_at).toISOString()
       : null,
     addon_ids: addonIdsByItem[item.id] || [],
+    side_ids: sideIdsByItem[item.id] || [],
     ingredients: ingredientsByItem[item.id] || [],
     images: imagesByItem[item.id] || (item.image_url ? [item.image_url] : []),
   }));
@@ -320,6 +345,7 @@ export async function onRequestPost(context) {
       body.ingredients,
     );
     const images = await syncImages(context.env, newItemId, incomingImages);
+    await syncSideLinks(context.env, newItemId, body.side_ids);
 
     return jsonResponse(
       { success: true, id: newItemId, addon_ids: addonIds, ingredients: ingredientNames, images },
@@ -439,6 +465,7 @@ export async function onRequestPut(context) {
     const addonIds = await syncAddonLinks(context.env, id, body.addon_ids);
     const ingredientNames = await syncIngredients(context.env, id, body.ingredients);
     const images = await syncImages(context.env, id, incomingImages);
+    await syncSideLinks(context.env, id, body.side_ids);
     return jsonResponse({ success: true, id, addon_ids: addonIds, ingredients: ingredientNames, images });
   } catch (err) {
     return jsonResponse(

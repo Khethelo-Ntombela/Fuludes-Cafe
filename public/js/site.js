@@ -939,6 +939,7 @@ reservationForm.addEventListener("submit", async (e) => {
             id: item.itemId,
             quantity: item.quantity,
             spice_level: item.spiceLevel,
+            side: item.side ? item.side.id : undefined,
             extras: (item.extras || []).map((extra) => extra.id),
           }),
         );

@@ -2712,3 +2712,49 @@ textarea:focus-visible {
 .order-card:hover .order-card-image img {
   transform: none;
 }
+
+/* --- Your Order: itemised lines (dish, then each choice/extra with its price) --- */
+.cart-line-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+.cart-line-head .cart-item-name em {
+  font-style: normal;
+  font-weight: 500;
+  opacity: 0.7;
+}
+.cart-line-head .cart-item-price {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.cart-breakdown {
+  list-style: none;
+  margin: 6px 0 4px;
+  padding: 0 0 0 10px;
+  border-left: 2px solid rgba(201, 169, 110, 0.35);
+  font-size: 0.82rem;
+}
+.cart-breakdown li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 0;
+  color: rgba(255, 255, 255, 0.72);
+}
+.cart-free {
+  color: rgba(255, 255, 255, 0.45);
+  font-style: italic;
+}
+.cart-line-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+}
+.cart-line-total {
+  font-size: 0.8rem;
+  color: var(--gold);
+  font-weight: 600;
+}

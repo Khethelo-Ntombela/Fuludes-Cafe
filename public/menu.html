@@ -227,6 +227,11 @@
           <label>Spice Level</label>
           <div class="pill-options" id="customizeSpiceOptions"></div>
         </div>
+        <div id="customizeSideGroup" class="form-group" style="display: none">
+          <label>Choose your side <small>(free)</small></label>
+          <div class="pill-options" id="customizeSideOptions"></div>
+          <p class="form-error" id="customizeSideError" style="display: none">Please choose a side.</p>
+        </div>
         <div id="customizeAddonsGroup" class="form-group" style="display: none">
           <label>Extras</label>
           <div class="checkbox-options" id="customizeAddonOptions"></div>
@@ -584,6 +589,6 @@
 
     <script src="https://accounts.google.com/gsi/client" async defer onload="if (typeof initGoogleSignIn === 'function') initGoogleSignIn();"></script>
     <script src="js/site.js"></script>
-    <script src="js/menu.js?v=6"></script>
+    <script src="js/menu.js?v=7"></script>
   </body>
 </html>

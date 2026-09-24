@@ -16,6 +16,7 @@ let categories = [];
 let menuItems = [];
 let addons = [];
 let spiceLevels = [];
+let sides = [];
 let staffAccounts = [];
 let reservations = [];
 let pollIntervalId = null;
@@ -1238,7 +1239,7 @@ function renderMenuItemsList() {
       return `
       <tr>
         <td>${item.image_url ? `<img src="${item.image_url}" alt="${item.name}" loading="lazy" />` : `<div class="table-noimg"></div>`}</td>
-        <td><strong>${item.name}</strong>${item.accepts_spice || item.accepts_addons ? `<div class="admin-item-meta">${[item.accepts_spice ? "Spice" : "", item.accepts_addons ? "Extras" : ""].filter(Boolean).join(" · ")}</div>` : ""}</td>
+        <td><strong>${item.name}</strong>${item.accepts_spice || item.accepts_addons || (item.side_ids || []).length ? `<div class="admin-item-meta">${[item.accepts_spice ? "Spice" : "", item.accepts_addons ? "Extras" : "", (item.side_ids || []).length ? "Side choice" : ""].filter(Boolean).join(" · ")}</div>` : ""}</td>
         <td>${item.category_name}</td>
         <td>${priceHtml}</td>
         <td><button class="admin-mini-btn${stockButtonClass(item)}" data-action="edit-stock" data-id="${item.id}">${stockButtonLabel(item)}</button></td>
@@ -1455,6 +1456,21 @@ document.getElementById("specialForm").addEventListener("submit", async (e) => {
   document.getElementById("specialForm").reset();
 });
 
+function renderSideCheckboxesForForm(selectedIds = []) {
+  const container = document.getElementById("itemSideCheckboxes");
+  if (!container) return;
+  if (sides.length === 0) {
+    container.innerHTML = `<p class="admin-hint">Add sides in the "Extras" tab first.</p>`;
+    return;
+  }
+  container.innerHTML = sides
+    .map(
+      (sd) =>
+        `<label class="checkbox-option"><input type="checkbox" value="${sd.id}" ${selectedIds.includes(sd.id) ? "checked" : ""} /> ${sd.name}</label>`,
+    )
+    .join("");
+}
+
 function renderAddonCheckboxesForForm(selectedIds = []) {
   const container = document.getElementById("itemAddonCheckboxes");
   if (addons.length === 0) {
@@ -1501,6 +1517,7 @@ function populateFormForEdit(item) {
   renderImageThumbs();
 
   renderAddonCheckboxesForForm(item.addon_ids || []);
+  renderSideCheckboxesForForm(item.side_ids || []);
   document.getElementById("cancelEditBtn").style.display = "inline-block";
 }
 
@@ -1514,6 +1531,7 @@ function resetMenuForm() {
   formImages = [];
   renderImageThumbs();
   renderAddonCheckboxesForForm([]);
+  renderSideCheckboxesForForm([]);
 }
 
 /** Renders the uploaded-photo thumbnail strip, first photo marked as the cover. */
@@ -1592,6 +1610,9 @@ document
       accepts_spice: document.getElementById("itemAcceptsSpice").checked,
       accepts_addons: document.getElementById("itemAcceptsAddons").checked,
       addon_ids: selectedAddonIds,
+      side_ids: [...document.querySelectorAll("#itemSideCheckboxes input:checked")].map((el) =>
+        parseInt(el.value, 10),
+      ),
       ingredients: document.getElementById("itemIngredients").value
         .split("\n")
         .map((s) => s.trim())
@@ -1740,8 +1761,10 @@ async function loadAddonsAndSpice() {
   const data = await res.json();
   addons = data.addons || [];
   spiceLevels = data.spice_levels || [];
+  sides = data.sides || [];
   renderAddonsList();
   renderSpiceLevelsList();
+  renderSidesList();
 
   // Keep the menu item form's extras checkboxes in sync, preserving
   // whatever is currently checked (e.g. mid-edit) where possible.
@@ -1749,6 +1772,18 @@ async function loadAddonsAndSpice() {
     ...document.querySelectorAll("#itemAddonCheckboxes input:checked"),
   ].map((el) => parseInt(el.value, 10));
   renderAddonCheckboxesForForm(currentlyChecked);
+  renderSideCheckboxesForForm(
+    [...document.querySelectorAll("#itemSideCheckboxes input:checked")].map((el) => parseInt(el.value, 10)),
+  );
+}
+
+function renderSidesList() {
+  const list = document.getElementById("sidesList");
+  if (!list) return;
+  list.innerHTML = sides
+    .map((sd) => `<span class="admin-chip">${sd.name} <button data-id="${sd.id}" data-type="side">&times;</button></span>`)
+    .join("");
+  attachChipDeleteHandlers(list);
 }
 
 function renderAddonsList() {
@@ -1776,10 +1811,11 @@ function renderSpiceLevelsList() {
 function attachChipDeleteHandlers(container) {
   container.querySelectorAll("button[data-id]").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      const isSpice = btn.dataset.type === "spice";
-      const query = isSpice
-        ? `?type=spice&id=${btn.dataset.id}`
-        : `?id=${btn.dataset.id}`;
+      const type = btn.dataset.type;
+      const query =
+        type === "spice" || type === "side"
+          ? `?type=${type}&id=${btn.dataset.id}`
+          : `?id=${btn.dataset.id}`;
       await adminFetch(`/api/admin/addons${query}`, { method: "DELETE" });
       loadAddonsAndSpice();
     });
@@ -1800,6 +1836,18 @@ document.getElementById("addonForm").addEventListener("submit", async (e) => {
   });
   nameInput.value = "";
   priceInput.value = "";
+  loadAddonsAndSpice();
+});
+
+document.getElementById("sideForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const nameInput = document.getElementById("sideName");
+  await adminFetch("/api/admin/addons?type=side", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: nameInput.value.trim() }),
+  });
+  nameInput.value = "";
   loadAddonsAndSpice();
 });
 
@@ -2149,6 +2197,19 @@ async function handleStaffAccountAction(action, id) {
   document.querySelector('.admin-tab-btn[data-tab="settings"]').click();
 }
 
+/** Confirmation text for a table booking (opened in WhatsApp for the admin to send). */
+function reservationWhatsAppText(r) {
+  const d = new Date(`${r.reservation_date}T00:00:00`);
+  const dateLabel = d.toLocaleDateString("en-ZA", { weekday: "long", day: "numeric", month: "long" });
+  const time = r.reservation_time ? String(r.reservation_time).slice(0, 5) : "";
+  const cancelled = r.status === "Cancelled";
+  if (cancelled) {
+    return `Hi ${r.customer_name}, your table booking at Fulude's Cafe for ${dateLabel} at ${time} has been cancelled. Please contact us if you'd like to rebook.`;
+  }
+  return `Hi ${r.customer_name}, your table at Fulude's Cafe is ${r.status === "Confirmed" ? "confirmed" : "reserved"} for ${dateLabel} at ${time} for ${r.party_size} guest${r.party_size > 1 ? "s" : ""}${r.table_number ? ` (table ${r.table_number})` : ""}. We look forward to seeing you! Reply here if you need to change anything.`;
+}
+window.reservationWhatsAppText = reservationWhatsAppText;
+
 async function loadReservations() {
   try {
     const res = await adminFetch("/api/admin/reservations");
@@ -2223,6 +2284,8 @@ function renderReservations() {
               <option value="Completed" ${reservation.status === "Completed" ? "selected" : ""}>Completed</option>
             </select>
             <button type="button" class="btn btn-primary admin-mini-btn" data-reservation-update="${reservation.id}">Save</button>
+            <a class="btn admin-mini-btn wa-btn" target="_blank" rel="noopener" title="Send the customer a WhatsApp confirmation"
+               href="${window.waLink ? window.waLink(reservation.customer_phone, reservationWhatsAppText(reservation)) : "#"}"><i class="fab fa-whatsapp"></i> WhatsApp</a>
           </div>
         </div>
       `;
@@ -2339,6 +2402,99 @@ function initBuffetAdminHandlers() {
   }
 }
 
+let buffetEventsById = {};
+
+function buffetWhatsAppText(bk) {
+  const evt = buffetEventsById[bk.event_id] || {};
+  const when = evt.event_date
+    ? new Date(evt.event_date).toLocaleString("en-ZA", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })
+    : "";
+  if (bk.status === "cancelled") {
+    return `Hi ${bk.name}, your buffet booking${evt.title ? ` for "${evt.title}"` : ""} at Fulude's Cafe has been cancelled. Please contact us if you'd like to rebook.`;
+  }
+  return `Hi ${bk.name}, your buffet booking at Fulude's Cafe is confirmed${evt.title ? `: "${evt.title}"` : ""}${when ? ` on ${when}` : ""} for ${bk.seats} seat${bk.seats > 1 ? "s" : ""}. We look forward to seeing you! Reply here if you need to change anything.`;
+}
+
+/** Bookings for one buffet event + a form so admin can book seats for customers who phone in. */
+async function showBuffetBookings(eventId) {
+  const container = document.getElementById("buffetBookingsList");
+  try {
+    const res = await adminFetch(`/api/admin/buffet-bookings?event_id=${eventId}`);
+    const data = await res.json();
+    const evt = buffetEventsById[eventId] || {};
+    const active = (data.bookings || []).filter((bk) => bk.status === "confirmed").reduce((n, bk) => n + Number(bk.seats), 0);
+    container.innerHTML = `
+      <h4 style="margin:0 0 8px">${evt.title || "Buffet"} - ${active}/${evt.capacity || "?"} seats booked</h4>
+      <form id="buffetAdminBookForm" class="res-new-form">
+        <div class="form-group"><label>Customer name</label><input type="text" id="bbName" required></div>
+        <div class="form-group"><label>Phone / WhatsApp</label><input type="tel" id="bbPhone" required></div>
+        <div class="form-group"><label>Email (optional)</label><input type="email" id="bbEmail"></div>
+        <div class="form-group"><label>Seats</label><input type="number" id="bbSeats" min="1" value="1" required></div>
+        <div class="res-full"><button type="submit" class="btn btn-primary">Book seats for customer</button>
+          <span id="bbMsg" class="admin-hint" style="margin-left:10px"></span></div>
+      </form>
+      <div id="bbRows"></div>`;
+    const rows = container.querySelector("#bbRows");
+    (data.bookings || []).forEach((bk) => {
+      const row = document.createElement("div");
+      row.className = "sa-list-item";
+      const wa = window.waLink ? window.waLink(bk.phone, buffetWhatsAppText(bk)) : "#";
+      row.innerHTML = `<div class="sa-list-main"><div class="sa-list-title">${bk.name} (${bk.seats} seat${bk.seats > 1 ? "s" : ""}) - ${bk.status}</div><div class="sa-list-sub">${bk.email || "no email"} • ${bk.phone || ""} • ${new Date(bk.created_at).toLocaleString()}</div></div>
+        <div style="margin-top:8px"><button class="admin-mini-btn btn-confirm" data-id="${bk.id}">Confirm</button> <button class="admin-mini-btn danger btn-cancel" data-id="${bk.id}">Cancel</button> ${bk.phone ? `<a class="admin-mini-btn wa-btn" target="_blank" rel="noopener" href="${wa}"><i class="fab fa-whatsapp"></i> WhatsApp</a>` : ""}</div>`;
+      rows.appendChild(row);
+    });
+    const act = (cls, action) =>
+      rows.querySelectorAll(cls).forEach((btn) =>
+        btn.addEventListener("click", async (ev) => {
+          await adminFetch("/api/admin/buffet-bookings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ booking_id: Number(ev.currentTarget.dataset.id), action }),
+          });
+          await loadBuffetEventsAdmin();
+          showBuffetBookings(eventId);
+        }),
+      );
+    act(".btn-confirm", "confirm");
+    act(".btn-cancel", "cancel");
+
+    container.querySelector("#buffetAdminBookForm").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const msg = container.querySelector("#bbMsg");
+      const body = {
+        action: "create",
+        event_id: eventId,
+        name: container.querySelector("#bbName").value.trim(),
+        phone: container.querySelector("#bbPhone").value.trim(),
+        email: container.querySelector("#bbEmail").value.trim(),
+        seats: Number(container.querySelector("#bbSeats").value),
+      };
+      const r = await adminFetch("/api/admin/buffet-bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok || !out.success) {
+        msg.textContent = out.error || "Couldn't book the seats.";
+        msg.style.color = "var(--sa-red)";
+        return;
+      }
+      await loadBuffetEventsAdmin();
+      await showBuffetBookings(eventId);
+      // Offer the WhatsApp confirmation right away
+      const created = { id: out.booking_id, event_id: eventId, name: body.name, phone: body.phone, seats: body.seats, status: "confirmed" };
+      const m = document.getElementById("buffetBookingsList").querySelector("#bbMsg");
+      if (m) {
+        m.style.color = "var(--sa-green-deep)";
+        m.innerHTML = `Booked. <a class="admin-mini-btn wa-btn" target="_blank" rel="noopener" href="${window.waLink(body.phone, buffetWhatsAppText(created))}"><i class="fab fa-whatsapp"></i> Send WhatsApp confirmation</a>`;
+      }
+    });
+  } catch (err) {
+    alert("Failed to load bookings");
+  }
+}
+
 async function loadBuffetEventsAdmin() {
   try {
     const res = await adminFetch("/api/admin/buffet-events");
@@ -2411,49 +2567,9 @@ async function loadBuffetEventsAdmin() {
         }
       }),
     );
+    buffetEventsById = Object.fromEntries((data.events || []).map((e) => [e.id, e]));
     document.querySelectorAll("#buffetEventsList .btn-view").forEach((b) =>
-      b.addEventListener("click", async (e) => {
-        const id = Number(e.target.dataset.id);
-        try {
-          const res = await adminFetch(
-            `/api/admin/buffet-bookings?event_id=${id}`,
-          );
-          const data = await res.json();
-          const container = document.getElementById("buffetBookingsList");
-          container.innerHTML = "";
-          (data.bookings || []).forEach((bk) => {
-            const row = document.createElement("div");
-            row.className = "sa-list-item";
-            row.innerHTML = `<div class="sa-list-main"><div class="sa-list-title">${bk.name} (${bk.seats} seats)</div><div class="sa-list-sub">${bk.email} • ${bk.phone || ""} • ${new Date(bk.created_at).toLocaleString()}</div></div>
-            <div style="margin-top:8px"><button class="admin-mini-btn btn-confirm" data-id="${bk.id}">Confirm</button> <button class="admin-mini-btn danger btn-cancel" data-id="${bk.id}">Cancel</button></div>`;
-            container.appendChild(row);
-          });
-          container.querySelectorAll(".btn-confirm").forEach((btn) =>
-            btn.addEventListener("click", async (ev) => {
-              const bid = Number(ev.target.dataset.id);
-              await adminFetch("/api/admin/buffet-bookings", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ booking_id: bid, action: "confirm" }),
-              });
-              await loadBuffetEventsAdmin();
-            }),
-          );
-          container.querySelectorAll(".btn-cancel").forEach((btn) =>
-            btn.addEventListener("click", async (ev) => {
-              const bid = Number(ev.target.dataset.id);
-              await adminFetch("/api/admin/buffet-bookings", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ booking_id: bid, action: "cancel" }),
-              });
-              await loadBuffetEventsAdmin();
-            }),
-          );
-        } catch (err) {
-          alert("Failed to load bookings");
-        }
-      }),
+      b.addEventListener("click", (e) => showBuffetBookings(Number(e.currentTarget.dataset.id))),
     );
   } catch (err) {
     console.error("Failed to load buffet events", err);

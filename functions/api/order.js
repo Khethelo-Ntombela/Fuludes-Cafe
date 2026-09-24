@@ -341,6 +341,19 @@ export async function onRequestPost(context) {
       return jsonResponse({ error: "Cart contains no valid items." }, 400);
     }
 
+    // Free choice-of-side: which sides each dish actually offers (checked below).
+    const sideLinkResult = await runQuery(
+      env,
+      `SELECT mis.menu_item_id, s.id, s.name
+         FROM menu_item_sides mis JOIN sides s ON s.id = mis.side_id
+        WHERE s.is_active = TRUE AND mis.menu_item_id = ANY($1::int[]);`,
+      [itemIds],
+    ).catch(() => ({ rows: [] })); // sides table not created yet (migration 006)
+    const sidesByItem = {};
+    for (const row of sideLinkResult.rows) {
+      (sidesByItem[row.menu_item_id] || (sidesByItem[row.menu_item_id] = [])).push(row);
+    }
+
     const menuResult = await runQuery(
       env,
       `
@@ -423,6 +436,20 @@ export async function onRequestPost(context) {
           if (addon)
             extras.push({ name: addon.name, price: parseFloat(addon.price) });
         }
+      }
+
+      // Free side: required when the dish offers sides; stored as a R0 extra
+      // so the kitchen, receipts and order history all show it with no other changes.
+      const offeredSides = sidesByItem[menuItem.id] || [];
+      if (offeredSides.length > 0) {
+        const chosen = offeredSides.find((sd) => sd.id === parseInt(cartItem.side, 10));
+        if (!chosen) {
+          return jsonResponse(
+            { error: `Please choose a side for "${menuItem.name}".` },
+            400,
+          );
+        }
+        extras.unshift({ name: `Side: ${chosen.name}`, price: 0 });
       }
 
       // Special price applies only when currently scheduled as active.

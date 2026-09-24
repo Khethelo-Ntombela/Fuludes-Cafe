@@ -31,7 +31,7 @@ let deliveryFeeLoading = false;
 // Cart lines survive page navigation via localStorage - prices here are
 // only cosmetic; the server re-prices every line from the live DB at checkout.
 const CART_KEY = "fulude_cart";
-let cart = []; // [{lineId, itemId, name, price, quantity, spiceLevel, extras:[{id,name,price}]}]
+let cart = []; // [{lineId, itemId, name, price, quantity, spiceLevel, side:{id,name}|null, extras:[{id,name,price}]}]
 try {
   cart = JSON.parse(localStorage.getItem(CART_KEY) || "[]");
 } catch {
@@ -531,16 +531,17 @@ function handleAddClick(itemId) {
   const item = menuItems.find((i) => i.id === itemId);
   if (!item) return;
 
-  if (item.accepts_spice || (item.accepts_addons && item.addons.length > 0)) {
+  const hasSides = Array.isArray(item.sides) && item.sides.length > 0;
+  if (item.accepts_spice || hasSides || (item.accepts_addons && item.addons.length > 0)) {
     openCustomizeModal(item);
   } else {
-    addToCart(item, { spiceLevel: null, extras: [], quantity: 1 });
+    addToCart(item, { spiceLevel: null, side: null, extras: [], quantity: 1 });
   }
 }
 
-function addToCart(item, { spiceLevel, extras, quantity }) {
+function addToCart(item, { spiceLevel, side = null, extras, quantity }) {
   const extraIds = extras.map((e) => e.id).sort().join(",");
-  const lineId = `${item.id}|${spiceLevel || ""}|${extraIds}`;
+  const lineId = `${item.id}|${spiceLevel || ""}|${side ? side.id : ""}|${extraIds}`;
   const existing = cart.find((line) => line.lineId === lineId);
   // effective_price is the special price only while the special is
   // actually running (start/end dates respected); otherwise the normal
@@ -559,6 +560,7 @@ function addToCart(item, { spiceLevel, extras, quantity }) {
       price: effectivePrice,
       quantity,
       spiceLevel: spiceLevel || null,
+      side,
       extras
     });
   }
@@ -573,6 +575,9 @@ const customizeModal = document.getElementById("customizeModal");
 const customizeItemName = document.getElementById("customizeItemName");
 const customizeSpiceGroup = document.getElementById("customizeSpiceGroup");
 const customizeSpiceOptions = document.getElementById("customizeSpiceOptions");
+const customizeSideGroup = document.getElementById("customizeSideGroup");
+const customizeSideOptions = document.getElementById("customizeSideOptions");
+const customizeSideError = document.getElementById("customizeSideError");
 const customizeAddonsGroup = document.getElementById("customizeAddonsGroup");
 const customizeAddonOptions = document.getElementById("customizeAddonOptions");
 const customizeQtyValue = document.getElementById("customizeQtyValue");
@@ -596,6 +601,25 @@ function openCustomizeModal(item) {
   } else {
     customizeSpiceGroup.style.display = "none";
     customizeSpiceOptions.innerHTML = "";
+  }
+
+  // Free choice of side (only on dishes the cafe attached sides to) - must pick one
+  customizeSideError.style.display = "none";
+  if (Array.isArray(item.sides) && item.sides.length > 0) {
+    customizeSideGroup.style.display = "block";
+    customizeSideOptions.innerHTML = item.sides
+      .map((sd) => `<button type="button" class="pill-option" data-id="${sd.id}" data-name="${sd.name}">${sd.name}</button>`)
+      .join("");
+    customizeSideOptions.querySelectorAll(".pill-option").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        customizeSideOptions.querySelectorAll(".pill-option").forEach((b) => b.classList.remove("selected"));
+        btn.classList.add("selected");
+        customizeSideError.style.display = "none";
+      });
+    });
+  } else {
+    customizeSideGroup.style.display = "none";
+    customizeSideOptions.innerHTML = "";
   }
 
   if (item.accepts_addons && item.addons.length > 0) {
@@ -632,6 +656,11 @@ document.getElementById("customizeQtyPlus").addEventListener("click", () => {
 document.getElementById("customizeConfirmBtn").addEventListener("click", () => {
   if (!pendingCustomizeItem) return;
   const selectedSpice = customizeSpiceOptions.querySelector(".pill-option.selected");
+  const selectedSideBtn = customizeSideOptions.querySelector(".pill-option.selected");
+  if (customizeSideOptions.children.length > 0 && !selectedSideBtn) {
+    customizeSideError.style.display = "block";
+    return;
+  }
   const selectedExtras = [...customizeAddonOptions.querySelectorAll("input:checked")].map((input) => ({
     id: parseInt(input.value, 10),
     name: input.dataset.name,
@@ -641,6 +670,7 @@ document.getElementById("customizeConfirmBtn").addEventListener("click", () => {
 
   addToCart(pendingCustomizeItem, {
     spiceLevel: selectedSpice ? selectedSpice.dataset.name : null,
+    side: selectedSideBtn ? { id: parseInt(selectedSideBtn.dataset.id, 10), name: selectedSideBtn.dataset.name } : null,
     extras: selectedExtras,
     quantity
   });
@@ -677,18 +707,26 @@ function renderCart() {
       const lineTotal = (line.price + extrasTotal) * line.quantity;
       total += lineTotal;
 
-      const optionBits = [];
-      if (line.spiceLevel) optionBits.push(line.spiceLevel);
-      if (line.extras.length > 0) optionBits.push(line.extras.map((e) => e.name).join(", "));
-      const optionsText = optionBits.join(" · ");
+      // Itemised: the dish, then each choice/extra with its own price (x quantity)
+      const rows = [];
+      if (line.spiceLevel) rows.push(`<li><span>${line.spiceLevel}</span><span class="cart-free">free</span></li>`);
+      if (line.side) rows.push(`<li><span>Side: ${line.side.name}</span><span class="cart-free">free</span></li>`);
+      line.extras.forEach((e) =>
+        rows.push(`<li><span>+ ${e.name}</span><span>${money(e.price * line.quantity)}</span></li>`)
+      );
 
       return `
       <div class="cart-item">
         <div class="cart-item-info">
-          <span class="cart-item-name">${line.name}</span>
-          ${optionsText ? `<div class="cart-item-options">${optionsText}</div>` : ""}
-          <span class="cart-item-qty-label">Qty: ${line.quantity}</span>
-          <span class="cart-item-price">${money(lineTotal)}</span>
+          <div class="cart-line-head">
+            <span class="cart-item-name">${line.name}${line.quantity > 1 ? ` <em>&times; ${line.quantity}</em>` : ""}</span>
+            <span class="cart-item-price">${money(line.price * line.quantity)}</span>
+          </div>
+          ${rows.length ? `<ul class="cart-breakdown">${rows.join("")}</ul>` : ""}
+          <div class="cart-line-foot">
+            <span class="cart-item-qty-label">Qty: ${line.quantity}</span>
+            <span class="cart-line-total">${rows.length ? `Item total ${money(lineTotal)}` : ""}</span>
+          </div>
         </div>
         <button class="cart-item-remove" data-line="${line.lineId}" aria-label="Remove item">&times;</button>
       </div>
@@ -1072,6 +1110,7 @@ async function submitOrderCheckout(event) {
       id: line.itemId,
       quantity: line.quantity,
       spice_level: line.spiceLevel,
+      side: line.side ? line.side.id : undefined,
       extras: line.extras.map((e) => e.id)
     }))
   };
