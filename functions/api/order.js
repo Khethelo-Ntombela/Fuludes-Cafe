@@ -39,8 +39,8 @@
  *
  * PUT /api/order  { id }  (Authorization: Bearer <customer session token>)
  * Customer self-service cancel - only for an order that belongs to the
- * signed-in customer and only while it's still "New". Unpaid orders can be
- * cancelled any time (there's nothing to refund). Paid orders only within
+ * signed-in customer, only while it's still "New", and only once it's paid
+ * (an unpaid order has nothing to refund). Paid orders only within
  * the 2-minute window that starts when the payment is CONFIRMED
  * (kitchen_release_at = payment_confirmed_at + 2 min, set by the payment
  * webhook) - cancelling then refunds automatically through Yoco.
@@ -146,6 +146,11 @@ export async function onRequestPut(context) {
         },
         400,
       );
+    }
+
+    // Cancelling is the refund route, so it only applies to paid orders.
+    if (order.payment_status !== "paid") {
+      return jsonResponse({ error: "This order hasn't been paid, so there's nothing to cancel or refund." }, 400);
     }
 
     // The refund window only exists once the order is paid, and runs from

@@ -1420,10 +1420,9 @@ function escapeAttr(str) {
  * "cancelled" is accurate and enough.
  */
 function cancelledMessage(order) {
-  const wasChargedOnline =
-    order.payment_method === "online" && order.payment_status !== "not_required";
-
-  if (!wasChargedOnline || order.payment_status === "failed") {
+  // Only a paid (or already refunded) order has money to give back -
+  // never mention a refund for one that was never paid.
+  if (!["paid", "refunded"].includes(order.payment_status)) {
     return "This order was cancelled.";
   }
 
@@ -1503,10 +1502,10 @@ function renderStatusTracker(order) {
 }
 
 /**
- * Cancel button for an order that's still "New":
- *  - unpaid: can be cancelled any time, no countdown (nothing to refund)
- *  - paid: only during the 2 minutes that start when the payment is
- *    confirmed - cancelling then refunds automatically through Yoco.
+ * Cancel button - only for a PAID order that's still "New", during the
+ * 2 minutes that start when the payment is confirmed; cancelling then
+ * refunds automatically through Yoco. Unpaid orders get no cancel button
+ * (there's nothing to refund - they just offer "Pay Now").
  * The server re-checks all of this (functions/api/order.js onRequestPut).
  */
 function renderCancelSection(order) {
@@ -1514,16 +1513,7 @@ function renderCancelSection(order) {
 
   const isPaid =
     order.payment_method === "online" && order.payment_status === "paid";
-  if (!isPaid) {
-    if (!["awaiting", "failed"].includes(order.payment_status)) return "";
-    return `
-    <div class="receipt-cancel-row">
-      <button type="button" class="receipt-cancel-btn" data-cancel-order="${order.id}" data-cancel-expires-at="" data-paid="false">
-        Cancel Order
-      </button>
-    </div>
-  `;
-  }
+  if (!isPaid) return "";
 
   const paidAtMs = order.payment_confirmed_at ? new Date(order.payment_confirmed_at).getTime() : null;
   const cancelExpiresAtMs = order.kitchen_release_at
