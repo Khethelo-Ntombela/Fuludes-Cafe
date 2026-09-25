@@ -274,6 +274,7 @@ document.querySelectorAll(".admin-tab-btn").forEach((btn) => {
       loadAudit(true);
     }
     if (btn.dataset.tab === "customers") loadCustomerRecords();
+    if (btn.dataset.tab === "buffet") loadBuffetEventsAdmin();
     if (btn.dataset.tab === "settings") loadAdminAccounts();
   });
 });
@@ -2508,17 +2509,21 @@ function initStoreStatusHandlers() {
 }
 
 // ----------------- Buffet admin UI handlers -----------------
-function initBuffetAdminHandlers() {
-  const btn = document.getElementById("manageBuffetBtn");
-  const modal = document.getElementById("buffetAdminModal");
-  const close = document.getElementById("buffetAdminClose");
+/** Empties the event form back to "Add Buffet Event". */
+function resetBuffetEventForm() {
   const form = document.getElementById("buffetEventForm");
-  if (!btn || !modal) return;
-  btn.addEventListener("click", async () => {
-    modal.style.display = "block";
-    await loadBuffetEventsAdmin();
-  });
-  close.addEventListener("click", () => (modal.style.display = "none"));
+  if (!form) return;
+  form.reset();
+  form.dataset.existingPhotos = "[]";
+  document.getElementById("buffetEventPhotoPreview").innerHTML = "";
+  document.getElementById("buffetEventId").value = "";
+  document.getElementById("buffetFormTitle").textContent = "Add Buffet Event";
+}
+
+/** The Buffet page (its own sidebar tab): event form, events list and bookings. */
+function initBuffetAdminHandlers() {
+  const form = document.getElementById("buffetEventForm");
+  document.getElementById("buffetEventNewBtn")?.addEventListener("click", resetBuffetEventForm);
   if (form) {
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -2604,10 +2609,7 @@ function initBuffetAdminHandlers() {
         });
         const data = await res.json();
         if (!res.ok || !data.success) throw new Error(data.error || "Failed");
-        form.reset();
-        form.dataset.existingPhotos = "[]";
-        document.getElementById("buffetEventPhotoPreview").innerHTML = "";
-        document.getElementById("buffetEventId").value = "";
+        resetBuffetEventForm();
         await loadBuffetEventsAdmin();
       } catch (err) {
         alert(err.message || "Failed to save event");
@@ -2815,6 +2817,8 @@ async function loadBuffetEventsAdmin() {
         const all = await res.json();
         const evt = (all.events || []).find((x) => x.id === id);
         if (!evt) return alert("Not found");
+        document.getElementById("buffetFormTitle").textContent = `Edit: ${evt.title}`;
+        form.scrollIntoView({ behavior: "smooth", block: "start" });
         document.getElementById("buffetEventId").value = evt.id;
         document.getElementById("buffetEventTitle").value = evt.title;
         const d = new Date(evt.event_date);
@@ -2844,7 +2848,10 @@ async function loadBuffetEventsAdmin() {
     );
     buffetEventsById = Object.fromEntries((data.events || []).map((e) => [e.id, e]));
     document.querySelectorAll("#buffetEventsList .btn-view").forEach((b) =>
-      b.addEventListener("click", (e) => showBuffetBookings(Number(e.currentTarget.dataset.id))),
+      b.addEventListener("click", async (e) => {
+        await showBuffetBookings(Number(e.currentTarget.dataset.id));
+        document.getElementById("buffetBookingsCard")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }),
     );
   } catch (err) {
     console.error("Failed to load buffet events", err);

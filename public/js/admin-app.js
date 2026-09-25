@@ -154,6 +154,7 @@ const TAB_TITLES = {
   addons: "Extras & Spice Levels",
   reviews: "Customer Reviews",
   reservations: "Reservations",
+  buffet: "Buffet Events",
   audit: "Audit Logs",
   settings: "Settings"
 };

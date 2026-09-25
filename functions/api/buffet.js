@@ -199,7 +199,7 @@ export async function onRequestPost(context) {
     queuePush(context, { roles: ["admin"] }, {
       title: "New buffet booking",
       body: `${name} · ${seats} seat${seats > 1 ? "s" : ""} - waiting for your confirmation`,
-      url: "/admin.html#customers", // buffet events live on the Customers tab
+      url: "/admin.html#buffet",
       tag: `buffet-${ins.rows[0].id}`,
     });
 

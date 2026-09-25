@@ -7,7 +7,7 @@
     <title>Fulude's Cafe | Admin</title>
   
     <link rel="stylesheet" href="css/style.css?v=4" />
-    <link rel="stylesheet" href="css/admin.css?v=4" />
+    <link rel="stylesheet" href="css/admin.css?v=5" />
     <link
       href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&display=swap"
       rel="stylesheet"
@@ -143,6 +143,9 @@
           </button>
           <button class="admin-tab-btn" data-tab="reservations">
             <i class="fas fa-calendar-check"></i> <span>Reservations</span>
+          </button>
+          <button class="admin-tab-btn" data-tab="buffet">
+            <i class="fas fa-champagne-glasses"></i> <span>Buffet</span>
           </button>
           <button class="admin-tab-btn" data-tab="customers">
             <i class="fas fa-users"></i> <span>Customers</span>
@@ -1128,7 +1131,7 @@
                     <input type="checkbox" id="buffetToggle" />
                   </label>
                   <div style="margin-top: 12px">
-                    <button id="manageBuffetBtn" class="admin-mini-btn">
+                    <button id="manageBuffetBtn" class="admin-mini-btn" type="button" data-goto-tab="buffet">
                       Manage Buffet Events
                     </button>
                   </div>
@@ -1425,78 +1428,87 @@
             </div>
             <div id="customerRecordsList" class="admin-items-list"></div>
           </section>
+
+          <!-- ---------------- Buffet events (own page) ---------------- -->
+          <section id="tab-buffet" class="admin-tab-panel">
+            <div class="admin-panel-header"><h2>Buffet Events</h2></div>
+            <div class="buffet-admin-layout">
+              <div class="sa-card buffet-admin-form-card">
+                <h3 id="buffetFormTitle">Add Buffet Event</h3>
+                <form id="buffetEventForm" class="admin-form">
+                    <input type="hidden" id="buffetEventId" />
+                    <div class="form-row">
+                      <div class="form-group">
+                        <label for="buffetEventTitle">Title</label
+                        ><input id="buffetEventTitle" required />
+                      </div>
+                      <div class="form-group">
+                        <label for="buffetEventDate">Date &amp; time</label
+                        ><input id="buffetEventDate" type="datetime-local" required />
+                      </div>
+                    </div>
+                    <div class="form-group">
+                      <label for="buffetEventCapacity">Capacity</label
+                      ><input
+                        id="buffetEventCapacity"
+                        type="number"
+                        min="1"
+                        value="30"
+                        required
+                      />
+                    </div>
+                    <div class="form-group">
+                      <label for="buffetEventPrice">Price (cents)</label
+                      ><input id="buffetEventPrice" type="number" min="0" value="0" />
+                    </div>
+                    <div class="form-row">
+                      <div class="form-group">
+                        <label for="buffetEventPublished">Published</label
+                        ><input id="buffetEventPublished" type="checkbox" />
+                      </div>
+                      <div class="form-group">
+                        <label for="buffetEventBookingCloses">Booking closes at</label
+                        ><input id="buffetEventBookingCloses" type="datetime-local" />
+                      </div>
+                    </div>
+                    <div class="form-group">
+                      <label for="buffetEventDescription">Description</label
+                      ><textarea id="buffetEventDescription"></textarea>
+                    </div>
+                    <div class="form-group">
+                      <label for="buffetEventPhotos">Event Photos</label>
+                      <input
+                        id="buffetEventPhotos"
+                        type="file"
+                        accept="image/*"
+                        multiple
+                      />
+                      <span class="admin-hint"
+                        >Up to 6 images. Existing photos remain unless replaced.</span
+                      >
+                    </div>
+                    <div id="buffetEventPhotoPreview" class="admin-thumb-strip"></div>
+                    <div class="admin-form-actions">
+                      <button class="btn btn-primary" type="submit" id="buffetEventSaveBtn">Save Event</button>
+                      <button class="admin-mini-btn" type="button" id="buffetEventNewBtn">Clear / new event</button>
+                    </div>
+                  </form>
+              </div>
+              <div class="sa-card">
+                <h3>Events</h3>
+                <div id="buffetEventsList"><p class="admin-hint">Loading…</p></div>
+              </div>
+            </div>
+            <div class="sa-card" id="buffetBookingsCard" style="margin-top: 20px">
+              <h3>Bookings</h3>
+              <div id="buffetBookingsList"><p class="admin-hint">Tap "View Bookings" on an event to see and manage its bookings.</p></div>
+            </div>
+          </section>
         </main>
       </div>
     </div>
 
     <div class="toast-stack" id="toastStack"></div>
-
-    <!-- Admin buffet modal -->
-    <div class="modal-overlay" id="buffetAdminModal" style="display: none">
-      <div class="modal">
-        <button class="modal-close" id="buffetAdminClose">&times;</button>
-        <h3>Buffet Events</h3>
-        <form id="buffetEventForm" class="admin-form">
-          <input type="hidden" id="buffetEventId" />
-          <div class="form-row">
-            <div class="form-group">
-              <label for="buffetEventTitle">Title</label
-              ><input id="buffetEventTitle" required />
-            </div>
-            <div class="form-group">
-              <label for="buffetEventDate">Date &amp; time</label
-              ><input id="buffetEventDate" type="datetime-local" required />
-            </div>
-          </div>
-          <div class="form-group">
-            <label for="buffetEventCapacity">Capacity</label
-            ><input
-              id="buffetEventCapacity"
-              type="number"
-              min="1"
-              value="30"
-              required
-            />
-          </div>
-          <div class="form-group">
-            <label for="buffetEventPrice">Price (cents)</label
-            ><input id="buffetEventPrice" type="number" min="0" value="0" />
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label for="buffetEventPublished">Published</label
-              ><input id="buffetEventPublished" type="checkbox" />
-            </div>
-            <div class="form-group">
-              <label for="buffetEventBookingCloses">Booking closes at</label
-              ><input id="buffetEventBookingCloses" type="datetime-local" />
-            </div>
-          </div>
-          <div class="form-group">
-            <label for="buffetEventDescription">Description</label
-            ><textarea id="buffetEventDescription"></textarea>
-          </div>
-          <div class="form-group">
-            <label for="buffetEventPhotos">Event Photos</label>
-            <input
-              id="buffetEventPhotos"
-              type="file"
-              accept="image/*"
-              multiple
-            />
-            <span class="admin-hint"
-              >Up to 6 images. Existing photos remain unless replaced.</span
-            >
-          </div>
-          <div id="buffetEventPhotoPreview" class="admin-thumb-strip"></div>
-          <div class="admin-form-actions">
-            <button class="btn btn-primary" type="submit">Save Event</button>
-          </div>
-        </form>
-        <div id="buffetEventsList" style="margin-top: 16px"></div>
-        <div id="buffetBookingsList" style="margin-top: 12px"></div>
-      </div>
-    </div>
 
     <!-- Out of Service: ask for the reason customers will see -->
     <div class="sa-modal-overlay" id="oosModal">
@@ -1517,10 +1529,10 @@
       </div>
     </div>
 
-    <script src="js/pwa.js?v=5"></script>
-    <script src="js/kds.js?v=5"></script>
-    <script src="js/admin.js?v=5"></script>
-    <script src="js/admin-app.js?v=5"></script>
+    <script src="js/pwa.js?v=6"></script>
+    <script src="js/kds.js?v=6"></script>
+    <script src="js/admin.js?v=6"></script>
+    <script src="js/admin-app.js?v=6"></script>
   <script>
   if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 </script>

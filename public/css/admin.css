@@ -3093,3 +3093,27 @@ button.kpi-card {
     display: none;
   }
 }
+
+/* Buffet page: event form beside the events list (stacked on phones) */
+.buffet-admin-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.buffet-admin-layout .sa-card h3,
+#buffetBookingsCard h3 {
+  font-size: 1rem;
+  margin-bottom: 12px;
+}
+.buffet-admin-form-card .admin-form-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+@media (max-width: 900px) {
+  .buffet-admin-layout {
+    grid-template-columns: 1fr;
+  }
+}
