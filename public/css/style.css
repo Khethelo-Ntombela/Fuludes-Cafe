@@ -3076,7 +3076,7 @@ textarea:focus-visible {
   background: var(--cream);
   border-radius: 6px;
   padding: 14px 16px;
-  margin-bottom: 16px;
+  margin-top: 16px;
   font-size: 0.9rem;
 }
 .duplicate-order-panel p {

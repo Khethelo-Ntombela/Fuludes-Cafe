@@ -41,7 +41,7 @@ export async function onRequestPost(context) {
     });
   } catch (err) {
     return jsonResponse(
-      { error: "Failed to retry payment.", message: err.message },
+      { error: `The payment couldn't be started: ${err.message}`, message: err.message },
       500,
     );
   }

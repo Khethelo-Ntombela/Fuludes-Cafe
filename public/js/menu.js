@@ -1591,7 +1591,8 @@ function showDuplicateOrderChoice(existing) {
     panel = document.createElement("div");
     panel.id = "duplicateOrderPanel";
     panel.className = "duplicate-order-panel";
-    checkoutForm.parentNode.insertBefore(panel, checkoutForm);
+    // Below the "Continue to Payment" button, where the customer is looking.
+    checkoutForm.after(panel);
   }
   const placed = new Date(existing.created_at).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" });
   panel.innerHTML = `
@@ -1603,16 +1604,19 @@ function showDuplicateOrderChoice(existing) {
     </div>
     <p class="form-error" id="dupError" style="display:none"></p>`;
   panel.style.display = "block";
-  panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  panel.scrollIntoView({ behavior: "smooth", block: "end" });
   const fail = (message) => {
     const el = document.getElementById("dupError");
     el.textContent = message;
     el.style.display = "block";
   };
 
-  document.getElementById("dupPayBtn").addEventListener("click", async (e) => {
-    e.currentTarget.disabled = true;
-    e.currentTarget.textContent = "Redirecting to payment…";
+  const payBtn = document.getElementById("dupPayBtn");
+  const editBtn = document.getElementById("dupEditBtn");
+  payBtn.addEventListener("click", async () => {
+    document.getElementById("dupError").style.display = "none";
+    payBtn.disabled = true;
+    payBtn.textContent = "Redirecting to payment…";
     try {
       const res = await fetch("/api/order/retry", {
         method: "POST",
@@ -1626,14 +1630,14 @@ function showDuplicateOrderChoice(existing) {
       localStorage.removeItem(ACTIVE_RES_KEY);
       redirectToYoco(data.payment);
     } catch (err) {
-      fail(err.message);
-      e.currentTarget.disabled = false;
-      e.currentTarget.textContent = `Pay order #${existing.id}`;
+      fail(`${err.message} You can tap "Edit my order" to change it instead.`);
+      payBtn.disabled = false;
+      payBtn.textContent = `Pay order #${existing.id}`;
     }
   });
 
-  document.getElementById("dupEditBtn").addEventListener("click", async (e) => {
-    e.currentTarget.disabled = true;
+  editBtn.addEventListener("click", async () => {
+    editBtn.disabled = true;
     try {
       const res = await fetch("/api/order/discard", {
         method: "POST",
@@ -1648,7 +1652,7 @@ function showDuplicateOrderChoice(existing) {
       showCartToast(`Order #${existing.id} removed - edit your cart, then check out again.`, "info");
     } catch (err) {
       fail(err.message);
-      e.currentTarget.disabled = false;
+      editBtn.disabled = false;
     }
   });
 }
