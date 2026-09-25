@@ -68,6 +68,38 @@ async function search(apiKey, query, box) {
   return Array.isArray(data) ? data : [];
 }
 
+/**
+ * Shared phone location -> address parts for the checkout fields. The
+ * coordinates are what price the delivery; the address is for the driver,
+ * so a failed lookup still returns the coordinates.
+ */
+async function reverseGeocode(apiKey, lat, lng) {
+  const params = new URLSearchParams({ key: apiKey, lat: String(lat), lon: String(lng), format: "json", addressdetails: "1" });
+  try {
+    const res = await fetch(`${LOCATIONIQ_BASE.replace("/search", "/reverse")}?${params.toString()}`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) return { lat, lng, display_name: "", address: {} };
+    const data = await res.json();
+    const a = data.address || {};
+    return {
+      lat,
+      lng,
+      display_name: data.display_name || "",
+      address: {
+        street: [a.house_number, a.road].filter(Boolean).join(" "),
+        suburb: a.suburb || a.neighbourhood || a.village || a.hamlet || "",
+        city: a.city || a.town || a.municipality || a.county || "",
+        postal_code: a.postcode || "",
+        province: a.state || "",
+      },
+    };
+  } catch {
+    return { lat, lng, display_name: "", address: {} };
+  }
+}
+
 function nearest(results, cafe) {
   let best = null;
   for (const r of results) {
@@ -90,12 +122,22 @@ async function handlePost(context) {
     return jsonResponse({ error: "Invalid JSON body." }, 400);
   }
 
+  const apiKey = env.LOCATIONIQ_API_KEY;
+
+  // { lat, lng } from the phone's location: look the address up the other way.
+  const shareLat = Number(body.lat);
+  const shareLng = Number(body.lng);
+  if (body.lat != null && body.lng != null && Number.isFinite(shareLat) && Number.isFinite(shareLng)) {
+    if (Math.abs(shareLat) > 90 || Math.abs(shareLng) > 180) return jsonResponse({ error: "Invalid location." }, 400);
+    if (!apiKey) return jsonResponse({ lat: shareLat, lng: shareLng, display_name: "", address: {} });
+    return jsonResponse(await reverseGeocode(apiKey, shareLat, shareLng));
+  }
+
   const rawAddress = sanitizeText(body.address || "", 500);
   if (!rawAddress) {
     return jsonResponse({ error: "Address is required." }, 400);
   }
 
-  const apiKey = env.LOCATIONIQ_API_KEY;
   if (!apiKey) {
     return jsonResponse({ error: "Geocoding service not configured." }, 500);
   }

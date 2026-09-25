@@ -1599,7 +1599,12 @@ function renderReceiptCard(order) {
 
       <div class="receipt-details${isOpen ? " open" : ""}" data-order-id="${order.id}">
         <div class="receipt-meta">${order.pickup_time} · ${paymentText}</div>
+        ${order.order_type === "delivery" && order.delivery_address ? `<div class="receipt-meta">Deliver to: ${escapeHtml(order.delivery_address)}</div>` : ""}
         <ul class="receipt-items">${itemsHtml}</ul>
+        ${order.order_type === "delivery"
+          ? `<div class="receipt-total" style="font-weight:500"><span>Items subtotal</span><span>${money(order.total_amount - (order.delivery_fee || 0))}</span></div>
+        <div class="receipt-total" style="font-weight:500"><span>Delivery fee${order.delivery_distance_km ? ` (${Number(order.delivery_distance_km)} km)` : ""}</span><span>${money(order.delivery_fee || 0)}</span></div>`
+          : ""}
         <div class="receipt-total"><span>Total</span><span>${money(order.total_amount)}</span></div>
       </div>
     </div>

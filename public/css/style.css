@@ -2926,7 +2926,7 @@ textarea:focus-visible {
   margin-bottom: 0;
 }
 
-/* Checkout modal: order summary so customers see what they're paying for */
+/* Checkout modal: itemised order summary so customers see what they pay for */
 .checkout-summary {
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -2934,30 +2934,108 @@ textarea:focus-visible {
   padding: 12px 14px;
   font-size: 0.9rem;
 }
-.checkout-summary-line,
-.checkout-summary-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 5px 0;
+.cs-where {
+  font-size: 0.85rem;
+  color: var(--charcoal);
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  line-height: 1.5;
 }
-.checkout-summary-line {
+.cs-where i {
+  color: var(--gold-dark);
+  margin-right: 4px;
+}
+.cs-item {
+  padding: 8px 0;
   border-bottom: 1px dashed var(--light-gray);
 }
-.checkout-summary-line span,
-.checkout-summary-row span:last-child {
+.cs-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 2px 0;
+}
+.cs-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cs-value {
+  flex: 0 0 auto;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.checkout-summary-detail {
+.cs-row small {
+  color: var(--gray);
+}
+.cs-sub {
+  padding-left: 14px;
+  font-size: 0.82rem;
+  color: var(--gray);
+}
+.cs-item-total {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.cs-totals {
+  padding-top: 8px;
+}
+.cs-grand {
+  border-top: 1px solid var(--border);
+  margin-top: 6px;
+  padding-top: 8px;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+/* Checkout delivery address: location button + separate fields */
+.address-fields .form-group {
+  margin-bottom: 12px;
+}
+.location-btn {
+  color: var(--black);
+  border-color: var(--gold-dark);
+  padding: 12px 16px;
+}
+.location-btn:hover {
+  background: var(--gold-light);
+  border-color: var(--gold-dark);
+}
+.address-status {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--charcoal);
+}
+.address-status.ok {
+  color: #1a7f37;
+}
+.address-status .link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--gold-dark);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+.address-or {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
   color: var(--gray);
   font-size: 0.8rem;
 }
-.checkout-summary-total {
+.address-or::before,
+.address-or::after {
+  content: "";
+  flex: 1;
   border-top: 1px solid var(--border);
-  margin-top: 4px;
-  padding-top: 8px;
-  font-weight: 700;
-  font-size: 1rem;
+}
+
+/* Drinks outside the Drinks tab (e.g. search results): text-only card */
+.order-card.no-image .order-card-body {
+  padding-top: 20px;
 }

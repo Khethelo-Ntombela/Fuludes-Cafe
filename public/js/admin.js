@@ -1136,9 +1136,9 @@ function renderCategoryOptions() {
   }
 }
 
-/** A category counts as drinks when its slug/name mentions drinks or beverages (keep in sync with menu.js). */
+/** A category counts as drinks when its name says so (keep DRINK_CATEGORY_RE in menu.js in sync). */
 function isDrinksCategory(cat) {
-  return !!cat && /drink|beverage/i.test(`${cat.slug} ${cat.name}`);
+  return !!cat && /drink|beverage|juice|soda|cocktail|alcohol|liquor|wine|beer|smoothie|shake|coffee|\btea\b/i.test(`${cat.slug} ${cat.name}`);
 }
 
 /** Drinks: show the drink-type picker, hide photos + ingredients. Dessert: hide ingredients. */

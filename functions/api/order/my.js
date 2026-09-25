@@ -24,7 +24,7 @@ export async function onRequestGet(context) {
   try {
     const ordersResult = await runQuery(env, `
       SELECT id, customer_name, customer_phone, order_type, delivery_address, table_number,
-             pickup_time, special_instructions, total_amount,
+             pickup_time, special_instructions, total_amount, delivery_fee, delivery_distance_km,
              CASE WHEN status = 'Out for Delivery' THEN 'Delivery' ELSE status END AS status,
              payment_method, payment_status, refund_needed, refund_processed_at,
              kitchen_release_at, created_at
@@ -50,6 +50,7 @@ export async function onRequestGet(context) {
     const orders = ordersResult.rows.map((order) => ({
       ...order,
       total_amount: parseFloat(order.total_amount),
+      delivery_fee: order.delivery_fee != null ? parseFloat(order.delivery_fee) : 0,
       items: itemsByOrder[order.id] || []
     }));
 

@@ -22,6 +22,7 @@ import { sanitizeText } from "../../_lib/security.js";
 import { generateToken } from "../../_lib/password.js";
 import { logAudit } from "../../_lib/audit.js";
 import { calculateDeliveryFee } from "../../_lib/delivery.js";
+import { createYocoCheckout } from "../../_lib/yoco.js";
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -290,13 +291,35 @@ export async function onRequestPost(context) {
     // Stock is deliberately NOT decremented here: payment/notify.js does it once the
     // payment is confirmed (decrementing now would take stock twice and hold it for unpaid links).
 
-    // Create a time-limited payment link (24h)
+    // Create this order's Yoco checkout now, so a problem (no YOCO_SECRET_KEY,
+    // Yoco rejecting it) shows up for the admin instead of in a broken link.
+    const origin = new URL(request.url).origin;
+    let checkoutUrl;
+    try {
+      if (!env.YOCO_SECRET_KEY) {
+        throw new Error("YOCO_SECRET_KEY is not set in Cloudflare (Settings > Environment variables), so Yoco checkouts can't be created.");
+      }
+      const checkout = await createYocoCheckout(env, {
+        orderId: newOrderId,
+        amount: totalAmount,
+        returnUrl: `${origin}/home.html?payment=success&order_id=${newOrderId}`,
+        cancelUrl: `${origin}/home.html?payment=cancelled&order_id=${newOrderId}`,
+      });
+      checkoutUrl = checkout.redirect_url;
+    } catch (yocoErr) {
+      // No usable link - don't leave an orphan unpaid order behind (items cascade).
+      await runQuery(env, "DELETE FROM orders WHERE id = $1 AND payment_status = 'awaiting';", [newOrderId]).catch(() => {});
+      return jsonResponse({ error: `Couldn't create the Yoco payment: ${yocoErr.message}` }, 502);
+    }
+
+    // Time-limited link (24h) that opens this order's Yoco checkout.
     const token = generateToken();
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    await runQuery(env, "ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS checkout_url TEXT;");
     await runQuery(
       env,
-      `INSERT INTO payment_links (token, order_id, expires_at) VALUES ($1, $2, $3);`,
-      [token, newOrderId, expiresAt],
+      `INSERT INTO payment_links (token, order_id, expires_at, checkout_url) VALUES ($1, $2, $3, $4);`,
+      [token, newOrderId, expiresAt, checkoutUrl],
     );
 
     await logAudit(env, {
@@ -308,7 +331,6 @@ export async function onRequestPost(context) {
       details: { customer_email: customerEmail, total_amount: totalAmount, order_type: orderType, delivery_fee: deliveryFee },
     });
 
-    const origin = new URL(request.url).origin;
     // Opens straight onto the Yoco payment page (functions/api/paylink.js).
     const payUrl = `${origin}/api/paylink?token=${token}`;
 

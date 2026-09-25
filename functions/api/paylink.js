@@ -46,7 +46,9 @@ export async function onRequestGet(context) {
   if (!token) return messagePage("Payment link missing", "This payment link is incomplete. Please ask the cafe to send it again.");
 
   try {
-    const linkRes = await runQuery(env, "SELECT token, order_id, expires_at, used FROM payment_links WHERE token = $1;", [token]);
+    // checkout_url (added by admin/build-cart.js) is this order's own Yoco checkout.
+    const linkRes = await runQuery(env, "SELECT token, order_id, expires_at, used, checkout_url FROM payment_links WHERE token = $1;", [token])
+      .catch(() => runQuery(env, "SELECT token, order_id, expires_at, used FROM payment_links WHERE token = $1;", [token]));
     const link = linkRes.rows[0];
     if (!link) return messagePage("Link not found", "This payment link is invalid. Please ask the cafe for a new one.", 404);
     if (link.used) return messagePage("Already used", "This payment link has already been used.");
@@ -59,6 +61,8 @@ export async function onRequestGet(context) {
     if (order.payment_status === "paid") return messagePage("Already paid", `Order #${order.id} has already been paid - thank you!`, 200);
     if (order.payment_status !== "awaiting")
       return messagePage("Not awaiting payment", `Order #${order.id} is no longer awaiting payment. Please contact the cafe.`);
+
+    if (link.checkout_url) return Response.redirect(link.checkout_url, 302);
 
     const payment = await createYocoCheckout(env, {
       orderId: order.id,
@@ -76,6 +80,6 @@ export async function onRequestGet(context) {
     if (payment.action_url) return autoPostPage(payment);
     return messagePage("Payments unavailable", "Online payment isn't set up yet. Please contact the cafe to pay.", 503);
   } catch (err) {
-    return messagePage("Payment unavailable", "We couldn't start the payment right now. Please try the link again in a moment.", 500);
+    return messagePage("Payment unavailable", `We couldn't start the payment right now (${err.message}). Please try again in a moment or contact the cafe.`, 500);
   }
 }

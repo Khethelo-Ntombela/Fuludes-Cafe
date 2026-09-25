@@ -189,9 +189,18 @@ function renderCategoryTabs() {
   });
 }
 
-/** A category counts as drinks when its slug/name mentions drinks or beverages (keep in sync with admin.js). */
+/** Category names that mean drinks (keep in sync with admin.js). */
+const DRINK_CATEGORY_RE = /drink|beverage|juice|soda|cocktail|alcohol|liquor|wine|beer|smoothie|shake|coffee|\btea\b/i;
+
+/** A drinks category: named like one, or holding items the admin gave a drink type. */
 function isDrinksCategory(cat) {
-  return !!cat && /drink|beverage/i.test(`${cat.slug} ${cat.name}`);
+  if (!cat) return false;
+  return DRINK_CATEGORY_RE.test(`${cat.slug} ${cat.name}`) || menuItems.some((i) => i.category_id === cat.id && i.drink_type);
+}
+
+/** Drinks never show a photo area anywhere on the customer menu. */
+function isDrinkItem(item) {
+  return Boolean(item.drink_type) || isDrinksCategory(categories.find((c) => c.id === item.category_id));
 }
 
 const DRINK_GROUPS = [
@@ -276,6 +285,22 @@ function renderOrderItems() {
       const priceHtml = onSpecial
         ? `<span class="was-price">${money(item.price)}</span>${money(item.effective_price)}`
         : money(item.price);
+      if (isDrinkItem(item)) {
+        // e.g. a drink in search results: text-only card, no grey photo box
+        return `
+    <div class="order-card no-image${item.is_available ? "" : " sold-out"}" data-item="${item.id}">
+      <div class="order-card-body">
+        <div class="order-card-header">
+          <span class="order-card-name">${item.name}</span>
+          <span class="order-card-dots" aria-hidden="true"></span>
+          <span class="order-card-price">${priceHtml}</span>
+        </div>
+        <p class="order-card-desc">${item.description || ""}</p>
+        ${item.is_available ? "" : `<p class="order-card-desc"><strong>Sold out</strong></p>`}
+        <div class="order-card-footer" data-id="${item.id}">${cardControlsHtml(item)}</div>
+      </div>
+    </div>`;
+      }
       return `
     <div class="order-card${item.is_available ? "" : " sold-out"}" data-item="${item.id}">
       <div class="order-card-image${photos.length > 1 ? " has-slides" : ""}">
@@ -453,7 +478,7 @@ function openSpecialsModal() {
         const photos = item.images && item.images.length > 0 ? item.images : (item.image_url ? [item.image_url] : []);
         return `
       <div class="specials-item">
-        ${photos.length > 0 ? `<img src="${photos[0]}" alt="${item.name}" />` : `<div class="specials-item-noimg"></div>`}
+        ${isDrinkItem(item) ? "" : photos.length > 0 ? `<img src="${photos[0]}" alt="${item.name}" />` : `<div class="specials-item-noimg"></div>`}
         <div class="specials-item-info">
           <span class="specials-item-name">${item.name}</span>
           <div class="specials-item-prices">
@@ -852,40 +877,58 @@ function renderCheckoutSummary() {
     el.innerHTML = `<p class="cart-empty">Your cart is empty</p>`;
     return;
   }
+  const row = (label, value, cls = "") =>
+    `<div class="cs-row ${cls}"><span class="cs-label">${label}</span><span class="cs-value">${value}</span></div>`;
+
   let subtotal = 0;
   const lines = cart
     .map((line) => {
-      const extrasTotal = line.extras.reduce((s, e) => s + e.price, 0);
-      const lineTotal = (line.price + extrasTotal) * line.quantity;
+      const extrasUnit = line.extras.reduce((s, e) => s + e.price, 0);
+      const lineTotal = (line.price + extrasUnit) * line.quantity;
       subtotal += lineTotal;
-      const details = [
-        line.spiceLevel,
-        line.side ? `Side: ${line.side.name}` : "",
-        ...line.extras.map((e) => `+ ${e.name}`),
-      ].filter(Boolean);
-      return `<div class="checkout-summary-line">
-        <div><strong>${line.quantity} &times; ${line.name}</strong>${details.length ? `<div class="checkout-summary-detail">${details.join(" · ")}</div>` : ""}</div>
-        <span>${money(lineTotal)}</span>
+      const details = [];
+      if (line.spiceLevel) details.push(row(`Spice: ${line.spiceLevel}`, "free", "cs-sub"));
+      if (line.side) details.push(row(`Side: ${line.side.name}`, "free", "cs-sub"));
+      line.extras.forEach((e) =>
+        details.push(row(`+ ${e.name}${line.quantity > 1 ? ` (${line.quantity} &times; ${money(e.price)})` : ""}`, money(e.price * line.quantity), "cs-sub")),
+      );
+      return `<div class="cs-item">
+        ${row(`<strong>${line.quantity} &times; ${line.name}</strong>${line.quantity > 1 ? ` <small>(${money(line.price)} each)</small>` : ""}`, money(line.price * line.quantity))}
+        ${details.join("")}
+        ${details.length ? row("Item total", money(lineTotal), "cs-item-total") : ""}
       </div>`;
     })
     .join("");
 
-  const isDelivery = orderTypeSelect?.value === "delivery";
-  let feeRow = "";
+  const type = orderTypeSelect?.value || "collection";
   let fee = 0;
-  if (isDelivery) {
-    if (deliveryFeeLoading) feeRow = `<span><i class="fas fa-spinner fa-spin"></i> Calculating…</span>`;
-    else if (deliveryTooFar) feeRow = `<span>Not available</span>`;
+  let deliveryRows = "";
+  let whereRow = "";
+  if (type === "delivery") {
+    let feeValue;
+    if (deliveryFeeLoading) feeValue = `<i class="fas fa-spinner fa-spin"></i> Calculating…`;
+    else if (deliveryTooFar) feeValue = "Not available (too far)";
     else if (geocodedDeliveryLat !== null) {
       fee = Number(deliveryFee) || 0;
-      feeRow = `<span>${money(fee)}</span>`;
-    } else feeRow = `<span class="checkout-summary-detail">Enter your address</span>`;
-    feeRow = `<div class="checkout-summary-row"><span>Delivery fee${deliveryDistanceKm && !deliveryTooFar ? ` (${deliveryDistanceKm} km)` : ""}</span>${feeRow}</div>`;
+      feeValue = money(fee);
+    } else feeValue = `<em>Add your address or share your location</em>`;
+    const km = deliveryDistanceKm && !deliveryTooFar && geocodedDeliveryLat !== null ? ` (${deliveryDistanceKm} km)` : "";
+    deliveryRows = row(`Delivery fee${km}`, feeValue);
+    const address = composeDeliveryAddress() || geocodedDisplayAddress;
+    whereRow = `<div class="cs-where"><i class="fas fa-motorcycle"></i> Delivery${address ? ` to ${address.replace(/</g, "&lt;")}` : ""}${deliveryFromLocation ? " (your shared location)" : ""}</div>`;
+  } else if (type === "dine_in") {
+    whereRow = `<div class="cs-where"><i class="fas fa-utensils"></i> Dine in</div>`;
+  } else {
+    whereRow = `<div class="cs-where"><i class="fas fa-bag-shopping"></i> Collection at the cafe</div>`;
   }
-  el.innerHTML = `${lines}
-    <div class="checkout-summary-row"><span>Subtotal</span><span>${money(subtotal)}</span></div>
-    ${feeRow}
-    <div class="checkout-summary-row checkout-summary-total"><span>Total to pay</span><span>${money(subtotal + fee)}</span></div>`;
+
+  el.innerHTML = `${whereRow}
+    ${lines}
+    <div class="cs-totals">
+      ${row("Items subtotal", money(subtotal))}
+      ${deliveryRows}
+      ${row("Total to pay", money(subtotal + fee), "cs-grand")}
+    </div>`;
 }
 
 // ---------------------------------------------------------------------
@@ -983,15 +1026,13 @@ function updateCheckoutFieldVisibility() {
   tableNumberField.style.display = orderTypeSelect.value === "dine_in" ? "block" : "none";
   dineInTimeField.style.display = orderTypeSelect.value === "dine_in" ? "block" : "none";
   preferredTimeField.style.display = orderTypeSelect.value === "dine_in" ? "none" : "block";
-
-  const addressInput = document.getElementById("delivery-address");
-  if (addressInput) {
-    addressInput.required = isDelivery;
-  }
+  // The address fields are checked in submitOrderCheckout (a shared location
+  // can stand in for them), so they're not marked required here.
 }
 
 let lastQuotedAddressInput = ""; // the exact text we last looked up
 let deliveryTooFar = false;
+let deliveryFromLocation = false; // priced from the phone's shared location (GPS), not the typed address
 
 function resetDeliveryQuote() {
   deliveryFee = 0;
@@ -1002,6 +1043,189 @@ function resetDeliveryQuote() {
   deliveryFeeLoading = false;
   deliveryTooFar = false;
   lastQuotedAddressInput = "";
+  deliveryFromLocation = false;
+  setLocationStatus("");
+}
+
+// ---- Structured delivery address: street, unit (optional), suburb, town/city, postal code, province ----
+const addrField = (id) => document.getElementById(id);
+function addressParts() {
+  const v = (id) => (addrField(id)?.value || "").trim();
+  return {
+    street: v("addr-street"),
+    unit: v("addr-unit"),
+    suburb: v("addr-suburb"),
+    city: v("addr-city"),
+    postal: v("addr-postal"),
+    province: v("addr-province"),
+  };
+}
+
+/** The full address saved on the order (what the driver reads). */
+function composeDeliveryAddress() {
+  const a = addressParts();
+  return [a.unit, a.street, a.suburb, a.city, a.postal, a.province].filter(Boolean).join(", ");
+}
+
+/** What the geocoder is asked (unit numbers only confuse it). */
+function geocodeQuery() {
+  const a = addressParts();
+  return [a.street, a.suburb, a.city, a.postal, a.province].filter(Boolean).join(", ");
+}
+
+/** Labels of the required parts still empty (unit number is optional). */
+function missingAddressParts() {
+  const a = addressParts();
+  return [
+    [a.street, "street address"],
+    [a.suburb, "suburb"],
+    [a.city, "town/city"],
+    [a.postal, "postal code"],
+    [a.province, "province"],
+  ]
+    .filter(([value]) => !value)
+    .map(([, label]) => label);
+}
+
+function syncDeliveryAddressInput() {
+  const hidden = addrField("delivery-address");
+  if (hidden) hidden.value = composeDeliveryAddress() || geocodedDisplayAddress;
+}
+
+/** Picks the matching province option ("Limpopo Province" -> "Limpopo"). */
+function setProvince(name) {
+  const select = addrField("addr-province");
+  if (!select || !name) return;
+  const match = [...select.options].find((o) => o.value && name.toLowerCase().includes(o.value.toLowerCase()));
+  if (match) select.value = match.value;
+}
+
+function fillAddressFields(parts) {
+  if (parts.street !== undefined) addrField("addr-street").value = parts.street;
+  if (parts.unit !== undefined) addrField("addr-unit").value = parts.unit;
+  if (parts.suburb !== undefined) addrField("addr-suburb").value = parts.suburb;
+  if (parts.city !== undefined) addrField("addr-city").value = parts.city;
+  if (parts.postal !== undefined) addrField("addr-postal").value = parts.postal;
+  if (parts.province !== undefined) setProvince(parts.province);
+  syncDeliveryAddressInput();
+}
+
+/** Splits a saved one-line address ("12 Main Rd, Sibasa, Thohoyandou, 0950, Limpopo") into the fields. */
+function fillFromSavedAddress(saved) {
+  const bits = String(saved || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const parts = { street: "", unit: "", suburb: "", city: "", postal: "", province: "" };
+  const rest = [];
+  for (const bit of bits) {
+    if (/^\d{4}$/.test(bit)) parts.postal = bit;
+    else if (/limpopo|gauteng|mpumalanga|north west|kwazulu|natal|free state|eastern cape|western cape|northern cape/i.test(bit)) parts.province = bit;
+    else if (!/^south africa$/i.test(bit)) rest.push(bit);
+  }
+  if (rest.length && /^(unit|flat|apt|apartment|no\.?)\s*\w+$/i.test(rest[0]) && rest.length > 1) parts.unit = rest.shift();
+  parts.street = rest.shift() || "";
+  parts.city = rest.pop() || "";
+  parts.suburb = rest.join(", ");
+  fillAddressFields(parts);
+}
+
+function setLocationStatus(text, kind = "info") {
+  const el = addrField("locationStatus");
+  if (!el) return;
+  el.style.display = text ? "block" : "none";
+  el.className = `address-status ${kind}`;
+  el.innerHTML = text;
+}
+
+/** Shares the phone's location: coordinates price the delivery, the address fields get filled for the driver. */
+async function useMyLocation() {
+  if (!navigator.geolocation) {
+    showCheckoutError("Your browser can't share your location - please type your address instead.");
+    return;
+  }
+  const btn = addrField("useMyLocationBtn");
+  btn.disabled = true;
+  setLocationStatus('<i class="fas fa-spinner fa-spin"></i> Getting your location…');
+  checkoutError.style.display = "none";
+  let position;
+  try {
+    position = await new Promise((resolve, reject) =>
+      navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 20000, maximumAge: 60000 }),
+    );
+  } catch (err) {
+    btn.disabled = false;
+    setLocationStatus("");
+    showCheckoutError(
+      err && err.code === 1
+        ? "Location permission was denied. Allow location for this site in your phone settings, or type your address below."
+        : "We couldn't get your location. Please try again outside/with GPS on, or type your address below.",
+    );
+    return;
+  }
+  const lat = position.coords.latitude;
+  const lng = position.coords.longitude;
+  resetDeliveryQuote();
+  deliveryFromLocation = true;
+  deliveryFeeLoading = true;
+  renderCart();
+  try {
+    const geoRes = await fetch("/api/delivery/geocode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lat, lng }),
+      signal: AbortSignal.timeout(20000),
+    });
+    const geo = await safeJson(geoRes);
+    if (geo.address) {
+      const a = geo.address;
+      // Keep anything the customer already typed that the lookup doesn't know (e.g. unit number).
+      fillAddressFields({
+        street: a.street || addressParts().street,
+        suburb: a.suburb || addressParts().suburb,
+        city: a.city || addressParts().city,
+        postal: a.postal_code || addressParts().postal,
+        province: a.province || addressParts().province,
+      });
+    }
+    const feeRes = await fetch("/api/delivery/fee", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lat, lng }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const feeData = await safeJson(feeRes);
+    if (!feeRes.ok) throw new Error(feeData.error || "Failed to calculate delivery fee");
+    geocodedDeliveryLat = lat;
+    geocodedDeliveryLng = lng;
+    geocodedDisplayAddress = geo.display_name || "";
+    deliveryDistanceKm = feeData.distance_km;
+    syncDeliveryAddressInput();
+    if (feeData.too_far) {
+      deliveryFee = 0;
+      deliveryTooFar = true;
+      showCheckoutError(`${feeData.message} You're about ${feeData.distance_km} km away. Call ${feeData.cafe_phone} or email ${feeData.cafe_email}.`);
+    } else {
+      deliveryFee = Number(feeData.fee) || 0;
+    }
+    setLocationStatus(
+      `<i class="fas fa-location-dot"></i> Using your current location (${feeData.distance_km} km away). Check the address below for the driver, and add a unit number if you have one. <button type="button" class="link-btn" id="useTypedAddressBtn">Use a typed address instead</button>`,
+      "ok",
+    );
+    addrField("useTypedAddressBtn")?.addEventListener("click", () => {
+      resetDeliveryQuote();
+      renderCart();
+      handleDeliveryAddressBlur();
+    });
+  } catch (err) {
+    resetDeliveryQuote();
+    showCheckoutError(
+      err.name === "TimeoutError"
+        ? "Working out the delivery fee is taking too long. Please try again or type your address."
+        : err.message || "We couldn't price delivery to your location. Please type your address instead.",
+    );
+  } finally {
+    deliveryFeeLoading = false;
+    btn.disabled = false;
+    renderCart();
+  }
 }
 
 /**
@@ -1011,9 +1235,11 @@ function resetDeliveryQuote() {
  * never sent without coordinates.
  */
 async function handleDeliveryAddressBlur() {
-  const addressInput = document.getElementById("delivery-address");
-  const address = addressInput?.value?.trim();
-  if (!address || orderTypeSelect.value !== "delivery") return;
+  syncDeliveryAddressInput();
+  if (deliveryFromLocation) return; // already priced from the phone's location
+  const address = geocodeQuery();
+  // Wait until every required part is filled in before looking it up.
+  if (!address || missingAddressParts().length || orderTypeSelect.value !== "delivery") return;
 
   // Don't re-look-up the same text
   if (address === lastQuotedAddressInput && geocodedDeliveryLat !== null) return;
@@ -1080,18 +1306,27 @@ async function handleDeliveryAddressBlur() {
 }
 
 /** Sets up geocoding on blur for the delivery address field. */
-function setupDeliveryGeocoding(addressInput) {
-  if (!addressInput) return;
-  addressInput.removeEventListener("blur", handleDeliveryAddressBlur);
-  addressInput.addEventListener("blur", handleDeliveryAddressBlur);
-  // Editing the text invalidates the previous quote
-  addressInput.removeEventListener("input", invalidateQuoteOnEdit);
-  addressInput.addEventListener("input", invalidateQuoteOnEdit);
+/** Wires the address fields once: typing re-prices (after the fields are complete), the location button uses GPS. */
+let deliveryFieldsWired = false;
+function setupDeliveryGeocoding() {
+  if (deliveryFieldsWired) return;
+  deliveryFieldsWired = true;
+  ["addr-street", "addr-unit", "addr-suburb", "addr-city", "addr-postal", "addr-province"].forEach((id) => {
+    const el = addrField(id);
+    if (!el) return;
+    el.addEventListener("input", invalidateQuoteOnEdit);
+    el.addEventListener("change", handleDeliveryAddressBlur);
+    el.addEventListener("blur", handleDeliveryAddressBlur);
+  });
+  addrField("useMyLocationBtn")?.addEventListener("click", useMyLocation);
 }
 
 function invalidateQuoteOnEdit() {
-  const typed = document.getElementById("delivery-address").value.trim();
-  if (typed !== lastQuotedAddressInput && geocodedDeliveryLat !== null) {
+  syncDeliveryAddressInput();
+  renderCheckoutSummary();
+  // A shared location stays - the fields are just the driver's description of it.
+  if (deliveryFromLocation) return;
+  if (geocodeQuery() !== lastQuotedAddressInput && geocodedDeliveryLat !== null) {
     resetDeliveryQuote();
     renderCart();
   }
@@ -1125,9 +1360,8 @@ function proceedToCheckout() {
 
   const nameInput = document.getElementById("customer-name");
   const phoneInput = document.getElementById("customer-phone");
-  const addressInput = document.getElementById("delivery-address");
-
   resetDeliveryQuote();
+  fillAddressFields({ street: "", unit: "", suburb: "", city: "", postal: "", province: "" });
 
   if (preorder) {
     nameInput.value = preorder.name || (currentCustomer && currentCustomer.name) || "";
@@ -1138,11 +1372,11 @@ function proceedToCheckout() {
     }
 
     const hasSavedProfile = currentCustomer.phone_number || currentCustomer.delivery_address;
-    if (hasSavedProfile && !phoneInput.value.trim() && !addressInput.value.trim()) {
+    if (hasSavedProfile && !phoneInput.value.trim() && !composeDeliveryAddress()) {
       const shouldUseSaved = window.confirm("Use your saved contact details for this order?");
       if (shouldUseSaved) {
         phoneInput.value = currentCustomer.phone_number || "";
-        addressInput.value = currentCustomer.delivery_address || "";
+        fillFromSavedAddress(currentCustomer.delivery_address || "");
         // A saved address was never looked up in this visit - do it now
         // if they're already choosing delivery.
         if (orderTypeSelect.value === "delivery") handleDeliveryAddressBlur();
@@ -1150,8 +1384,8 @@ function proceedToCheckout() {
     }
   }
 
-  // Set up delivery address geocoding on blur
-  setupDeliveryGeocoding(addressInput);
+  // Set up delivery address geocoding + "use my location"
+  setupDeliveryGeocoding();
 
   checkoutModal.classList.add("active");
   renderCart(); // refresh to show/hide delivery fee line
@@ -1192,7 +1426,6 @@ async function submitOrderCheckout(event) {
 
   const nameInput = document.getElementById("customer-name");
   const phoneInput = document.getElementById("customer-phone");
-  const addressInput = document.getElementById("delivery-address");
   const tableInput = document.getElementById("table-number");
   const pickupSelect = document.getElementById("pickup-time-slot");
   const dineInTimeInput = document.getElementById("dine-in-arrival-time");
@@ -1201,7 +1434,8 @@ async function submitOrderCheckout(event) {
   const customerName = nameInput.value.trim();
   const customerPhone = phoneInput.value.trim();
   const orderType = orderTypeSelect.value;
-  const deliveryAddress = addressInput.value.trim();
+  syncDeliveryAddressInput();
+  const deliveryAddress = composeDeliveryAddress() || geocodedDisplayAddress;
 
   if (!isCafeOpenNow() && !getActiveReservation()) {
     checkoutModal.classList.remove("active");
@@ -1219,8 +1453,12 @@ async function submitOrderCheckout(event) {
     showCheckoutError("Please enter your name and cell number.");
     return;
   }
+  if (orderType === "delivery" && !deliveryFromLocation && missingAddressParts().length) {
+    showCheckoutError(`Please add your ${missingAddressParts().join(", ")} - or tap "Use my current location".`);
+    return;
+  }
   if (orderType === "delivery" && !deliveryAddress) {
-    showCheckoutError("Please enter a delivery address.");
+    showCheckoutError("Please enter a delivery address or use your current location.");
     return;
   }
   if (cart.length === 0) {
@@ -1232,7 +1470,7 @@ async function submitOrderCheckout(event) {
   // customer may tap "Continue" straight after typing, before the field
   // has lost focus).
   if (orderType === "delivery") {
-    if (geocodedDeliveryLat === null || deliveryAddress !== lastQuotedAddressInput) {
+    if (!deliveryFromLocation && (geocodedDeliveryLat === null || geocodeQuery() !== lastQuotedAddressInput)) {
       await handleDeliveryAddressBlur();
     }
     if (deliveryFeeLoading) return;
