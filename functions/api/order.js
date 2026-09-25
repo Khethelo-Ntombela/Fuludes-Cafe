@@ -56,6 +56,7 @@ import {
 import { sanitizeText, getRequestIp } from "../_lib/security.js";
 import { logAudit } from "../_lib/audit.js";
 import { isOpenNow, CLOSED_MESSAGE } from "../_lib/hours.js";
+import { ensureCancelledByColumn } from "../_lib/orderCancel.js";
 
 const CUSTOMER_CANCEL_WINDOW_MS = 2 * 60 * 1000; // keep in sync with CUSTOMER_CANCEL_WINDOW_MS in public/js/main.js
 const ROAD_BUFFER = 1.3; // straight-line * 1.3 ≈ road distance
@@ -179,10 +180,11 @@ export async function onRequestPut(context) {
     // fails or isn't configured, refund_needed stays TRUE so a human can
     // still catch it via the existing manual admin/refund.js flow - the
     // refund is never silently lost either way.
+    await ensureCancelledByColumn(env);
     const cancelQuery =
       order.payment_status === "paid"
-        ? `UPDATE orders SET status = 'Cancelled', refund_needed = TRUE WHERE id = $1 AND customer_id = $2 AND status = 'New' RETURNING id;`
-        : `UPDATE orders SET status = 'Cancelled' WHERE id = $1 AND customer_id = $2 AND status = 'New' RETURNING id;`;
+        ? `UPDATE orders SET status = 'Cancelled', cancelled_by = 'customer', refund_needed = TRUE WHERE id = $1 AND customer_id = $2 AND status = 'New' RETURNING id;`
+        : `UPDATE orders SET status = 'Cancelled', cancelled_by = 'customer' WHERE id = $1 AND customer_id = $2 AND status = 'New' RETURNING id;`;
     const cancelResult = await runQuery(env, cancelQuery, [
       orderId,
       customer.id,

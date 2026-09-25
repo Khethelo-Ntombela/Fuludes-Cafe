@@ -76,6 +76,31 @@ function orderTypePaymentLabel(order) {
  * automatically (see handleOrderAction's confirm prompt), so this is the
  * at-a-glance reminder that a manual refund may still be needed.
  */
+/**
+ * Order History wording for a cancelled order: who cancelled it and what
+ * happened to the money.
+ *   customer -> "Cancelled by the customer · Automatically refunded"
+ *   staff    -> "Cancelled by staff · Refund needed"   (or "· Refunded" once done)
+ *   admin    -> "Cancelled by admin · Refund needed"
+ */
+function cancelledStatusLabel(order) {
+  const who =
+    order.cancelled_by === "customer"
+      ? "Cancelled by the customer"
+      : order.cancelled_by === "staff"
+        ? "Cancelled by staff"
+        : order.cancelled_by === "admin"
+          ? "Cancelled by admin"
+          : "Cancelled";
+  if (order.payment_status === "refunded") {
+    // The customer can only cancel inside the 2-minute window, where the refund is automatic.
+    const auto = order.cancelled_by === "customer" && !order.refund_error;
+    return `${who} · ${auto ? "Automatically refunded" : "Refunded"}`;
+  }
+  if (order.payment_status === "paid") return `${who} · Refund needed`;
+  return `${who} · Not paid, nothing to refund`;
+}
+
 function paymentBadgeHtml(order) {
   if (order.payment_method !== "online") {
     // Legacy orders placed before payment became mandatory.
@@ -83,6 +108,9 @@ function paymentBadgeHtml(order) {
   }
   if (order.status === "Cancelled" && order.payment_status === "paid") {
     return `<span class="badge badge-refund">Refund Needed</span>`;
+  }
+  if (order.payment_status === "refunded") {
+    return `<span class="badge badge-paid">Refunded</span>`;
   }
   if (order.payment_status === "paid") {
     return `<span class="badge badge-paid">Paid Online</span>`;
@@ -567,7 +595,7 @@ function renderOrders(orders) {
     confirmAction: (order, status) => {
       if (status === "Cancelled" && order.payment_status === "paid") {
         return confirm(
-          `Order #${order.id} was already paid online (${money(order.total_amount)}). Cancelling does NOT refund it automatically - you'll need to log into Yoco and refund it yourself (Transactions History${order.payment_ref ? `, ref: ${order.payment_ref}` : ""}).\n\nCancel this order anyway?`,
+          `Order #${order.id} was already paid online (${money(order.total_amount)}). Cancelling marks it "Refund needed" - you can then refund it with one tap from Order History (the "Refund via Yoco" button).\n\nCancel this order?`,
         );
       }
       if (status !== "Cancelled" && order.payment_status !== "paid") {
@@ -702,6 +730,7 @@ function renderOrderHistory(orders) {
         (order.status === "Cancelled" &&
           order.payment_status === "paid" &&
           order.refund_processed_at == null);
+      const statusLabel = order.status === "Cancelled" ? cancelledStatusLabel(order) : order.status;
 
       return `
       <div class="admin-order-card status-${order.status.toLowerCase()}${refundNeeded ? " refund-needed" : ""}">
@@ -710,9 +739,19 @@ function renderOrderHistory(orders) {
           <span>${money(order.total_amount)}</span>
         </div>
         <div class="admin-order-meta">
-          ${orderDate} · ${order.status} · ${order.customer_phone} · ${describeOrderType(order)} · ${order.pickup_time} · ${paymentBadgeHtml(order)}
+          ${orderDate} · ${order.status === "Cancelled" ? `<strong class="${refundNeeded ? "refund-needed-note" : ""}">${statusLabel}</strong>` : statusLabel} · ${order.customer_phone} · ${describeOrderType(order)} · ${order.pickup_time} · ${paymentBadgeHtml(order)}
           ${order.special_instructions ? `<br>Note: ${order.special_instructions}` : ""}
-          ${refundNeeded ? `<br><strong class="refund-needed-note">Refund needed via Yoco${order.payment_ref ? ` (ref: ${order.payment_ref})` : ""}</strong><br><button class="btn btn-secondary mark-refund-btn" data-order-id="${order.id}">Mark refund processed</button>` : order.refund_processed_at ? `<br>Refund marked processed ${new Date(order.refund_processed_at).toLocaleString("en-ZA")}` : ""}
+          ${
+            refundNeeded
+              ? `<div class="refund-actions">
+                  ${order.refund_error ? `<div class="refund-error">Last refund attempt failed: ${escapeHtml(order.refund_error)}</div>` : ""}
+                  <button type="button" class="admin-mini-btn refund-yoco-btn" data-order-id="${order.id}" data-amount="${order.total_amount}"><i class="fas fa-rotate-left"></i> Refund ${money(order.total_amount)} via Yoco</button>
+                  <button type="button" class="admin-mini-btn mark-refund-btn" data-order-id="${order.id}">Already refunded in Yoco</button>
+                </div>`
+              : order.refund_processed_at
+                ? `<br>Refunded ${new Date(order.refund_processed_at).toLocaleString("en-ZA")}${order.refund_ref ? ` (Yoco ref: ${escapeHtml(order.refund_ref)})` : ""}`
+                : ""
+          }
         </div>
         <ul class="admin-order-items">${itemsHtml}</ul>
       </div>
@@ -720,12 +759,35 @@ function renderOrderHistory(orders) {
     })
     .join("");
 
-  list.querySelectorAll(".mark-refund-btn").forEach((button) =>
+  list.querySelectorAll(".refund-yoco-btn").forEach((button) =>
     button.addEventListener("click", async () => {
-      if (!confirm("Confirm the refund has been completed in Yoco?")) return;
+      const id = Number(button.dataset.orderId);
+      if (!confirm(`Refund ${money(button.dataset.amount)} for order #${id} back to the customer's card through Yoco now?`)) return;
+      button.disabled = true;
+      button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Refunding…';
       const response = await adminFetch("/api/admin/refund", {
         method: "POST",
-        body: JSON.stringify({ order_id: Number(button.dataset.orderId) }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_id: id, mode: "yoco" }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) {
+        alert(data.error || "The refund didn't go through.");
+        loadOrderHistory(true);
+        return;
+      }
+      alert(`Order #${id} refunded through Yoco. It usually reaches the customer's card within a few business days.`);
+      loadOrderHistory(true);
+    }),
+  );
+
+  list.querySelectorAll(".mark-refund-btn").forEach((button) =>
+    button.addEventListener("click", async () => {
+      if (!confirm("Only use this if you already refunded this order yourself in the Yoco dashboard. Mark it as refunded?")) return;
+      const response = await adminFetch("/api/admin/refund", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_id: Number(button.dataset.orderId), mode: "manual" }),
       });
       const data = await response.json();
       if (!response.ok || !data.success)

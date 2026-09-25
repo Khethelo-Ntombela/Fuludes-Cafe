@@ -260,11 +260,11 @@ function renderBoard(orders) {
     onAction: handleAdvance,
     confirmAction: (order, status) => {
       // Every ticket on this board has already been paid for, so
-      // cancelling always means a refund is owed. Staff don't have Yoco
-      // access - make sure they flag it to the owner.
+      // cancelling always means a refund is owed - the admin refunds it
+      // through Yoco from Order History.
       if (status === "Cancelled") {
         return confirm(
-          `Order #${order.id} was already paid online. Cancelling here won't refund it - please let Fulufhelo know so she can process the refund via Yoco.\n\nCancel this order anyway?`,
+          `Order #${order.id} was already paid online. Cancelling marks it \"Refund needed\" - the admin can then refund it through Yoco from Order History.\n\nCancel this order anyway?`,
         );
       }
       return true;

@@ -3117,3 +3117,21 @@ button.kpi-card {
     grid-template-columns: 1fr;
   }
 }
+
+/* Order History: refund buttons on "Refund needed" orders */
+.refund-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.refund-actions .refund-yoco-btn {
+  background: var(--sa-gold);
+  border-color: var(--sa-gold);
+  color: #fff;
+}
+.refund-error {
+  flex-basis: 100%;
+  color: var(--sa-red);
+  font-size: 0.8rem;
+}

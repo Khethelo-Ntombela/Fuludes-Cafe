@@ -26,6 +26,7 @@
  */
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
+import { ensureCancelledByColumn } from "../../_lib/orderCancel.js";
 
 export async function onRequestGet(context) {
   const { request, env } = context;
@@ -110,13 +111,14 @@ export async function onRequestGet(context) {
     params.push(offset);
     const offsetIndex = params.length;
 
+    await ensureCancelledByColumn(env);
     const ordersResult = await runQuery(
       env,
       `
       SELECT id, customer_name, customer_phone, order_type, delivery_address, table_number,
              pickup_time, special_instructions, total_amount,
              CASE WHEN status = 'Out for Delivery' THEN 'Delivery' ELSE status END AS status,
-             payment_method, payment_status, payment_ref, refund_needed, refund_processed_at, created_at
+             payment_method, payment_status, payment_ref, refund_needed, refund_processed_at, refund_ref, refund_error, cancelled_by, created_at
       FROM orders
       ${whereClause}
       ORDER BY created_at DESC

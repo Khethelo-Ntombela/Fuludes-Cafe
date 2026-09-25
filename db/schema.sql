@@ -518,3 +518,5 @@ CREATE TABLE IF NOT EXISTS push_config (
   public_key  TEXT NOT NULL,
   private_key TEXT NOT NULL
 );
+
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancelled_by TEXT; -- customer | staff | admin (migration 010)

@@ -11,6 +11,7 @@ import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { getRequestIp } from "../../_lib/security.js";
 import { queueOrderStatusPush } from "../../_lib/push.js";
+import { ensureCancelledByColumn } from "../../_lib/orderCancel.js";
 import { logAudit } from "../../_lib/audit.js";
 
 const ALLOWED_STATUSES = [
@@ -153,11 +154,13 @@ export async function onRequestPost(context) {
       );
     }
 
+    await ensureCancelledByColumn(env);
     const updateResult = await runQuery(
       env,
       `
         UPDATE orders
         SET status = $1,
+            cancelled_by = CASE WHEN $1 = 'Cancelled' THEN 'admin' ELSE cancelled_by END,
             order_type = CASE
               WHEN $1 IN ('Collection', 'Delivery') THEN $4
               ELSE order_type
