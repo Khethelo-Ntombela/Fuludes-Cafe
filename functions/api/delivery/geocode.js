@@ -33,14 +33,20 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   return 2 * 6371 * Math.asin(Math.sqrt(a));
 }
 
+/** query: free text, or { street, city, state, postalcode } for LocationIQ's structured search. */
 async function search(apiKey, query, box) {
   const params = new URLSearchParams({
     key: apiKey,
-    q: query,
     format: "json",
     limit: "5",
     countrycodes: "za",
+    addressdetails: "1",
   });
+  if (typeof query === "string") params.set("q", query);
+  else {
+    for (const [k, v] of Object.entries(query)) if (v) params.set(k, v);
+    params.set("country", "South Africa");
+  }
   if (box) {
     params.set("viewbox", `${box.west},${box.north},${box.east},${box.south}`);
     params.set("bounded", "1");
@@ -100,6 +106,106 @@ async function reverseGeocode(apiKey, lat, lng) {
   }
 }
 
+async function cafeLocation(env) {
+  try {
+    const cfg = (await runQuery(env, "SELECT cafe_latitude, cafe_longitude FROM app_config WHERE id = 1;")).rows[0];
+    if (cfg && cfg.cafe_latitude != null && cfg.cafe_longitude != null) {
+      return { lat: parseFloat(cfg.cafe_latitude), lng: parseFloat(cfg.cafe_longitude) };
+    }
+  } catch {
+    /* no cafe location yet */
+  }
+  return null;
+}
+
+function boxAround(cafe) {
+  if (!cafe) return null;
+  const dLat = BOX_KM / 111;
+  const dLng = BOX_KM / (111 * Math.cos((cafe.lat * Math.PI) / 180));
+  return { west: cafe.lng - dLng, east: cafe.lng + dLng, north: cafe.lat + dLat, south: cafe.lat - dLat };
+}
+
+const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+/**
+ * How well a geocoder result matches what the customer typed: street name,
+ * postal code, suburb, town and province each add points. Used to pick the
+ * right place when a street name exists in several towns.
+ */
+function scoreResult(r, parts) {
+  const hay = ` ${norm(r.display_name)} ${norm(Object.values(r.address || {}).join(" "))} `;
+  const has = (v) => {
+    const n = norm(v);
+    return n.length > 1 && hay.includes(` ${n} `);
+  };
+  const streetName = norm(parts.street).replace(/^(no |stand |erf )?\d+[a-z]? /, "");
+  let score = 0;
+  let streetMatched = false;
+  // The street's own name ("Mvelaphanda" of "12 Mvelaphanda St") - "St"/"Street" spellings vary.
+  const streetWord = streetName.split(" ")[0];
+  if (streetWord && streetWord.length >= 3 && hay.includes(` ${streetWord} `)) {
+    score += 3;
+    streetMatched = true;
+  }
+  if (parts.postal && norm(r.address?.postcode) === norm(parts.postal)) score += 3;
+  else if (has(parts.postal)) score += 2;
+  if (has(parts.suburb)) score += 2;
+  if (has(parts.city)) score += 2;
+  if (has(parts.province)) score += 1;
+  return { score, streetMatched };
+}
+
+/** Tries the full address, then structured searches, then the area; returns the best-matching place. */
+async function geocodeParts(env, apiKey, parts) {
+  const cafe = await cafeLocation(env);
+  const box = boxAround(cafe);
+  const join = (...xs) => xs.filter(Boolean).join(", ");
+  const queries = [
+    join(parts.unit, parts.street, parts.suburb, parts.city, parts.postal, parts.province, "South Africa"),
+    join(parts.street, parts.suburb, parts.city, parts.postal, parts.province, "South Africa"),
+    { street: parts.street, city: parts.city, state: parts.province, postalcode: parts.postal },
+    { street: parts.street, city: parts.suburb, state: parts.province, postalcode: parts.postal },
+    join(parts.suburb, parts.city, parts.postal, parts.province, "South Africa"),
+  ].filter((q, i, all) => {
+    if (typeof q !== "string") return q.street && q.city;
+    return q && all.indexOf(q) === i;
+  });
+
+  let best = null;
+  for (const q of queries) {
+    for (const b of box ? [box, null] : [null]) {
+      const results = await search(apiKey, q, b);
+      for (const r of results) {
+        const lat = parseFloat(r.lat);
+        const lng = parseFloat(r.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+        const { score, streetMatched } = scoreResult(r, parts);
+        const km = cafe ? haversineKm(cafe.lat, cafe.lng, lat, lng) : 0;
+        if (!best || score > best.score || (score === best.score && km < best.km)) {
+          best = { lat, lng, km, score, streetMatched, display_name: r.display_name };
+        }
+      }
+      if (results.length) break; // found something near the cafe - no need to search the whole country for this query
+    }
+    // Street plus postal code/suburb/town all matched: that's the place.
+    if (best && best.streetMatched && best.score >= 7) break;
+  }
+
+  if (!best) {
+    return jsonResponse(
+      { error: "We couldn't find that address. Please check the street, suburb and town, or use your current location." },
+      404,
+    );
+  }
+  return jsonResponse({
+    lat: best.lat,
+    lng: best.lng,
+    display_name: best.display_name,
+    // Only the area (not the street) could be found - the fee is for that area.
+    approximate: Boolean(parts.street) && !best.streetMatched,
+  });
+}
+
 function nearest(results, cafe) {
   let best = null;
   for (const r of results) {
@@ -131,6 +237,29 @@ async function handlePost(context) {
     if (Math.abs(shareLat) > 90 || Math.abs(shareLng) > 180) return jsonResponse({ error: "Invalid location." }, 400);
     if (!apiKey) return jsonResponse({ lat: shareLat, lng: shareLng, display_name: "", address: {} });
     return jsonResponse(await reverseGeocode(apiKey, shareLat, shareLng));
+  }
+
+  // Structured address from the checkout / admin form: use every part entered.
+  if (body.parts && typeof body.parts === "object") {
+    if (!apiKey) return jsonResponse({ error: "Geocoding service not configured." }, 500);
+    const clean = (k, n = 120) => sanitizeText(String(body.parts[k] || ""), n);
+    const parts = {
+      street: clean("street"),
+      unit: clean("unit", 60),
+      suburb: clean("suburb"),
+      city: clean("city"),
+      postal: clean("postal", 10),
+      province: clean("province", 60),
+    };
+    if (!parts.street && !parts.suburb && !parts.city) return jsonResponse({ error: "Address is required." }, 400);
+    try {
+      return await geocodeParts(env, apiKey, parts);
+    } catch (err) {
+      return jsonResponse(
+        { error: err.status === 502 ? "Geocoding service error." : "Failed to geocode address.", message: err.message },
+        err.status || 500,
+      );
+    }
   }
 
   const rawAddress = sanitizeText(body.address || "", 500);

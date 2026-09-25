@@ -310,8 +310,25 @@ body {
 }
 
 /* Buffet event cards: everything centred, every action button the same size */
-.buffet-card {
+.buffet-card,
+.buffet-card p,
+.buffet-card div,
+.buffet-card .sa-card-title,
+.buffet-card .admin-hint {
   text-align: center;
+}
+.buffet-card {
+  margin: 0 auto 24px;
+  max-width: 640px;
+}
+.buffet-card .sa-card-title {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin-bottom: 8px;
 }
 .buffet-card-photos {
   display: flex;
@@ -325,10 +342,14 @@ body {
   justify-content: center;
   margin: 12px 0 16px;
 }
-.btn-buffet {
-  width: 220px;
+/* "Book" and "Check My Booking" are exactly the same size */
+.buffet-actions .btn.btn-buffet {
+  display: inline-block;
+  width: 260px;
   max-width: 100%;
+  padding: 16px 20px;
   text-align: center;
+  box-sizing: border-box;
 }
 .btn-gold {
   background: var(--gold);
@@ -2993,14 +3014,22 @@ textarea:focus-visible {
 .address-fields .form-group {
   margin-bottom: 12px;
 }
-.location-btn {
-  color: var(--black);
-  border-color: var(--gold-dark);
+.btn.location-btn {
+  background: var(--black);
+  color: var(--white);
+  border: 1.5px solid var(--black);
   padding: 12px 16px;
 }
-.location-btn:hover {
-  background: var(--gold-light);
-  border-color: var(--gold-dark);
+.btn.location-btn:hover {
+  background: var(--charcoal);
+  border-color: var(--charcoal);
+}
+.btn.location-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+.address-ok-btn {
+  margin-top: 4px;
 }
 .address-status {
   margin: 8px 0 0;

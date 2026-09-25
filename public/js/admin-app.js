@@ -1134,10 +1134,44 @@ function renderAdminCart() {
 }
 
 /** Address -> coordinates -> fee, exactly like the customer checkout. */
+// ---- Structured delivery address (same fields as the customer checkout) ----
+function poAddressParts() {
+  const v = (id) => ($id(id)?.value || "").trim();
+  return { street: v("poStreet"), unit: v("poUnit"), suburb: v("poSuburb"), city: v("poCity"), postal: v("poPostal"), province: v("poProvince") };
+}
+/** Full address for the order (unit included); also kept in the hidden #orderDeliveryAddress. */
+function poComposeAddress() {
+  const a = poAddressParts();
+  const full = [a.unit, a.street, a.suburb, a.city, a.postal, a.province].filter(Boolean).join(", ");
+  if ($id("orderDeliveryAddress")) $id("orderDeliveryAddress").value = full;
+  return full;
+}
+function poMissingAddressParts() {
+  const a = poAddressParts();
+  return [[a.street, "street address"], [a.suburb, "suburb"], [a.city, "town/city"], [a.postal, "postal code"], [a.province, "province"]]
+    .filter(([value]) => !value)
+    .map(([, label]) => label);
+}
+
+/** OK button: every required field filled in, then look it up and price it. Nothing is calculated before this. */
+async function poConfirmAddress() {
+  const missing = poMissingAddressParts();
+  if (missing.length) {
+    $id("poDeliveryStatus").textContent = `Please add the ${missing.join(", ")}, then tap OK.`;
+    return;
+  }
+  const btn = $id("poAddressOkBtn");
+  btn.disabled = true;
+  try {
+    await poLookupAddress();
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function poLookupAddress() {
-  const input = $id("orderDeliveryAddress");
-  const address = input?.value.trim();
-  if (!address || poOrderType() !== "delivery") return;
+  const address = poComposeAddress();
+  if (!address || poMissingAddressParts().length || poOrderType() !== "delivery") return;
   if (address === poDelivery.lastInput && poDelivery.lat !== null) return;
   poReset();
   poDelivery.loading = true;
@@ -1145,8 +1179,8 @@ async function poLookupAddress() {
   renderAdminCart();
   try {
     const geoRes = await fetch("/api/delivery/geocode", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address }),
-      signal: AbortSignal.timeout(25000),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ parts: poAddressParts() }),
+      signal: AbortSignal.timeout(30000),
     });
     const geo = await geoRes.json();
     if (!geoRes.ok || !geo.lat) throw new Error(geo.error || "Couldn't find that address.");
@@ -1162,7 +1196,10 @@ async function poLookupAddress() {
       $id("poDeliveryStatus").textContent = `Found: ${geo.display_name}. It's a bit far (${fee.distance_km} km) - set the delivery fee manually below to continue.`;
     } else {
       poDelivery.fee = Number(fee.fee) || 0;
-      $id("poDeliveryStatus").textContent = `Found: ${geo.display_name}`;
+      $id("poDeliveryStatus").textContent = geo.approximate
+        ? `Street not pinned - priced for the area: ${geo.display_name} (${fee.distance_km} km). Set the fee manually if needed.`
+        : `Found: ${geo.display_name} (${fee.distance_km} km)`;
+      if (geo.approximate) poDelivery.error = "approximate"; // shows the manual fee box
     }
   } catch (err) {
     poReset();
@@ -1196,7 +1233,6 @@ function updateOrderTypeFields() {
     poClearManualFee();
   }
   renderAdminCart();
-  if (type === "delivery") poLookupAddress();
 }
 
 async function generatePaymentLink() {
@@ -1221,9 +1257,10 @@ async function generatePaymentLink() {
     return;
   }
   if (type === "delivery") {
-    if (!address) { toast("Enter the delivery address."); return; }
+    const missing = poMissingAddressParts();
+    if (missing.length) { toast(`Enter the ${missing.join(", ")}.`); return; }
     if (poDelivery.manualFee === null) {
-      if (poDelivery.lat === null || address !== poDelivery.lastInput) await poLookupAddress();
+      if (poDelivery.lat === null || poComposeAddress() !== poDelivery.lastInput) { toast("Tap OK under the address to calculate the delivery fee first."); return; }
       if (poDelivery.loading) { toast("Still working out the delivery fee - try again in a moment."); return; }
       if (poDelivery.lat === null) { toast("The address couldn't be located - set the delivery fee manually."); return; }
       if (poDelivery.tooFar) { toast("That address is a bit far - set the delivery fee manually first."); return; }
@@ -1318,12 +1355,12 @@ async function generatePaymentLink() {
 
 /** Abandons the order being built: empties the cart and every field, hides any generated link. */
 function cancelPlaceOrder() {
-  const touched = adminCart.length || ["orderCustomerName", "orderCustomerPhone", "orderDeliveryAddress"].some((id) => $id(id)?.value.trim());
+  const touched = adminCart.length || ["orderCustomerName", "orderCustomerPhone", "poStreet"].some((id) => $id(id)?.value.trim());
   if (touched && !confirm("Cancel this order? Everything you added will be cleared.")) return;
   adminCart = [];
   poReset();
   poClearManualFee();
-  ["orderCustomerName", "orderCustomerPhone", "orderCustomerEmail", "orderDeliveryAddress", "orderTableNumber", "orderInstructions"].forEach((id) => {
+  ["orderCustomerName", "orderCustomerPhone", "orderCustomerEmail", "orderDeliveryAddress", "poStreet", "poUnit", "poSuburb", "poCity", "poPostal", "poProvince", "orderTableNumber", "orderInstructions"].forEach((id) => {
     if ($id(id)) $id(id).value = "";
   });
   $id("orderType").value = "collection";
@@ -1382,10 +1419,37 @@ function initPlaceOrderTab() {
           </div>
           <div id="poDeliveryFields" style="display:none">
             <div class="form-group">
-              <label for="orderDeliveryAddress">Delivery address</label>
-              <input type="text" id="orderDeliveryAddress" placeholder="Street / stand, suburb or village" autocomplete="off">
-              <small id="poDeliveryStatus" class="admin-hint"></small>
+              <label for="poStreet">Street address</label>
+              <input type="text" id="poStreet" class="po-addr" placeholder="e.g. 12 Mvelaphanda Street" autocomplete="off">
             </div>
+            <div class="form-group">
+              <label for="poUnit">Unit / flat number <small>(optional)</small></label>
+              <input type="text" id="poUnit" class="po-addr" autocomplete="off">
+            </div>
+            <div class="form-group">
+              <label for="poSuburb">Suburb</label>
+              <input type="text" id="poSuburb" class="po-addr" autocomplete="off">
+            </div>
+            <div class="form-group">
+              <label for="poCity">Town / City</label>
+              <input type="text" id="poCity" class="po-addr" autocomplete="off">
+            </div>
+            <div class="form-group">
+              <label for="poPostal">Postal code</label>
+              <input type="text" id="poPostal" class="po-addr" inputmode="numeric" maxlength="4" autocomplete="off">
+            </div>
+            <div class="form-group">
+              <label for="poProvince">Province</label>
+              <select id="poProvince" class="po-addr">
+                <option value="">Choose…</option>
+                <option>Limpopo</option><option>Gauteng</option><option>Mpumalanga</option>
+                <option>North West</option><option>KwaZulu-Natal</option><option>Free State</option>
+                <option>Eastern Cape</option><option>Western Cape</option><option>Northern Cape</option>
+              </select>
+            </div>
+            <input type="hidden" id="orderDeliveryAddress">
+            <button type="button" id="poAddressOkBtn" class="btn btn-primary btn-block">OK - calculate delivery fee</button>
+            <small id="poDeliveryStatus" class="admin-hint" style="display:block;margin:6px 0 10px"></small>
             <div class="form-group" id="poManualFeeField" style="display:none">
               <label for="poManualFee">Delivery fee (R) - set manually</label>
               <input type="number" id="poManualFee" min="0" step="0.01" placeholder="e.g. 80">
@@ -1451,14 +1515,19 @@ function initPlaceOrderTab() {
     renderAdminCart();
   });
   $id("orderType").addEventListener("change", updateOrderTypeFields);
-  $id("orderDeliveryAddress").addEventListener("blur", poLookupAddress);
-  $id("orderDeliveryAddress").addEventListener("input", () => {
-    if ($id("orderDeliveryAddress").value.trim() !== poDelivery.lastInput) {
-      // A different address needs a fresh price.
-      if (poDelivery.lat !== null || poDelivery.error || poDelivery.tooFar) poReset();
+  $id("poAddressOkBtn").addEventListener("click", poConfirmAddress);
+  const onAddressEdit = () => {
+    if (poComposeAddress() !== poDelivery.lastInput && (poDelivery.lat !== null || poDelivery.error || poDelivery.tooFar)) {
+      // A different address needs a fresh price - and a new tap on OK.
+      poReset();
       poClearManualFee();
+      $id("poDeliveryStatus").textContent = "Address changed - tap OK to update the delivery fee.";
       renderAdminCart();
     }
+  };
+  container.querySelectorAll(".po-addr").forEach((el) => {
+    el.addEventListener("input", onAddressEdit);
+    el.addEventListener("change", onAddressEdit);
   });
   $id("adminMenuSearch").addEventListener("input", (e) => {
     adminMenuQuery = e.target.value;

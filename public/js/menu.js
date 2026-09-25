@@ -911,7 +911,7 @@ function renderCheckoutSummary() {
     else if (geocodedDeliveryLat !== null) {
       fee = Number(deliveryFee) || 0;
       feeValue = money(fee);
-    } else feeValue = `<em>Add your address or share your location</em>`;
+    } else feeValue = `<em>Fill in your address and tap OK, or share your location</em>`;
     const km = deliveryDistanceKm && !deliveryTooFar && geocodedDeliveryLat !== null ? ` (${deliveryDistanceKm} km)` : "";
     deliveryRows = row(`Delivery fee${km}`, feeValue);
     const address = composeDeliveryAddress() || geocodedDisplayAddress;
@@ -1067,12 +1067,6 @@ function composeDeliveryAddress() {
   return [a.unit, a.street, a.suburb, a.city, a.postal, a.province].filter(Boolean).join(", ");
 }
 
-/** What the geocoder is asked (unit numbers only confuse it). */
-function geocodeQuery() {
-  const a = addressParts();
-  return [a.street, a.suburb, a.city, a.postal, a.province].filter(Boolean).join(", ");
-}
-
 /** Labels of the required parts still empty (unit number is optional). */
 function missingAddressParts() {
   const a = addressParts();
@@ -1211,8 +1205,8 @@ async function useMyLocation() {
     );
     addrField("useTypedAddressBtn")?.addEventListener("click", () => {
       resetDeliveryQuote();
+      setLocationStatus('Check your address below, then tap OK.');
       renderCart();
-      handleDeliveryAddressBlur();
     });
   } catch (err) {
     resetDeliveryQuote();
@@ -1237,8 +1231,8 @@ async function useMyLocation() {
 async function handleDeliveryAddressBlur() {
   syncDeliveryAddressInput();
   if (deliveryFromLocation) return; // already priced from the phone's location
-  const address = geocodeQuery();
-  // Wait until every required part is filled in before looking it up.
+  // Every field the customer filled in (unit number included) is used for the lookup.
+  const address = composeDeliveryAddress();
   if (!address || missingAddressParts().length || orderTypeSelect.value !== "delivery") return;
 
   // Don't re-look-up the same text
@@ -1253,8 +1247,8 @@ async function handleDeliveryAddressBlur() {
     const geoRes = await fetch("/api/delivery/geocode", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ address }),
-      signal: AbortSignal.timeout(25000),
+      body: JSON.stringify({ parts: addressParts() }),
+      signal: AbortSignal.timeout(30000),
     });
     const geoData = await safeJson(geoRes);
 
@@ -1284,6 +1278,7 @@ async function handleDeliveryAddressBlur() {
       deliveryFee = 0;
       deliveryDistanceKm = feeData.distance_km;
       deliveryTooFar = true;
+      setLocationStatus("");
       showCheckoutError(
         `${feeData.message} We found "${geoData.display_name}" (about ${feeData.distance_km} km away). If that's not the right place, add your suburb or village to the address. Otherwise call ${feeData.cafe_phone} or email ${feeData.cafe_email}.`
       );
@@ -1291,6 +1286,12 @@ async function handleDeliveryAddressBlur() {
       deliveryFee = Number(feeData.fee) || 0;
       deliveryDistanceKm = feeData.distance_km;
       checkoutError.style.display = "none";
+      setLocationStatus(
+        geoData.approximate
+          ? `<i class="fas fa-circle-info"></i> We couldn't pin your exact street, so the fee is for your area: ${geoData.display_name} (${feeData.distance_km} km). Delivery fee ${money(deliveryFee)}.`
+          : `<i class="fas fa-circle-check"></i> Address found (${feeData.distance_km} km away). Delivery fee ${money(deliveryFee)}.`,
+        "ok",
+      );
     }
   } catch (err) {
     resetDeliveryQuote();
@@ -1305,8 +1306,11 @@ async function handleDeliveryAddressBlur() {
   }
 }
 
-/** Sets up geocoding on blur for the delivery address field. */
-/** Wires the address fields once: typing re-prices (after the fields are complete), the location button uses GPS. */
+/**
+ * Wires the address fields once. Nothing is looked up while the customer
+ * types - they tap OK when their details are complete (or share their
+ * location); editing afterwards clears the fee until they tap OK again.
+ */
 let deliveryFieldsWired = false;
 function setupDeliveryGeocoding() {
   if (deliveryFieldsWired) return;
@@ -1315,10 +1319,30 @@ function setupDeliveryGeocoding() {
     const el = addrField(id);
     if (!el) return;
     el.addEventListener("input", invalidateQuoteOnEdit);
-    el.addEventListener("change", handleDeliveryAddressBlur);
-    el.addEventListener("blur", handleDeliveryAddressBlur);
+    el.addEventListener("change", invalidateQuoteOnEdit);
   });
   addrField("useMyLocationBtn")?.addEventListener("click", useMyLocation);
+  addrField("addressOkBtn")?.addEventListener("click", confirmTypedAddress);
+}
+
+/** The OK button: check every required field is filled in, then find the address and price the delivery. */
+async function confirmTypedAddress() {
+  checkoutError.style.display = "none";
+  const missing = missingAddressParts();
+  if (missing.length) {
+    showCheckoutError(`Please add your ${missing.join(", ")}, then tap OK.`);
+    return;
+  }
+  const btn = addrField("addressOkBtn");
+  btn.disabled = true;
+  if (deliveryFromLocation) resetDeliveryQuote(); // they chose to type it instead
+  setLocationStatus('<i class="fas fa-spinner fa-spin"></i> Finding your address and working out the delivery fee…');
+  try {
+    await handleDeliveryAddressBlur();
+    if (geocodedDeliveryLat === null && !deliveryFeeLoading) setLocationStatus("");
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function invalidateQuoteOnEdit() {
@@ -1326,8 +1350,9 @@ function invalidateQuoteOnEdit() {
   renderCheckoutSummary();
   // A shared location stays - the fields are just the driver's description of it.
   if (deliveryFromLocation) return;
-  if (geocodeQuery() !== lastQuotedAddressInput && geocodedDeliveryLat !== null) {
+  if (composeDeliveryAddress() !== lastQuotedAddressInput && geocodedDeliveryLat !== null) {
     resetDeliveryQuote();
+    setLocationStatus('<i class="fas fa-pen"></i> Address changed - tap OK to update the delivery fee.');
     renderCart();
   }
 }
@@ -1377,9 +1402,7 @@ function proceedToCheckout() {
       if (shouldUseSaved) {
         phoneInput.value = currentCustomer.phone_number || "";
         fillFromSavedAddress(currentCustomer.delivery_address || "");
-        // A saved address was never looked up in this visit - do it now
-        // if they're already choosing delivery.
-        if (orderTypeSelect.value === "delivery") handleDeliveryAddressBlur();
+        // Not looked up yet - the customer checks it and taps OK.
       }
     }
   }
@@ -1401,8 +1424,6 @@ orderTypeSelect.addEventListener("change", () => {
   resetDeliveryQuote();
   checkoutError.style.display = "none";
   renderCart();
-  // Switching to delivery with an address already typed/saved: quote it.
-  if (orderTypeSelect.value === "delivery") handleDeliveryAddressBlur();
 });
 
 /** "18:5" -> "6:05 PM" - friendlier than raw 24-hour input for a printed/displayed ticket. */
@@ -1470,7 +1491,7 @@ async function submitOrderCheckout(event) {
   // customer may tap "Continue" straight after typing, before the field
   // has lost focus).
   if (orderType === "delivery") {
-    if (!deliveryFromLocation && (geocodedDeliveryLat === null || geocodeQuery() !== lastQuotedAddressInput)) {
+    if (!deliveryFromLocation && (geocodedDeliveryLat === null || composeDeliveryAddress() !== lastQuotedAddressInput)) {
       await handleDeliveryAddressBlur();
     }
     if (deliveryFeeLoading) return;
