@@ -16,6 +16,8 @@
 --   test orders:    customer_phone starts with 000TEST
 -- Uses your real menu (visible menu_items) - add a few dishes first.
 -- Nothing is created for today, so the live kitchen board stays clean.
+-- Test reviews are created as "pending", so they show in admin > Reviews
+-- but never on the public Reviews page (don't approve them).
 -- Safe to re-run: it removes any earlier test data first.
 -- =====================================================================
 
@@ -179,7 +181,7 @@ BEGIN
         VALUES (cid, new_order, cname,
                 (ARRAY[5,5,5,4,4,4,3,2])[1 + floor(random() * 8)::int],
                 review_txt[1 + floor(random() * array_length(review_txt, 1))::int],
-                'approved', at_ts + INTERVAL '2 hours');
+                'pending', at_ts + INTERVAL '2 hours');  -- pending: visible in admin > Reviews only, never on the public site
         review_cnt := review_cnt + 1;
       END IF;
     END LOOP;
