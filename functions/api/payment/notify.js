@@ -1,6 +1,7 @@
 import { runQuery } from "../../_lib/db.js";
 import { logAudit } from "../../_lib/audit.js";
 import { queuePush } from "../../_lib/push.js";
+import { yocoWebhookSecrets, ensureYocoTables } from "../../_lib/yoco.js";
 
 function toBase64(buffer) {
   let binary = "";
@@ -14,7 +15,7 @@ function toBase64(buffer) {
  * "<webhook-id>.<webhook-timestamp>.<body>" keyed with the base64 part of
  * the whsec_... secret; webhook-signature holds "v1,<base64>" entries.
  */
-async function verifyStandardWebhook(rawBody, request, env) {
+async function verifyStandardWebhook(rawBody, request, secretValue) {
   const id = request.headers.get("webhook-id");
   const timestamp = request.headers.get("webhook-timestamp");
   const signatures = request.headers.get("webhook-signature");
@@ -22,7 +23,7 @@ async function verifyStandardWebhook(rawBody, request, env) {
   if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return false; // replay guard: 5 minutes
   let keyBytes;
   try {
-    const secret = env.YOCO_WEBHOOK_SECRET.replace(/^whsec_/, "");
+    const secret = secretValue.replace(/^whsec_/, "");
     keyBytes = Uint8Array.from(atob(secret), (c) => c.charCodeAt(0));
   } catch {
     return false;
@@ -33,9 +34,16 @@ async function verifyStandardWebhook(rawBody, request, env) {
   return signatures.split(" ").some((entry) => entry.split(",")[1] === expected);
 }
 
-async function verifySignature(rawBody, request, env) {
-  if (!env.YOCO_WEBHOOK_SECRET) return false;
-  const standard = await verifyStandardWebhook(rawBody, request, env);
+/** True when the request is signed with any of our webhook secrets (env var or saved in Settings > Payments). */
+async function verifySignature(rawBody, request, secrets) {
+  for (const secret of secrets) {
+    if (await verifySignatureWith(rawBody, request, secret)) return true;
+  }
+  return false;
+}
+
+async function verifySignatureWith(rawBody, request, secretValue) {
+  const standard = await verifyStandardWebhook(rawBody, request, secretValue);
   if (standard !== null) return standard;
   const supplied =
     request.headers.get("x-yoco-signature") ||
@@ -45,7 +53,7 @@ async function verifySignature(rawBody, request, env) {
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
     "raw",
-    encoder.encode(env.YOCO_WEBHOOK_SECRET),
+    encoder.encode(secretValue),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
@@ -115,15 +123,26 @@ export async function onRequestPost(context) {
       payload = Object.fromEntries(new URLSearchParams(rawBody));
     }
 
-    if (!env.YOCO_WEBHOOK_SECRET)
+    // Every rejection is written to the Audit log, so "paid on Yoco but not
+    // in the app" can be diagnosed from the admin (Audit tab).
+    const secrets = await yocoWebhookSecrets(env);
+    if (!secrets.length) {
+      await logAudit(env, {
+        actor_type: "payment_gateway",
+        action: "payment_notify_not_configured",
+        details: { hint: "Admin > Settings > Payments > Connect payment notifications" },
+      });
       return new Response("webhook signing is not configured", { status: 503 });
-    if (!(await verifySignature(rawBody, request, env))) {
+    }
+    if (!(await verifySignature(rawBody, request, secrets))) {
       await logAudit(env, {
         actor_type: "payment_gateway",
         action: "payment_notify_invalid_signature",
+        details: { event_type: payload.type || null, has_standard_headers: Boolean(request.headers.get("webhook-signature")) },
       });
       return new Response("invalid signature", { status: 401 });
     }
+    const eventType = payload.type || null;
 
     // Yoco Checkout API event: { type: "payment.succeeded", payload: { amount (cents),
     // status, metadata: { checkoutId, order_id } } } - flatten it to the shape below.
@@ -132,15 +151,28 @@ export async function onRequestPost(context) {
       const inner = payload.payload;
       payload = {
         order_id: inner.metadata?.order_id,
+        checkout_id: inner.metadata?.checkoutId || null,
         amount: Number(inner.amount) / 100,
         status: inner.status || (payload.type === "payment.succeeded" ? "succeeded" : payload.type),
         id: inner.metadata?.checkoutId || inner.id,
       };
     }
 
-    const orderId = extractOrderId(payload);
-    if (!Number.isInteger(orderId))
+    let orderId = extractOrderId(payload);
+    if (!Number.isInteger(orderId) && payload.checkout_id) {
+      // No order number in the event: find the order by the Yoco checkout it was paid through.
+      await ensureYocoTables(env).catch(() => {});
+      const byCheckout = await runQuery(env, "SELECT id FROM orders WHERE yoco_checkout_id = $1;", [payload.checkout_id]).catch(() => ({ rows: [] }));
+      if (byCheckout.rows[0]) orderId = byCheckout.rows[0].id;
+    }
+    if (!Number.isInteger(orderId)) {
+      await logAudit(env, {
+        actor_type: "payment_gateway",
+        action: "payment_notify_unmatched",
+        details: { event_type: eventType, checkout_id: payload.checkout_id || null },
+      });
       return new Response("missing order id", { status: 400 });
+    }
 
     const orderResult = await runQuery(
       env,
@@ -151,6 +183,16 @@ export async function onRequestPost(context) {
     if (!order) return new Response("unknown order", { status: 404 });
     if (order.payment_status === "paid")
       return new Response("already processed", { status: 200 });
+    if (!["awaiting", "failed"].includes(order.payment_status)) {
+      await logAudit(env, {
+        actor_type: "payment_gateway",
+        action: "payment_notify_ignored",
+        target_type: "order",
+        target_id: orderId,
+        details: { payment_status: order.payment_status, event_type: eventType },
+      });
+      return new Response("order not payable", { status: 200 });
+    }
 
     const paidAmount = extractAmount(payload);
     const expectedAmount = Number(order.total_amount);
@@ -187,6 +229,13 @@ export async function onRequestPost(context) {
         "UPDATE orders SET payment_status = 'failed', payment_ref = $1 WHERE id = $2 AND payment_status = 'awaiting';",
         [paymentRef, orderId],
       );
+      await logAudit(env, {
+        actor_type: "payment_gateway",
+        action: "payment_notify_payment_failed",
+        target_type: "order",
+        target_id: orderId,
+        details: { event_type: eventType, status: payload.status || null },
+      });
       return new Response("payment failed", { status: 200 });
     }
 
@@ -256,7 +305,7 @@ export async function onRequestPost(context) {
           payment_confirmed_at = NOW(),
           kitchen_release_at = NOW() + INTERVAL '2 minutes',
           stock_decremented = TRUE
-      WHERE id = $2 AND payment_status = 'awaiting'
+      WHERE id = $2 AND payment_status IN ('awaiting', 'failed') -- a retry on Yoco's page can succeed after a failed attempt
       RETURNING id, total_amount, order_type;
     `,
       [paymentRef, orderId],

@@ -34,6 +34,7 @@ function requiredPermission(pathname, role) {
   if (pathname.includes("/admin/review")) return "reviews";
   if (
     pathname.includes("/admin/config") ||
+    pathname.includes("/admin/yoco") ||
     pathname.includes("/admin/password") ||
     pathname.includes("/admin/staff")
   ) {

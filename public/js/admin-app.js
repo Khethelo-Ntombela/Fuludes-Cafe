@@ -446,6 +446,29 @@ async function openAwaitingModal() {
     $id("awaitingRefresh").addEventListener("click", async () => { await fetchAwaitingOrders(); renderAwaitingModal(); loadDashboardKpisOnly(); });
     $id("awaitingClearAll").addEventListener("click", async () => { if (await clearPendingOrders()) renderAwaitingModal(); });
     $id("awaitingBody").addEventListener("click", async (e) => {
+      const paidBtn = e.target.closest("[data-mark-paid]");
+      if (paidBtn) {
+        const id = parseInt(paidBtn.dataset.markPaid, 10);
+        if (!confirm(`Mark order #${id} as PAID?\n\nOnly do this after checking the payment in your Yoco dashboard (Transactions). The order will then go to the kitchen.`)) return;
+        paidBtn.disabled = true;
+        const res = await adminFetch("/api/admin/mark-paid", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) {
+          alert(data.error || "Couldn't mark the order as paid.");
+          paidBtn.disabled = false;
+          return;
+        }
+        toast(`Order #${id} marked as paid.`);
+        await fetchAwaitingOrders();
+        renderAwaitingModal();
+        loadDashboardKpisOnly();
+        if (typeof loadOrders === "function") loadOrders();
+        return;
+      }
       const btn = e.target.closest("[data-clear-pending]");
       if (btn && (await clearPendingOrders(parseInt(btn.dataset.clearPending, 10)))) renderAwaitingModal();
     });
@@ -480,7 +503,7 @@ function renderAwaitingModal() {
               <div class="sa-list-sub">${items || "—"}</div>
               <div class="sa-list-sub">${new Date(o.created_at).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" })} · waiting ${waitingFor(o.created_at)}${phone ? ` · <a href="tel:${phone}">${phone}</a>` : ""}</div>
             </div>
-            <span class="sa-list-end">${money(o.total_amount)}<br><button type="button" class="admin-mini-btn" data-clear-pending="${o.id}" title="Delete this unpaid order"><i class="fas fa-trash"></i></button></span>
+            <span class="sa-list-end">${money(o.total_amount)}<br><button type="button" class="admin-mini-btn" data-mark-paid="${o.id}" title="Customer paid on Yoco but it didn't come through"><i class="fas fa-check"></i> Mark paid</button> <button type="button" class="admin-mini-btn" data-clear-pending="${o.id}" title="Delete this unpaid order"><i class="fas fa-trash"></i></button></span>
           </div>`;
         })
         .join("")
@@ -648,8 +671,91 @@ document.querySelectorAll(".settings-tab-btn").forEach((btn) => {
     if (btn.dataset.settingsTab === "delivery") {
       loadDeliveryFeeSettings();
     }
+    if (btn.dataset.settingsTab === "payments") loadPaymentSettings();
   });
 });
+
+// ---------------------------------------------------------------------
+// Payments (Yoco): key mode, payment-notification webhook, recent events
+// ---------------------------------------------------------------------
+const PAYMENT_EVENT_TEXT = {
+  payment_notify_processed: "Payment confirmed",
+  payment_notify_payment_failed: "Payment failed on Yoco",
+  payment_notify_invalid_signature: "Rejected: signature didn't match (reconnect below)",
+  payment_notify_not_configured: "Rejected: payment notifications not connected",
+  payment_notify_unmatched: "Rejected: couldn't tell which order it was for",
+  payment_notify_amount_mismatch: "Rejected: amount didn't match the order",
+  payment_notify_stock_mismatch: "Rejected: not enough stock",
+  payment_notify_ignored: "Ignored: order no longer waiting for payment",
+  payment_notify_error: "Error while processing",
+  order_marked_paid: "Marked as paid by admin",
+};
+
+async function loadPaymentSettings() {
+  const box = $id("yocoStatus");
+  if (!box) return;
+  box.innerHTML = '<p class="menu-loading">Checking with Yoco&hellip;</p>';
+  try {
+    const res = await adminFetch("/api/admin/yoco");
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Couldn't load the payment setup.");
+    renderPaymentSettings(data);
+  } catch (err) {
+    box.innerHTML = `<p class="form-error">${escHtml(err.message)}</p>`;
+  }
+}
+
+function renderPaymentSettings(d) {
+  const ok = (good, text) => `<span style="color:${good ? "var(--sa-green-deep, #1a7f37)" : "var(--sa-red)"};font-weight:600">${good ? "✓" : "✗"} ${text}</span>`;
+  const modeText = {
+    test: ok(true, "Test key (sk_test) - use Yoco's test cards"),
+    live: ok(true, "Live key (sk_live) - real payments"),
+    missing: ok(false, "YOCO_SECRET_KEY isn't set in Cloudflare"),
+    unknown: ok(false, "YOCO_SECRET_KEY doesn't look like a Yoco secret key (should start with sk_)"),
+  }[d.key_mode];
+  const events = (d.recent_events || []).length
+    ? d.recent_events
+        .map((e) => {
+          const when = new Date(e.created_at).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" });
+          return `<div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">${escHtml(PAYMENT_EVENT_TEXT[e.action] || e.action)}${e.target_id ? ` · order #${e.target_id}` : ""}</div><div class="sa-list-sub">${when}</div></div></div>`;
+        })
+        .join("")
+    : '<p class="admin-hint">No payment notifications received yet. If customers have paid, Yoco isn\'t reaching the app - connect below.</p>';
+
+  $id("yocoStatus").innerHTML = `
+    <div class="sa-list">
+      <div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">Secret key</div><div class="sa-list-sub">${modeText}</div></div></div>
+      <div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">Payment notifications (webhook)</div>
+        <div class="sa-list-sub">${d.connected ? ok(true, "Connected - paid orders go to the kitchen automatically") : ok(false, "Not connected - paid orders will stay \"waiting for payment\"")}</div>
+        <div class="sa-list-sub">Address: ${escHtml(d.notify_url)}${d.yoco_error ? ` · Yoco: ${escHtml(d.yoco_error)}` : ""}</div></div></div>
+    </div>
+    <h4 style="margin:16px 0 6px">Latest payment notifications</h4>
+    <div class="sa-list">${events}</div>`;
+}
+
+async function connectYocoWebhook() {
+  const btn = $id("yocoConnectBtn");
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Connecting&hellip;';
+  try {
+    const res = await adminFetch("/api/admin/yoco", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "connect" }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || "Couldn't connect.");
+    renderPaymentSettings(data);
+    toast("Payment notifications connected.");
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-plug"></i> Connect payment notifications';
+  }
+}
+$id("yocoConnectBtn")?.addEventListener("click", connectYocoWebhook);
+$id("yocoRefreshBtn")?.addEventListener("click", loadPaymentSettings);
 
 // ---------------------------------------------------------------------
 // Delivery fee settings
