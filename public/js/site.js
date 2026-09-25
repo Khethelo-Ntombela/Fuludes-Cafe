@@ -1503,24 +1503,36 @@ function renderStatusTracker(order) {
 }
 
 /**
- * Customers can cancel their own order for a short window right after
- * placing it (while it's still "New" and within 2 minutes) - after that,
- * or once staff starts preparing it, this returns nothing and the button
- * simply isn't offered. The server re-checks both conditions itself
- * (functions/api/order.js onRequestPut), so this is just UI convenience.
+ * Cancel button for an order that's still "New":
+ *  - unpaid: can be cancelled any time, no countdown (nothing to refund)
+ *  - paid: only during the 2 minutes that start when the payment is
+ *    confirmed - cancelling then refunds automatically through Yoco.
+ * The server re-checks all of this (functions/api/order.js onRequestPut).
  */
 function renderCancelSection(order) {
   if (order.status !== "New") return "";
 
-  const createdAtMs = new Date(order.created_at).getTime();
-  const cancelExpiresAtMs = order.kitchen_release_at
-    ? new Date(order.kitchen_release_at).getTime()
-    : createdAtMs + CUSTOMER_CANCEL_WINDOW_MS;
-  const msLeft = cancelExpiresAtMs - Date.now();
-  if (msLeft <= 0) return "";
-
   const isPaid =
     order.payment_method === "online" && order.payment_status === "paid";
+  if (!isPaid) {
+    if (!["awaiting", "failed"].includes(order.payment_status)) return "";
+    return `
+    <div class="receipt-cancel-row">
+      <button type="button" class="receipt-cancel-btn" data-cancel-order="${order.id}" data-cancel-expires-at="" data-paid="false">
+        Cancel Order
+      </button>
+    </div>
+  `;
+  }
+
+  const paidAtMs = order.payment_confirmed_at ? new Date(order.payment_confirmed_at).getTime() : null;
+  const cancelExpiresAtMs = order.kitchen_release_at
+    ? new Date(order.kitchen_release_at).getTime()
+    : paidAtMs !== null
+      ? paidAtMs + CUSTOMER_CANCEL_WINDOW_MS
+      : 0;
+  const msLeft = cancelExpiresAtMs - Date.now();
+  if (msLeft <= 0) return "";
 
   return `
     <div class="receipt-cancel-row">

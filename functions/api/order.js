@@ -39,10 +39,11 @@
  *
  * PUT /api/order  { id }  (Authorization: Bearer <customer session token>)
  * Customer self-service cancel - only for an order that belongs to the
- * signed-in customer, only while it's still "New" (nobody's started
- * preparing it yet), and only during the short hold before the order is
- * released to the kitchen. Paid orders use kitchen_release_at, which is
- * set by the payment webhook to two minutes after payment confirmation.
+ * signed-in customer and only while it's still "New". Unpaid orders can be
+ * cancelled any time (there's nothing to refund). Paid orders only within
+ * the 2-minute window that starts when the payment is CONFIRMED
+ * (kitchen_release_at = payment_confirmed_at + 2 min, set by the payment
+ * webhook) - cancelling then refunds automatically through Yoco.
  * -----------------------------------------------------------------------
  */
 import { runQuery, jsonResponse } from "../_lib/db.js";
@@ -129,7 +130,7 @@ export async function onRequestPut(context) {
   try {
     const orderResult = await runQuery(
       env,
-      "SELECT id, status, created_at, customer_id, payment_status, kitchen_release_at, payment_ref, total_amount FROM orders WHERE id = $1;",
+      "SELECT id, status, created_at, customer_id, payment_status, payment_confirmed_at, kitchen_release_at, payment_ref, total_amount FROM orders WHERE id = $1;",
       [orderId],
     );
     const order = orderResult.rows[0];
@@ -147,10 +148,15 @@ export async function onRequestPut(context) {
       );
     }
 
+    // The refund window only exists once the order is paid, and runs from
+    // the payment confirmation - not from when the order was created.
+    const paidAt = order.payment_confirmed_at ? new Date(order.payment_confirmed_at).getTime() : null;
     const releaseAtMs = order.kitchen_release_at
       ? new Date(order.kitchen_release_at).getTime()
-      : new Date(order.created_at).getTime() + CUSTOMER_CANCEL_WINDOW_MS;
-    if (Date.now() > releaseAtMs) {
+      : paidAt !== null
+        ? paidAt + CUSTOMER_CANCEL_WINDOW_MS
+        : Infinity;
+    if (order.payment_status === "paid" && Date.now() > releaseAtMs) {
       return jsonResponse(
         {
           error:
