@@ -247,6 +247,64 @@ export async function onRequestPut(context) {
   }
 }
 
+/** Everything that makes two orders "the same": type, address/table, timing, note and every line with its options. */
+function orderSignature({ orderType, deliveryAddress, tableNumber, pickupTime, specialInstructions, totalAmount, lines }) {
+  const norm = (v) => String(v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  const items = lines
+    .map((li) =>
+      [
+        li.menu_item_id,
+        li.quantity,
+        norm(li.spice_level),
+        (Array.isArray(li.extras) ? li.extras : JSON.parse(li.extras || "[]")).map((e) => norm(e.name)).sort().join("+"),
+      ].join("|"),
+    )
+    .sort();
+  return JSON.stringify([
+    orderType,
+    orderType === "delivery" ? norm(deliveryAddress) : "",
+    orderType === "dine_in" ? norm(tableNumber) : "",
+    norm(pickupTime),
+    norm(specialInstructions),
+    Number(totalAmount).toFixed(2),
+    items,
+  ]);
+}
+
+/** The customer's newest unpaid, uncancelled order from the last 24h that matches this one exactly. */
+async function findUnpaidDuplicate(env, customerId, draft) {
+  const unpaid = await runQuery(
+    env,
+    `SELECT id, order_type, delivery_address, table_number, pickup_time, special_instructions, total_amount, created_at
+       FROM orders
+      WHERE customer_id = $1 AND payment_status IN ('awaiting', 'failed') AND status <> 'Cancelled'
+        AND created_at > NOW() - INTERVAL '24 hours'
+      ORDER BY created_at DESC LIMIT 10;`,
+    [customerId],
+  );
+  if (!unpaid.rows.length) return null;
+  const items = await runQuery(
+    env,
+    "SELECT order_id, menu_item_id, quantity, spice_level, extras FROM order_items WHERE order_id = ANY($1::int[]);",
+    [unpaid.rows.map((o) => o.id)],
+  );
+  const target = orderSignature({ ...draft, lines: draft.lineItems });
+  return (
+    unpaid.rows.find(
+      (o) =>
+        orderSignature({
+          orderType: o.order_type,
+          deliveryAddress: o.delivery_address,
+          tableNumber: o.table_number,
+          pickupTime: o.pickup_time,
+          specialInstructions: o.special_instructions,
+          totalAmount: o.total_amount,
+          lines: items.rows.filter((i) => i.order_id === o.id),
+        }) === target,
+    ) || null
+  );
+}
+
 export async function onRequestPost(context) {
   const { request, env } = context;
   const { customer, error } = await requireCustomer(request, env);
@@ -314,7 +372,7 @@ export async function onRequestPost(context) {
       400,
     );
   }
-  if (!env.YOCO_PAYMENT_URL && !env.YOCO_CHECKOUT_URL) {
+  if (!env.YOCO_SECRET_KEY && !env.YOCO_PAYMENT_URL && !env.YOCO_CHECKOUT_URL) {
     // Fail before touching the database - never create an order we can't
     // actually collect payment for. Online payment is the only path now,
     // so a misconfigured server means nobody can check out at all.
@@ -540,6 +598,32 @@ export async function onRequestPost(context) {
 
     const totalAmount = lineItems.reduce((sum, li) => sum + li.subtotal, 0) + deliveryFee;
 
+    // ---- Same order already waiting for payment? Offer that one instead of a new ticket ----
+    if (!orderData.force_new) {
+      const duplicate = await findUnpaidDuplicate(env, customer.id, {
+        orderType,
+        deliveryAddress,
+        tableNumber,
+        pickupTime,
+        specialInstructions,
+        totalAmount,
+        lineItems,
+      });
+      if (duplicate) {
+        return jsonResponse(
+          {
+            error: `You already have an unpaid order #${duplicate.id} with exactly these items.`,
+            duplicate_order: {
+              id: duplicate.id,
+              total_amount: parseFloat(duplicate.total_amount),
+              created_at: duplicate.created_at,
+            },
+          },
+          409,
+        );
+      }
+    }
+
     // ---- Create the order ----
     await runQuery(
       env,
@@ -625,7 +709,9 @@ export async function onRequestPost(context) {
 
     // ---- Hand back the Yoco checkout redirect payload ----
     const origin = new URL(request.url).origin;
-    const payment = await createYocoCheckout(env, {
+    let payment;
+    try {
+      payment = await createYocoCheckout(env, {
       orderId: newOrderId,
       amount: totalAmount,
       itemName: `Fulude's Cafe Order #${newOrderId}`,
@@ -635,7 +721,19 @@ export async function onRequestPost(context) {
       returnUrl: `${origin}/home.html?payment=success&order_id=${newOrderId}`,
       cancelUrl: `${origin}/home.html?payment=cancelled&order_id=${newOrderId}`,
       notifyUrl: `${origin}/api/payment/notify`,
-    });
+      });
+    } catch (yocoErr) {
+      // Yoco refused the payment (e.g. an amount below its minimum). Don't leave
+      // an unpayable ticket behind - and tell the customer the real reason.
+      await runQuery(env, "DELETE FROM orders WHERE id = $1 AND payment_status = 'awaiting';", [newOrderId]).catch(() => {});
+      return jsonResponse(
+        {
+          error: `The payment couldn't be started: ${yocoErr.message}`,
+          payment_error: true,
+        },
+        502,
+      );
+    }
 
     return jsonResponse({
       success: true,

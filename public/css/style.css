@@ -3068,3 +3068,37 @@ textarea:focus-visible {
 .order-card.no-image .order-card-body {
   padding-top: 20px;
 }
+
+/* Checkout: "you already have this unpaid order" choice */
+.duplicate-order-panel {
+  display: none;
+  border: 1.5px solid var(--gold-dark);
+  background: var(--cream);
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  font-size: 0.9rem;
+}
+.duplicate-order-panel p {
+  margin: 6px 0 12px;
+  line-height: 1.5;
+}
+.duplicate-order-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.duplicate-order-actions .btn {
+  flex: 1 1 160px;
+  padding: 12px 16px;
+  text-align: center;
+}
+.btn.dup-edit-btn {
+  background: var(--white);
+  color: var(--black);
+  border: 1.5px solid var(--black);
+}
+.btn.dup-edit-btn:hover {
+  background: var(--black);
+  color: var(--white);
+}

@@ -1360,6 +1360,8 @@ function invalidateQuoteOnEdit() {
 /** Opens the checkout modal, prefilling the name field from the account (still editable, e.g. ordering for someone else). */
 function proceedToCheckout() {
   checkoutError.style.display = "none";
+  const dupPanel = document.getElementById("duplicateOrderPanel");
+  if (dupPanel) dupPanel.style.display = "none";
   checkoutForm.reset();
   const preorder = getActiveReservation();
   orderTypeSelect.disabled = Boolean(preorder);
@@ -1553,6 +1555,13 @@ async function submitOrderCheckout(event) {
       submitBtn.textContent = "Continue to Payment";
       return;
     }
+    if (res.status === 409 && result.duplicate_order) {
+      // Same order already waiting for payment - pay that one or edit, no second ticket.
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Continue to Payment";
+      showDuplicateOrderChoice(result.duplicate_order);
+      return;
+    }
     if (!res.ok || !result.success) {
       throw new Error(result.error || "Something went wrong placing your order.");
     }
@@ -1569,6 +1578,79 @@ async function submitOrderCheckout(event) {
     submitBtn.disabled = false;
     submitBtn.textContent = "Continue to Payment";
   }
+}
+
+/**
+ * Checkout found an identical unpaid order: let the customer pay that
+ * existing ticket, or remove it and go back to edit their cart.
+ */
+function showDuplicateOrderChoice(existing) {
+  checkoutError.style.display = "none";
+  let panel = document.getElementById("duplicateOrderPanel");
+  if (!panel) {
+    panel = document.createElement("div");
+    panel.id = "duplicateOrderPanel";
+    panel.className = "duplicate-order-panel";
+    checkoutForm.parentNode.insertBefore(panel, checkoutForm);
+  }
+  const placed = new Date(existing.created_at).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" });
+  panel.innerHTML = `
+    <strong><i class="fas fa-receipt"></i> You already have this order</strong>
+    <p>Order #${existing.id} (placed at ${placed}) has exactly the same items and details and hasn't been paid yet - ${money(existing.total_amount)}.</p>
+    <div class="duplicate-order-actions">
+      <button type="button" class="btn btn-primary" id="dupPayBtn">Pay order #${existing.id}</button>
+      <button type="button" class="btn dup-edit-btn" id="dupEditBtn">Edit my order</button>
+    </div>
+    <p class="form-error" id="dupError" style="display:none"></p>`;
+  panel.style.display = "block";
+  panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  const fail = (message) => {
+    const el = document.getElementById("dupError");
+    el.textContent = message;
+    el.style.display = "block";
+  };
+
+  document.getElementById("dupPayBtn").addEventListener("click", async (e) => {
+    e.currentTarget.disabled = true;
+    e.currentTarget.textContent = "Redirecting to payment…";
+    try {
+      const res = await fetch("/api/order/retry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${customerToken}` },
+        body: JSON.stringify({ id: existing.id }),
+      });
+      const data = await safeJson(res);
+      if (!res.ok || !(data.payment?.redirect_url || data.payment?.action_url)) throw new Error(data.error || "Couldn't start the payment.");
+      cart = [];
+      saveCart();
+      localStorage.removeItem(ACTIVE_RES_KEY);
+      redirectToYoco(data.payment);
+    } catch (err) {
+      fail(err.message);
+      e.currentTarget.disabled = false;
+      e.currentTarget.textContent = `Pay order #${existing.id}`;
+    }
+  });
+
+  document.getElementById("dupEditBtn").addEventListener("click", async (e) => {
+    e.currentTarget.disabled = true;
+    try {
+      const res = await fetch("/api/order/discard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${customerToken}` },
+        body: JSON.stringify({ id: existing.id }),
+      });
+      const data = await safeJson(res);
+      if (!res.ok || !data.success) throw new Error(data.error || "Couldn't remove the old order.");
+      panel.style.display = "none";
+      checkoutModal.classList.remove("active");
+      if (window.matchMedia("(max-width: 900px)").matches) openCartPage();
+      showCartToast(`Order #${existing.id} removed - edit your cart, then check out again.`, "info");
+    } catch (err) {
+      fail(err.message);
+      e.currentTarget.disabled = false;
+    }
+  });
 }
 
 /** Hands the browser to the Yoco payment page (see goToYocoPayment in site.js). */
