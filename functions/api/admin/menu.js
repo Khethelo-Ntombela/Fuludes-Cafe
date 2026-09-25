@@ -194,16 +194,35 @@ async function syncImages(env, menuItemId, imageUrls) {
   return urls;
 }
 
+const DRINK_TYPES = ["beverage", "cocktail", "alcohol", "other"];
+let drinkTypeColumnReady = false;
+
+/** menu_items.drink_type (migration 008) - added here too so the admin works before the migration is run. */
+async function ensureDrinkTypeColumn(env) {
+  if (drinkTypeColumnReady) return;
+  await runQuery(env, "ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS drink_type TEXT;");
+  drinkTypeColumnReady = true;
+}
+
+/** Stores the drink sub-type; anything unrecognised becomes NULL (food). */
+async function syncDrinkType(env, menuItemId, raw) {
+  await ensureDrinkTypeColumn(env);
+  const drinkType = DRINK_TYPES.includes(raw) ? raw : null;
+  await runQuery(env, "UPDATE menu_items SET drink_type = $1 WHERE id = $2;", [drinkType, menuItemId]);
+  return drinkType;
+}
+
 export async function onRequestGet(context) {
   const authError = await requireAdmin(context.request, context.env);
   if (authError) return authError;
+  await ensureDrinkTypeColumn(context.env);
 
   const [itemsResult, linksResult, imagesResult, ingredientsResult, sideLinksResult] = await Promise.all([
     runQuery(
       context.env,
       `
       SELECT m.id, m.category_id, c.name AS category_name, m.name, m.description, m.price, m.special_price,
-             m.special_starts_at, m.special_ends_at, m.image_url, m.is_available, m.stock_quantity, m.is_visible, m.accepts_spice, m.accepts_addons, m.sort_order
+             m.special_starts_at, m.special_ends_at, m.image_url, m.is_available, m.stock_quantity, m.is_visible, m.accepts_spice, m.accepts_addons, m.sort_order, m.drink_type
       FROM menu_items m
       JOIN categories c ON c.id = m.category_id
       ORDER BY c.sort_order ASC, m.sort_order ASC, m.name ASC;
@@ -386,6 +405,7 @@ export async function onRequestPost(context) {
     );
     const images = await syncImages(context.env, newItemId, incomingImages);
     await syncSideLinks(context.env, newItemId, body.side_ids);
+    await syncDrinkType(context.env, newItemId, body.drink_type);
 
     await auditMenu(
       context,
@@ -523,6 +543,7 @@ export async function onRequestPut(context) {
     const ingredientNames = await syncIngredients(context.env, id, body.ingredients);
     const images = await syncImages(context.env, id, incomingImages);
     await syncSideLinks(context.env, id, body.side_ids);
+    await syncDrinkType(context.env, id, body.drink_type);
 
     // ---- Audit: menu edits and special edits are logged as separate events ----
     const beforeNorm = {

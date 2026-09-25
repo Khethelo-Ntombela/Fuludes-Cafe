@@ -841,8 +841,14 @@ let adminMenuQuery = "";
 let orderGenerating = false;
 
 // Delivery quote for the order being built (filled by the address lookup)
-const poDelivery = { fee: 0, distanceKm: 0, lat: null, lng: null, display: "", lastInput: "", tooFar: false, loading: false, error: "" };
+const poDelivery = { fee: 0, distanceKm: 0, lat: null, lng: null, display: "", lastInput: "", tooFar: false, loading: false, error: "", manualFee: null };
+// poReset keeps a manually typed fee; poClearManualFee drops it (new address, cancel, ...).
 const poReset = () => Object.assign(poDelivery, { fee: 0, distanceKm: 0, lat: null, lng: null, display: "", lastInput: "", tooFar: false, loading: false, error: "" });
+function poClearManualFee() {
+  poDelivery.manualFee = null;
+  const input = $id("poManualFee");
+  if (input) input.value = "";
+}
 
 /** Same public menu the customers see (all dishes, spice levels, extras, sides) - photos are simply not drawn. */
 async function loadAdminMenu() {
@@ -1050,11 +1056,14 @@ function renderAdminCart() {
   if (!cartContainer) return;
 
   if (cartCount) cartCount.textContent = adminCart.reduce((s, c) => s + c.qty, 0);
+  if ($id("poJumpCount")) $id("poJumpCount").textContent = adminCart.reduce((s, c) => s + c.qty, 0);
 
   if (adminCart.length === 0) {
     if (cartEmpty) cartEmpty.style.display = "";
     cartContainer.innerHTML = "";
     if (totalEl) totalEl.innerHTML = "";
+    if ($id("poJumpTotal")) $id("poJumpTotal").textContent = "R0.00";
+    if ($id("poManualFeeField")) $id("poManualFeeField").style.display = poOrderType() === "delivery" && (poDelivery.tooFar || poDelivery.error || poDelivery.manualFee !== null) ? "" : "none";
     return;
   }
   if (cartEmpty) cartEmpty.style.display = "none";
@@ -1101,14 +1110,21 @@ function renderAdminCart() {
   const isDelivery = poOrderType() === "delivery";
   let feeRow = "";
   let fee = 0;
+  // The manual fee box only matters when the band price can't be used.
+  const manualField = $id("poManualFeeField");
+  if (manualField) manualField.style.display = isDelivery && (poDelivery.tooFar || poDelivery.error || poDelivery.manualFee !== null) ? "" : "none";
   if (isDelivery) {
     if (poDelivery.loading) feeRow = `<div class="po-total-row"><span>Delivery fee</span><span>Calculating&hellip;</span></div>`;
-    else if (poDelivery.tooFar) feeRow = `<div class="po-total-row po-warn"><span>Delivery</span><span>Too far (${poDelivery.distanceKm} km)</span></div>`;
+    else if (poDelivery.manualFee !== null) {
+      fee = poDelivery.manualFee;
+      feeRow = `<div class="po-total-row"><span>Delivery fee (set manually)</span><span>R${fee.toFixed(2)}</span></div>`;
+    } else if (poDelivery.tooFar) feeRow = `<div class="po-total-row po-warn"><span>Delivery</span><span>A bit far (${poDelivery.distanceKm} km) - set fee below</span></div>`;
     else if (poDelivery.lat !== null) {
       fee = poDelivery.fee;
       feeRow = `<div class="po-total-row"><span>Delivery fee (${poDelivery.distanceKm} km)</span><span>R${fee.toFixed(2)}</span></div>`;
     } else feeRow = `<div class="po-total-row"><span>Delivery fee</span><span>Enter address</span></div>`;
   }
+  if ($id("poJumpTotal")) $id("poJumpTotal").textContent = `R${(items + fee).toFixed(2)}`;
   if (totalEl) {
     totalEl.innerHTML = `
       <div class="po-total-row"><span>Items</span><span>R${items.toFixed(2)}</span></div>
@@ -1130,25 +1146,30 @@ async function poLookupAddress() {
   try {
     const geoRes = await fetch("/api/delivery/geocode", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address }),
+      signal: AbortSignal.timeout(25000),
     });
     const geo = await geoRes.json();
     if (!geoRes.ok || !geo.lat) throw new Error(geo.error || "Couldn't find that address.");
     const feeRes = await fetch("/api/delivery/fee", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lat: geo.lat, lng: geo.lng }),
+      signal: AbortSignal.timeout(15000),
     });
     const fee = await feeRes.json();
     if (!feeRes.ok) throw new Error(fee.error || "Couldn't work out the delivery fee.");
     Object.assign(poDelivery, { lat: geo.lat, lng: geo.lng, display: geo.display_name, lastInput: address, distanceKm: fee.distance_km });
     if (fee.too_far) {
       poDelivery.tooFar = true;
-      $id("poDeliveryStatus").textContent = `Found: ${geo.display_name}. ${fee.message || "Too far to deliver."}`;
+      $id("poDeliveryStatus").textContent = `Found: ${geo.display_name}. It's a bit far (${fee.distance_km} km) - set the delivery fee manually below to continue.`;
     } else {
-      poDelivery.fee = fee.fee;
+      poDelivery.fee = Number(fee.fee) || 0;
       $id("poDeliveryStatus").textContent = `Found: ${geo.display_name}`;
     }
   } catch (err) {
     poReset();
-    $id("poDeliveryStatus").textContent = err.message + " Add the suburb or village and try again.";
+    poDelivery.error = err.message || "lookup failed";
+    $id("poDeliveryStatus").textContent =
+      (err.name === "TimeoutError" ? "The address lookup timed out." : err.message) +
+      " Add the suburb or village and try again, or set the delivery fee manually.";
   } finally {
     poDelivery.loading = false;
     renderAdminCart();
@@ -1170,7 +1191,10 @@ function updateOrderTypeFields() {
   const type = poOrderType();
   $id("poDeliveryFields").style.display = type === "delivery" ? "" : "none";
   $id("poTableField").style.display = type === "dine_in" ? "" : "none";
-  if (type !== "delivery") poReset();
+  if (type !== "delivery") {
+    poReset();
+    poClearManualFee();
+  }
   renderAdminCart();
   if (type === "delivery") poLookupAddress();
 }
@@ -1198,9 +1222,12 @@ async function generatePaymentLink() {
   }
   if (type === "delivery") {
     if (!address) { toast("Enter the delivery address."); return; }
-    if (poDelivery.lat === null || address !== poDelivery.lastInput) await poLookupAddress();
-    if (poDelivery.loading || poDelivery.lat === null) { toast("The delivery address couldn't be located yet."); return; }
-    if (poDelivery.tooFar) { toast("That address is too far to deliver to."); return; }
+    if (poDelivery.manualFee === null) {
+      if (poDelivery.lat === null || address !== poDelivery.lastInput) await poLookupAddress();
+      if (poDelivery.loading) { toast("Still working out the delivery fee - try again in a moment."); return; }
+      if (poDelivery.lat === null) { toast("The address couldn't be located - set the delivery fee manually."); return; }
+      if (poDelivery.tooFar) { toast("That address is a bit far - set the delivery fee manually first."); return; }
+    }
   }
 
   orderGenerating = true;
@@ -1222,6 +1249,7 @@ async function generatePaymentLink() {
         delivery_address: type === "delivery" ? address : undefined,
         delivery_lat: type === "delivery" ? poDelivery.lat : undefined,
         delivery_lng: type === "delivery" ? poDelivery.lng : undefined,
+        delivery_fee_override: type === "delivery" && poDelivery.manualFee !== null ? poDelivery.manualFee : undefined,
         table_number: type === "dine_in" ? table : undefined,
         pickup_time: $id("orderPickupTime")?.value || undefined,
         special_instructions: cleanText($id("orderInstructions")?.value, 500),
@@ -1274,6 +1302,7 @@ async function generatePaymentLink() {
     toast("Payment link generated!");
     adminCart = [];
     poReset();
+    poClearManualFee();
     renderAdminCart();
     renderAdminMenu();
   } catch (err) {
@@ -1285,6 +1314,27 @@ async function generatePaymentLink() {
       btn.innerHTML = '<i class="fas fa-bolt"></i> Generate Payment Link';
     }
   }
+}
+
+/** Abandons the order being built: empties the cart and every field, hides any generated link. */
+function cancelPlaceOrder() {
+  const touched = adminCart.length || ["orderCustomerName", "orderCustomerPhone", "orderDeliveryAddress"].some((id) => $id(id)?.value.trim());
+  if (touched && !confirm("Cancel this order? Everything you added will be cleared.")) return;
+  adminCart = [];
+  poReset();
+  poClearManualFee();
+  ["orderCustomerName", "orderCustomerPhone", "orderCustomerEmail", "orderDeliveryAddress", "orderTableNumber", "orderInstructions"].forEach((id) => {
+    if ($id(id)) $id(id).value = "";
+  });
+  $id("orderType").value = "collection";
+  $id("orderPickupTime").selectedIndex = 0;
+  $id("poDeliveryStatus").textContent = "";
+  const linkEl = $id("paymentLinkResult");
+  linkEl.style.display = "none";
+  linkEl.innerHTML = "";
+  updateOrderTypeFields();
+  renderAdminMenu();
+  toast("Order cleared.");
 }
 
 async function refreshPlaceOrderMenu() {
@@ -1336,6 +1386,11 @@ function initPlaceOrderTab() {
               <input type="text" id="orderDeliveryAddress" placeholder="Street / stand, suburb or village" autocomplete="off">
               <small id="poDeliveryStatus" class="admin-hint"></small>
             </div>
+            <div class="form-group" id="poManualFeeField" style="display:none">
+              <label for="poManualFee">Delivery fee (R) - set manually</label>
+              <input type="number" id="poManualFee" min="0" step="0.01" placeholder="e.g. 80">
+              <small class="admin-hint">Added to the total before the payment link is sent.</small>
+            </div>
           </div>
           <div id="poTableField" class="form-group" style="display:none">
             <label for="orderTableNumber">Table number</label>
@@ -1372,18 +1427,36 @@ function initPlaceOrderTab() {
           <button type="button" id="generatePayLinkBtn" class="btn btn-primary btn-block">
             <i class="fas fa-bolt"></i> Generate Payment Link
           </button>
+          <button type="button" id="cancelPlaceOrderBtn" class="btn btn-secondary btn-block po-cancel-btn">
+            <i class="fas fa-xmark"></i> Cancel
+          </button>
           <div id="paymentLinkResult" style="display: none; margin-top: 16px"></div>
         </div>
       </div>
-    </div>`;
+    </div>
+    <button type="button" class="po-jump-btn" id="poJumpBtn" aria-label="Go to the order">
+      <i class="fas fa-receipt"></i> Order (<span id="poJumpCount">0</span>) &middot; <span id="poJumpTotal">R0.00</span>
+    </button>`;
 
   container.dataset.loaded = "true";
   $id("generatePayLinkBtn").addEventListener("click", generatePaymentLink);
+  $id("cancelPlaceOrderBtn").addEventListener("click", cancelPlaceOrder);
+  $id("poJumpBtn").addEventListener("click", () =>
+    document.querySelector(".place-order-sidebar").scrollIntoView({ behavior: "smooth", block: "start" }),
+  );
+  $id("poManualFee").addEventListener("input", (e) => {
+    const value = e.target.value.trim();
+    const n = Number(value);
+    poDelivery.manualFee = value !== "" && Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
+    renderAdminCart();
+  });
   $id("orderType").addEventListener("change", updateOrderTypeFields);
   $id("orderDeliveryAddress").addEventListener("blur", poLookupAddress);
   $id("orderDeliveryAddress").addEventListener("input", () => {
-    if ($id("orderDeliveryAddress").value.trim() !== poDelivery.lastInput && poDelivery.lat !== null) {
-      poReset();
+    if ($id("orderDeliveryAddress").value.trim() !== poDelivery.lastInput) {
+      // A different address needs a fresh price.
+      if (poDelivery.lat !== null || poDelivery.error || poDelivery.tooFar) poReset();
+      poClearManualFee();
       renderAdminCart();
     }
   });

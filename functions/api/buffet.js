@@ -9,6 +9,7 @@
 import { runQuery, jsonResponse } from "../_lib/db.js";
 import { sanitizeText } from "../_lib/security.js";
 import { checkRateLimit } from "../_lib/rateLimit.js";
+import { queuePush } from "../_lib/push.js";
 
 export async function onRequestGet(context) {
   const { env } = context;
@@ -194,6 +195,13 @@ export async function onRequestPost(context) {
       "INSERT INTO buffet_bookings (event_id, customer_id, name, email, phone, seats, status) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id;",
       [event_id, customer_id, name, email.toLowerCase(), phone, seats, "pending"],
     );
+
+    queuePush(context, { roles: ["admin"] }, {
+      title: "New buffet booking",
+      body: `${name} · ${seats} seat${seats > 1 ? "s" : ""} - waiting for your confirmation`,
+      url: "/admin.html#customers", // buffet events live on the Customers tab
+      tag: `buffet-${ins.rows[0].id}`,
+    });
 
     return jsonResponse({
       success: true,

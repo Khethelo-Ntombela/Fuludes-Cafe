@@ -22,6 +22,46 @@
 
 const KDS_MAX_ITEM_LINES = 3;
 
+/* ---------------- Daily reset (South Africa time) ----------------
+ * Today's stats (kitchen strip, today's reservations) only count things
+ * from the current cafe day, so they clear by themselves at 12:00 am. */
+const KDS_TZ = "Africa/Johannesburg";
+
+/** "YYYY-MM-DD" of a moment in cafe time (defaults to now). */
+function kdsDayKey(date = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: KDS_TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+}
+
+function kdsIsToday(order) {
+  return kdsDayKey(new Date(order.created_at)) === kdsDayKey();
+}
+
+/** Milliseconds until the next 12:00 am in cafe time. */
+function kdsMsUntilMidnight() {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: KDS_TZ, hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  }).formatToParts(new Date());
+  const get = (t) => Number(parts.find((p) => p.type === t)?.value || 0);
+  const elapsed = (get("hour") * 3600 + get("minute") * 60 + get("second")) * 1000;
+  return 24 * 3600 * 1000 - elapsed;
+}
+
+/** "Resets at 12:00 am (in 5h 12m)" */
+function kdsResetLabel() {
+  const mins = Math.ceil(kdsMsUntilMidnight() / 60000);
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `Today's stats reset at 12:00 am (in ${h ? `${h}h ` : ""}${m}m)`;
+}
+
+/** Runs fn right after every cafe midnight while the page stays open. */
+function kdsOnMidnight(fn) {
+  setTimeout(() => {
+    fn();
+    kdsOnMidnight(fn);
+  }, kdsMsUntilMidnight() + 1000);
+}
+
 function kdsFmt(n) {
   return `R${Number(n).toFixed(2)}`;
 }

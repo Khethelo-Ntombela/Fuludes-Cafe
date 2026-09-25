@@ -2665,12 +2665,61 @@
   border-radius: 8px;
   font-size: 0.8rem;
 }
+/* Desktop: the order sidebar scrolls on its own, so the menu beside it
+   never has to be scrolled away to reach the cart or the pay-link button. */
+@media (min-width: 901px) {
+  .place-order-sidebar {
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 4px;
+    scrollbar-width: thin;
+  }
+}
+.admin-cart-list {
+  max-height: 38vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.po-cancel-btn {
+  margin-top: 8px;
+  background: transparent;
+  color: var(--sa-red);
+  border: 1.5px solid var(--sa-red);
+}
+.po-cancel-btn:hover {
+  background: var(--sa-red);
+  color: #fff;
+}
+/* Phones: floating button that jumps straight to the order panel */
+.po-jump-btn {
+  display: none;
+}
 @media (max-width: 900px) {
   .place-order-layout {
     grid-template-columns: 1fr;
   }
   .place-order-sidebar {
     position: static;
+  }
+  .po-jump-btn {
+    display: flex;
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 120;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 18px;
+    border: none;
+    border-radius: 999px;
+    background: var(--sa-gold, #c9a96e);
+    color: #111;
+    font-weight: 700;
+    font-family: inherit;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+    cursor: pointer;
   }
 }
 
@@ -3021,3 +3070,26 @@ button.kpi-card {
 }
 .kpi-clear-btn:hover { background: rgba(0, 0, 0, 0.06); }
 .kpi-clears { display:block; margin-top:6px; font-size:0.7rem; font-style:italic; color: var(--sa-faint, #667085); }
+
+/* "Today's stats reset at 12:00 am (in …)" under the kitchen strip / reservation cards */
+.kds-reset-note {
+  margin: 4px 0 12px;
+  font-size: 0.78rem;
+  color: var(--sa-faint, #888);
+}
+
+/* Phone-notification toggle (admin topbar / kitchen header) */
+.push-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.push-toggle-btn.is-on {
+  color: var(--sa-gold);
+}
+@media (max-width: 600px) {
+  .push-toggle-btn span {
+    display: none;
+  }
+}

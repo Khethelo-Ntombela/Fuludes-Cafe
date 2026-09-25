@@ -77,10 +77,20 @@ function showBoard() {
   document.getElementById("staffLoginScreen").style.display = "none";
   document.getElementById("staffBoard").style.display = "block";
   loadOrders();
-  pollIntervalId = setInterval(loadOrders, 15000);
+  clearInterval(pollIntervalId);
+  pollIntervalId = setInterval(loadOrders, 5000); // live board: new tickets appear within 5s
   initStaffAudio();
   setupStaffAlertToggle();
+  if (!staffPushBound) {
+    staffPushBound = true;
+    FuludePWA.bindPushToggle(document.getElementById("staffPushToggleBtn"), "staff", () => staffToken, {
+      onLabel: "Alerts on",
+      offLabel: "Phone alerts",
+    });
+  }
 }
+let staffPushBound = false;
+FuludePWA.setupInstallButton("Install kitchen app");
 
 document
   .getElementById("staffLoginForm")
@@ -200,7 +210,11 @@ async function loadOrders() {
 /** Sticky control bar above the board: instant operational visibility. */
 const KITCHEN_CAPACITY = 12; // active tickets considered a "full" kitchen
 
-function renderControlBar(orders) {
+function renderControlBar(allOrders) {
+  // Stats cover today's orders only, so they start from zero at midnight.
+  const orders = allOrders.filter(kdsIsToday);
+  const note = document.getElementById("sResetNote");
+  if (note) note.textContent = kdsResetLabel();
   const active = orders.filter((o) =>
     ["New", "Preparing", "Ready", "Collection", "Delivery", "Out for Delivery"].includes(o.status),
   );

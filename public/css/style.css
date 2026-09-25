@@ -309,6 +309,54 @@ body {
   margin-bottom: 0;
 }
 
+/* Buffet event cards: everything centred, every action button the same size */
+.buffet-card {
+  text-align: center;
+}
+.buffet-card-photos {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  margin-bottom: 10px;
+  justify-content: center;
+}
+.buffet-actions {
+  display: flex;
+  justify-content: center;
+  margin: 12px 0 16px;
+}
+.btn-buffet {
+  width: 220px;
+  max-width: 100%;
+  text-align: center;
+}
+.btn-gold {
+  background: var(--gold);
+  color: var(--black);
+  border: 1.5px solid var(--gold);
+}
+.btn-gold:hover {
+  background: var(--gold-dark);
+  border-color: var(--gold-dark);
+  color: var(--white);
+}
+.buffet-receipt {
+  margin: 8px 0;
+  font-size: 0.92rem;
+}
+.buffet-receipt div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+}
+.buffet-receipt .buffet-receipt-total {
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+  margin-top: 4px;
+  padding-top: 6px;
+  font-weight: 700;
+}
+
 /* About */
 .about {
   background: var(--cream);
@@ -795,6 +843,48 @@ body {
 .add-to-order-btn:disabled {
   background: var(--gray);
   cursor: not-allowed;
+}
+
+/* Drinks tab: a single-column price list instead of photo cards */
+.order-grid.is-drinks {
+  grid-template-columns: 1fr;
+}
+.drinks-list {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 20px 16px;
+}
+.drinks-group-title {
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 1.15rem;
+  color: var(--gold-dark);
+  margin: 16px 0 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.drink-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--light-gray);
+}
+.drink-row:last-child {
+  border-bottom: none;
+}
+.drink-row-info {
+  flex: 1;
+  min-width: 0;
+}
+.drink-row .order-card-desc {
+  margin-bottom: 0;
+}
+.drink-row .order-card-footer {
+  flex: 0 0 auto;
+}
+.drink-row.sold-out .drink-row-info {
+  opacity: 0.55;
 }
 
 /* Cart */
@@ -2834,4 +2924,40 @@ textarea:focus-visible {
 }
 #viewMyOrdersFromAccountBtn {
   margin-bottom: 0;
+}
+
+/* Checkout modal: order summary so customers see what they're paying for */
+.checkout-summary {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--cream);
+  padding: 12px 14px;
+  font-size: 0.9rem;
+}
+.checkout-summary-line,
+.checkout-summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 5px 0;
+}
+.checkout-summary-line {
+  border-bottom: 1px dashed var(--light-gray);
+}
+.checkout-summary-line span,
+.checkout-summary-row span:last-child {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.checkout-summary-detail {
+  color: var(--gray);
+  font-size: 0.8rem;
+}
+.checkout-summary-total {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 8px;
+  font-weight: 700;
+  font-size: 1rem;
 }

@@ -153,10 +153,20 @@ function showDashboard() {
   document.getElementById("loginScreen").style.display = "none";
   document.getElementById("dashboard").style.display = "grid";
   loadEverything();
-  pollIntervalId = setInterval(loadOrders, 30000);
+  clearInterval(pollIntervalId);
+  pollIntervalId = setInterval(adminLivePoll, ADMIN_POLL_MS);
   initAdminAudio();
   setupAdminAlertToggle();
+  if (!adminPushBound) {
+    adminPushBound = true;
+    FuludePWA.bindPushToggle(document.getElementById("pushToggleBtn"), "admin", () => adminToken, {
+      onLabel: "Alerts on",
+      offLabel: "Phone alerts",
+    });
+  }
 }
+let adminPushBound = false;
+FuludePWA.setupInstallButton("Install admin app");
 
 document.getElementById("loginForm").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -370,6 +380,23 @@ document
 // ---------------------------------------------------------------------
 // Orders: poll every 30s
 // ---------------------------------------------------------------------
+/**
+ * Live refresh every 5s so nobody has to reload the page: the kitchen
+ * board always (it drives the new-order beep, even in a background tab),
+ * plus whatever fast-changing tab is open while the page is visible.
+ */
+const ADMIN_POLL_MS = 5000;
+let adminPollTick = 0;
+function adminLivePoll() {
+  adminPollTick++;
+  loadOrders();
+  if (document.hidden) return;
+  const tab = document.querySelector(".admin-tab-btn.active")?.dataset.tab;
+  if (tab === "reservations") loadReservations();
+  // The dashboard pulls full history - every 30s is plenty.
+  if (tab === "dashboard" && adminPollTick % 6 === 0 && typeof loadDashboardData === "function") loadDashboardData();
+}
+
 async function loadOrders() {
   try {
     const res = await adminFetch("/api/admin/pending-orders");
@@ -488,7 +515,11 @@ document.querySelectorAll('.admin-tab-btn[data-tab="menu"]').forEach(btn => {
 /** Sticky kitchen control bar above the board: instant operational visibility. */
 const KITCHEN_CAPACITY = 12; // active tickets considered a "full" kitchen
 
-function renderKitchenStrip(orders) {
+function renderKitchenStrip(allOrders) {
+  // Stats cover today's orders only, so they start from zero at midnight.
+  const orders = allOrders.filter(kdsIsToday);
+  const note = document.getElementById("kpiResetNote");
+  if (note) note.textContent = kdsResetLabel();
   const active = orders.filter((o) =>
     ["New", "Preparing", "Ready", "Collection", "Delivery", "Out for Delivery"].includes(o.status),
   );
@@ -1105,24 +1136,33 @@ function renderCategoryOptions() {
   }
 }
 
-/** Show/hide ingredients field based on category (hide for Dessert, Drinks) */
+/** A category counts as drinks when its slug/name mentions drinks or beverages (keep in sync with menu.js). */
+function isDrinksCategory(cat) {
+  return !!cat && /drink|beverage/i.test(`${cat.slug} ${cat.name}`);
+}
+
+/** Drinks: show the drink-type picker, hide photos + ingredients. Dessert: hide ingredients. */
+function updateMenuFormForCategory() {
+  const categorySelect = document.getElementById("itemCategory");
+  if (!categorySelect) return;
+  const selectedCat = categories.find((c) => String(c.id) === categorySelect.value);
+  const drinks = isDrinksCategory(selectedCat);
+  const ingredientsGroup = document.getElementById("itemIngredients")?.closest(".form-group");
+  if (ingredientsGroup) ingredientsGroup.style.display = drinks || selectedCat?.slug === "dessert" ? "none" : "block";
+  document.getElementById("itemDrinkTypeGroup").style.display = drinks ? "block" : "none";
+  document.getElementById("itemPhotosGroup").style.display = drinks ? "none" : "";
+  document.getElementById("itemImageThumbs").style.display = drinks ? "none" : "";
+}
+
+let menuCategoryListenerAttached = false;
 function setupIngredientsVisibility() {
   const categorySelect = document.getElementById("itemCategory");
-  const ingredientsGroup = document.getElementById("itemIngredients")?.closest(".form-group");
-  if (!categorySelect || !ingredientsGroup) return;
-
-  // Category slugs that should NOT show ingredients
-  const excludedSlugs = new Set(["dessert", "drinks"]);
-
-  function checkVisibility() {
-    const selectedId = categorySelect.value;
-    const selectedCat = categories.find((c) => String(c.id) === selectedId);
-    const shouldHide = selectedCat && excludedSlugs.has(selectedCat.slug);
-    ingredientsGroup.style.display = shouldHide ? "none" : "block";
+  if (!categorySelect) return;
+  if (!menuCategoryListenerAttached) {
+    categorySelect.addEventListener("change", updateMenuFormForCategory);
+    menuCategoryListenerAttached = true;
   }
-
-  categorySelect.addEventListener("change", checkVisibility);
-  checkVisibility(); // initial
+  updateMenuFormForCategory();
 }
 
 function renderCategoriesList() {
@@ -1508,6 +1548,8 @@ function populateFormForEdit(item) {
   document.getElementById("itemAcceptsSpice").checked = item.accepts_spice;
   document.getElementById("itemAcceptsAddons").checked = item.accepts_addons;
   document.getElementById("itemIngredients").value = item.ingredients || "";
+  document.getElementById("itemDrinkType").value = item.drink_type || "beverage";
+  updateMenuFormForCategory();
 
   formImages =
     Array.isArray(item.images) && item.images.length > 0
@@ -1533,6 +1575,7 @@ function resetMenuForm() {
   renderImageThumbs();
   renderAddonCheckboxesForForm([]);
   renderSideCheckboxesForForm([]);
+  updateMenuFormForCategory();
 }
 
 /** Renders the uploaded-photo thumbnail strip, first photo marked as the cover. */
@@ -1599,13 +1642,16 @@ document
         ? carriedSpecialPrice
         : null;
 
+    const categoryId = parseInt(document.getElementById("itemCategory").value, 10);
+    const isDrink = isDrinksCategory(categories.find((c) => c.id === categoryId));
     const payload = {
-      category_id: parseInt(document.getElementById("itemCategory").value, 10),
+      category_id: categoryId,
+      drink_type: isDrink ? document.getElementById("itemDrinkType").value : null,
       name: document.getElementById("itemName").value.trim(),
       description: document.getElementById("itemDescription").value.trim(),
       price,
       special_price: specialPrice,
-      images: formImages,
+      images: isDrink ? [] : formImages,
       stock_quantity: stockQuantity,
       is_visible: document.getElementById("itemVisible").checked,
       accepts_spice: document.getElementById("itemAcceptsSpice").checked,
@@ -2228,8 +2274,9 @@ function renderReservationSummary() {
   const wrap = document.getElementById("resSummary");
   if (!wrap) return;
 
-  const nowD = new Date();
-  const todayKey = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, "0")}-${String(nowD.getDate()).padStart(2, "0")}`;
+  // "Today" is the cafe's day (South Africa time): these cards count
+  // today's bookings only and start from zero again at 12:00 am.
+  const todayKey = kdsDayKey();
   // Completed (fulfilled) bookings still count towards today's stats even
   // after the admin has cleared them from the list.
   const today = reservations.filter(
@@ -2246,8 +2293,15 @@ function renderReservationSummary() {
     <div class="kpi-card"><span class="kpi-label">Guests Today</span><span class="kpi-value">${guestsToday}</span></div>
     <div class="kpi-card"><span class="kpi-label">Upcoming</span><span class="kpi-value">${upcoming.length}</span></div>
     <div class="kpi-card"><span class="kpi-label">Awaiting Confirmation</span><span class="kpi-value">${pending.length}</span></div>
+    <p class="kds-reset-note" style="grid-column:1 / -1;margin:0">${kdsResetLabel().replace("Today's stats", "Today's Reservations and Guests Today")}</p>
   `;
 }
+// Page left open overnight: roll the "today" cards and kitchen strip over at midnight.
+kdsOnMidnight(() => {
+  if (!adminToken) return;
+  renderReservationSummary();
+  loadOrders();
+});
 
 function renderReservations() {
   const list = document.getElementById("reservationsList");
@@ -2599,6 +2653,26 @@ function buffetWhatsAppText(bk) {
   return `Hi ${bk.name}, your buffet booking at Fulude's Cafe is confirmed${evt.title ? `: "${evt.title}"` : ""}${when ? ` on ${when}` : ""} for ${bk.seats} seat${bk.seats > 1 ? "s" : ""}. We look forward to seeing you! Reply here if you need to change anything.`;
 }
 
+let buffetBookingsTab = "pending"; // which status tab is open in the bookings list
+
+/** Receipt block for one booking: what was booked and what it costs, whatever the status. */
+function buffetReceiptHtml(bk) {
+  const evt = buffetEventsById[bk.event_id] || {};
+  const perSeat = Number(evt.price_cents || 0) / 100;
+  const seats = Number(bk.seats) || 0;
+  const row = (label, value) => `<div style="display:flex;justify-content:space-between;gap:12px"><span class="admin-hint">${label}</span><span>${value}</span></div>`;
+  return `<div class="buffet-admin-receipt" style="border:1px dashed var(--sa-border-strong);border-radius:8px;padding:8px 10px;margin-top:8px;font-size:0.85rem">
+    ${row("Booking", `#${bk.id}`)}
+    ${row("Event", escapeHtml(evt.title || "Buffet"))}
+    ${evt.event_date ? row("Date", new Date(evt.event_date).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" })) : ""}
+    ${row("Seats", seats)}
+    ${row("Price per seat", money(perSeat))}
+    ${row("Booked on", new Date(bk.created_at).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" }))}
+    ${row("Status", escapeHtml(bk.status))}
+    <div style="display:flex;justify-content:space-between;border-top:1px solid var(--sa-border);margin-top:4px;padding-top:4px;font-weight:700"><span>Total</span><span>${money(perSeat * seats)}</span></div>
+  </div>`;
+}
+
 /** Bookings for one buffet event + a form so admin can book seats for customers who phone in. */
 async function showBuffetBookings(eventId) {
   const container = document.getElementById("buffetBookingsList");
@@ -2617,14 +2691,36 @@ async function showBuffetBookings(eventId) {
         <div class="res-full"><button type="submit" class="btn btn-primary">Book seats for customer</button>
           <span id="bbMsg" class="admin-hint" style="margin-left:10px"></span></div>
       </form>
+      <div class="res-tabs" id="bbTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin:12px 0"></div>
       <div id="bbRows"></div>`;
     const rows = container.querySelector("#bbRows");
-    (data.bookings || []).forEach((bk) => {
+    const all = data.bookings || [];
+    const tabs = [["pending", "Pending"], ["confirmed", "Confirmed"], ["cancelled", "Cancelled"], ["all", "All"]];
+    const tabsEl = container.querySelector("#bbTabs");
+    tabsEl.innerHTML = tabs
+      .map(([key, label]) => {
+        const n = key === "all" ? all.length : all.filter((bk) => bk.status === key).length;
+        return `<button type="button" class="admin-mini-btn${key === buffetBookingsTab ? " active" : ""}" data-bb-tab="${key}" style="${key === buffetBookingsTab ? "background:var(--sa-gold);color:#fff;border-color:var(--sa-gold)" : ""}">${label} (${n})</button>`;
+      })
+      .join("");
+    tabsEl.querySelectorAll("[data-bb-tab]").forEach((b) =>
+      b.addEventListener("click", () => {
+        buffetBookingsTab = b.dataset.bbTab;
+        showBuffetBookings(eventId);
+      }),
+    );
+    const visible = buffetBookingsTab === "all" ? all : all.filter((bk) => bk.status === buffetBookingsTab);
+    if (!visible.length) rows.innerHTML = `<p class="admin-hint">No ${buffetBookingsTab === "all" ? "" : buffetBookingsTab + " "}bookings.</p>`;
+    visible.forEach((bk) => {
       const row = document.createElement("div");
       row.className = "sa-list-item";
-      const wa = window.waLink ? window.waLink(bk.phone, buffetWhatsAppText(bk)) : "#";
-      row.innerHTML = `<div class="sa-list-main"><div class="sa-list-title">${bk.name} (${bk.seats} seat${bk.seats > 1 ? "s" : ""}) - ${bk.status}</div><div class="sa-list-sub">${bk.email || "no email"} • ${bk.phone || ""} • ${new Date(bk.created_at).toLocaleString()}</div></div>
-        <div style="margin-top:8px">${bk.status === "pending" ? `<button class="admin-mini-btn btn-confirm" data-id="${bk.id}">Confirm</button> ` : ""}${bk.status === "pending" || bk.status === "confirmed" ? `<button class="admin-mini-btn danger btn-cancel" data-id="${bk.id}">Cancel</button>` : ""} ${bk.phone ? `<a class="admin-mini-btn wa-btn" target="_blank" rel="noopener" href="${wa}"><i class="fab fa-whatsapp"></i> WhatsApp</a>` : ""}</div>`;
+      // The message matches the booking's status, ready to send as-is.
+      const text = buffetWhatsAppText(bk);
+      const wa = window.waLink ? window.waLink(bk.phone, text) : "#";
+      row.innerHTML = `<div class="sa-list-main"><div class="sa-list-title">${escapeHtml(bk.name)} (${bk.seats} seat${bk.seats > 1 ? "s" : ""}) - ${escapeHtml(bk.status)}</div><div class="sa-list-sub">${escapeHtml(bk.email || "no email")} • ${escapeHtml(bk.phone || "")}</div>
+        ${buffetReceiptHtml(bk)}
+        ${bk.phone ? `<div style="margin-top:8px"><div class="admin-hint" style="margin-bottom:4px"><i class="fab fa-whatsapp"></i> Message ready to send:</div><div style="background:var(--sa-green-soft, #ecfdf3);border-radius:8px;padding:8px 10px;font-size:0.85rem;white-space:pre-wrap">${escapeHtml(text)}</div></div>` : ""}</div>
+        <div style="margin-top:8px">${bk.status === "pending" ? `<button class="admin-mini-btn btn-confirm" data-id="${bk.id}">Confirm</button> ` : ""}${bk.status === "pending" || bk.status === "confirmed" ? `<button class="admin-mini-btn danger btn-cancel" data-id="${bk.id}">Cancel</button>` : ""} ${bk.phone ? `<a class="admin-mini-btn wa-btn" target="_blank" rel="noopener" href="${wa}"><i class="fab fa-whatsapp"></i> Send on WhatsApp</a>` : ""}</div>`;
       rows.appendChild(row);
     });
     const act = (cls, action) =>
@@ -2950,6 +3046,26 @@ function initAuditHandlers() {
   document
     .getElementById("auditLoadBtn")
     ?.addEventListener("click", () => loadAudit(true));
+  // Clearing is permanent, so it only happens after an explicit "yes".
+  document.getElementById("auditClearBtn")?.addEventListener("click", async () => {
+    const sure = confirm(
+      "Are you sure you want to clear the whole audit log?\n\nThis permanently deletes every entry and CANNOT be undone. (Tip: use Export CSV first if you want a copy.)",
+    );
+    if (!sure) return;
+    try {
+      const res = await adminFetch("/api/admin/audit", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: "CLEAR" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || "Couldn't clear the audit log.");
+      alert(`Audit log cleared (${data.deleted} entr${data.deleted === 1 ? "y" : "ies"} removed).`);
+      loadAudit(true);
+    } catch (err) {
+      alert(err.message || "Couldn't clear the audit log.");
+    }
+  });
   document.getElementById("auditPrevBtn")?.addEventListener("click", () => {
     auditOffset = Math.max(0, auditOffset - auditLimit);
     loadAudit(false);

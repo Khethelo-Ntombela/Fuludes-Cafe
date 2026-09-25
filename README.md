@@ -112,6 +112,10 @@ Files/folders starting with `_` (like `functions/_lib`) are ignored by Cloudflar
 3. If your gateway supports HMAC-signed webhooks, set the signing secret in your Pages environment as `YOCO_WEBHOOK_SECRET` and this app will verify incoming webhooks against it.
 4. Set the checkout URL in your environment as `YOCO_PAYMENT_URL` (or `YOCO_CHECKOUT_URL`). Optionally set `YOCO_CURRENCY` (defaults to `ZAR`).
 
+**Recommended (direct Yoco checkout):** set `YOCO_SECRET_KEY` (Yoco dashboard > Settings > API Keys). Checkout, "Pay Now" retries and the admin's payment links then create a checkout through Yoco's Checkout API and send the customer straight to Yoco's payment page (`functions/_lib/yoco.js`). Register `https://<your-deploy-origin>/api/payment/notify` as a Yoco webhook and put its `whsec_...` secret in `YOCO_WEBHOOK_SECRET` - Yoco's signed `payment.succeeded` events are verified and marked paid automatically. `YOCO_PAYMENT_URL` is only used when `YOCO_SECRET_KEY` is not set.
+
+**Push notifications:** admin and kitchen staff can tap "Phone alerts" (and customers "Notify me about my orders") to get notifications even when the app is closed - new paid orders, reservations and buffet bookings for staff; order/booking updates for customers. Nothing to configure: a VAPID key pair is generated on first use and stored in `push_config` (or set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, optional `VAPID_SUBJECT`). On iPhone/iPad the app must first be added to the Home Screen. Admin (`/admin.html`) and kitchen (`/staff.html`) install as their own apps.
+
 No notify-url whitelisting is usually required — the notify URL only needs to be publicly reachable so the gateway can POST payment confirmations to `/api/payment/notify`.
 
 **Automatic cancellation refunds:** if a customer cancels a paid order within

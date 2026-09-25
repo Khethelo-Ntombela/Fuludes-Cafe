@@ -18,6 +18,7 @@ import {
 import { sanitizeText, getRequestIp } from "../_lib/security.js";
 import { logAudit } from "../_lib/audit.js";
 import { validateReservationSlot } from "../_lib/hours.js";
+import { queuePush } from "../_lib/push.js";
 
 export async function onRequestGet(context) {
   const { request, env } = context;
@@ -127,6 +128,30 @@ export async function onRequestPost(context) {
   }
 
   try {
+    // One live booking per email: a new one is only allowed once the
+    // previous one is Completed, Cancelled, or its date has passed.
+    const existing = await runQuery(
+      env,
+      `
+      SELECT id FROM customer_reservations
+      WHERE LOWER(customer_email) = $1
+        AND status IN ('Pending', 'Confirmed')
+        AND reservation_date >= (NOW() AT TIME ZONE 'Africa/Johannesburg')::date
+      LIMIT 1;
+    `,
+      [email],
+    );
+    if (existing.rows[0]) {
+      return jsonResponse(
+        {
+          error:
+            "You already have a reservation with us under this email. Please wait until it has passed, or contact us to change it.",
+          existing_reservation_id: existing.rows[0].id,
+        },
+        409,
+      );
+    }
+
     const result = await runQuery(
       env,
       `
@@ -168,6 +193,13 @@ export async function onRequestPost(context) {
         party_size: partySize,
         advance_order_requested: advanceOrderRequested,
       },
+    });
+
+    queuePush(context, { roles: ["admin"] }, {
+      title: "New reservation request",
+      body: `${name} · ${partySize} guest${partySize > 1 ? "s" : ""} · ${reservationDate} ${reservationTime}`,
+      url: "/admin.html#reservations",
+      tag: `reservation-${result.rows[0].id}`,
     });
 
     return jsonResponse({

@@ -19,7 +19,9 @@
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="manifest" href="/manifest.webmanifest">
+<link rel="manifest" href="/manifest-admin.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Fulude's Admin">
 <meta name="theme-color" content="#000000">
   </head>
   <body class="admin-body">
@@ -222,6 +224,11 @@
             </button>
             <button
               type="button"
+              class="topbar-quick-btn push-toggle-btn"
+              id="pushToggleBtn"
+            ></button>
+            <button
+              type="button"
               class="topbar-quick-btn"
               id="alertMuteBtn"
               title="Toggle order alerts"
@@ -355,6 +362,7 @@
                 ><span class="kds-stat-value" id="kpiEfficiency">—</span>
               </div>
             </div>
+            <p class="kds-reset-note" id="kpiResetNote"></p>
             <div class="admin-panel-header">
               <h2>Live Orders</h2>
               <span id="orderCountBadge" class="admin-badge">0</span>
@@ -638,6 +646,16 @@
                     <select id="itemCategory" required></select>
                   </div>
                 </div>
+                <div class="form-group" id="itemDrinkTypeGroup" style="display: none">
+                  <label for="itemDrinkType">Drink type</label>
+                  <select id="itemDrinkType">
+                    <option value="beverage">Beverage</option>
+                    <option value="cocktail">Cocktail</option>
+                    <option value="alcohol">Alcohol</option>
+                    <option value="other">Other</option>
+                  </select>
+                  <span class="admin-hint">Drinks are listed (no photos) under the Drinks tab on the menu, grouped by this type.</span>
+                </div>
                 <div class="form-group">
                   <label for="itemDescription">Description</label>
                   <textarea id="itemDescription" rows="2"></textarea>
@@ -668,7 +686,7 @@
                     >
                   </div>
                 </div>
-                <div class="form-row">
+                <div class="form-row" id="itemPhotosGroup">
                   <div class="form-group">
                     <label for="itemImage">Photos (up to 6)</label>
                     <input
@@ -941,6 +959,9 @@
                 <button id="auditLoadBtn" class="admin-mini-btn">Load</button>
                 <button id="auditExportBtn" class="admin-mini-btn">
                   Export CSV
+                </button>
+                <button id="auditClearBtn" class="admin-mini-btn danger">
+                  <i class="fas fa-trash"></i> Clear log
                 </button>
               </div>
             </div>
@@ -1496,6 +1517,7 @@
       </div>
     </div>
 
+    <script src="js/pwa.js"></script>
     <script src="js/kds.js"></script>
     <script src="js/admin.js"></script>
     <script src="js/admin-app.js"></script>

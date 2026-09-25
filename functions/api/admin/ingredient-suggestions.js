@@ -18,7 +18,11 @@ export async function onRequestGet(context) {
   const lowStockThreshold = Math.max(0, parseInt(url.searchParams.get("low_stock_threshold") || "5", 10));
 
   try {
-    // 1. Get dishes that sold well in the recent window
+    // 1. Get dishes that sold well in the recent window.
+    // Only orders the gateway confirmed as paid count - 'awaiting' (still
+    // in checkout / abandoned), 'failed', 'refunded' and 'not_required' are
+    // excluded. A paid order that was later cancelled keeps
+    // payment_status = 'paid' until refunded, so Cancelled is excluded too.
     const soldWellRes = await runQuery(env, `
       SELECT
         oi.menu_item_id,
@@ -26,7 +30,8 @@ export async function onRequestGet(context) {
       FROM order_items oi
       JOIN orders o ON o.id = oi.order_id
       WHERE o.created_at >= NOW() - INTERVAL '${days} days'
-        AND o.status NOT IN ('Cancelled')
+        AND o.payment_status = 'paid'
+        AND o.status <> 'Cancelled'
       GROUP BY oi.menu_item_id
       HAVING SUM(oi.quantity) > 0
     `);

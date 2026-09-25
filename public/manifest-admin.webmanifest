@@ -1,0 +1,22 @@
+{
+  "name": "Fulude's Cafe Admin",
+  "short_name": "Fulude's Admin",
+  "description": "Run Fulude's Cafe: live orders, place orders, reservations, menu and reports.",
+  "id": "/admin.html",
+  "start_url": "/admin.html?source=pwa",
+  "scope": "/admin",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Live Orders", "url": "/admin.html#orders", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Place Order", "url": "/admin.html#placeorder", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Reservations", "url": "/admin.html#reservations", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

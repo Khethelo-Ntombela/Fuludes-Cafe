@@ -11,6 +11,24 @@
  */
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
+import { queuePush } from "../../_lib/push.js";
+
+/** Lets a signed-in customer know their buffet booking was confirmed/cancelled. */
+async function pushBookingStatus(context, bookingId, status) {
+  const result = await runQuery(
+    context.env,
+    "SELECT bb.customer_id, be.title FROM buffet_bookings bb JOIN buffet_events be ON be.id = bb.event_id WHERE bb.id = $1;",
+    [bookingId],
+  ).catch(() => ({ rows: [] }));
+  const row = result.rows[0];
+  if (!row?.customer_id) return;
+  queuePush(context, { customerId: row.customer_id }, {
+    title: `Buffet booking ${status}`,
+    body: `Your booking for "${row.title}" is ${status}.`,
+    url: "/home.html",
+    tag: `buffet-${bookingId}`,
+  });
+}
 
 export async function onRequestGet(context) {
   const { request, env } = context;
@@ -92,6 +110,7 @@ export async function onRequestPost(context) {
         "UPDATE buffet_bookings SET status='cancelled' WHERE id=$1;",
         [booking_id],
       );
+      await pushBookingStatus(context, booking_id, "cancelled");
       return jsonResponse({ success: true });
     }
     if (action === "confirm") {
@@ -100,6 +119,7 @@ export async function onRequestPost(context) {
         "UPDATE buffet_bookings SET status='confirmed' WHERE id=$1;",
         [booking_id],
       );
+      await pushBookingStatus(context, booking_id, "confirmed");
       return jsonResponse({ success: true });
     }
     return jsonResponse({ error: "Unknown action" }, 400);

@@ -19,6 +19,7 @@ import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { sanitizeText } from "../../_lib/security.js";
 import { logAudit } from "../../_lib/audit.js";
+import { queuePush } from "../../_lib/push.js";
 
 let _colReady = false;
 async function ensureClearedColumn(env) {
@@ -103,15 +104,25 @@ export async function onRequestPost(context) {
   }
 
   try {
-    await runQuery(
+    const updated = await runQuery(
       env,
       `
       UPDATE customer_reservations
       SET status = $1
-      WHERE id = $2;
+      WHERE id = $2
+      RETURNING customer_id, to_char(reservation_date, 'DD Mon') AS day, to_char(reservation_time, 'HH24:MI') AS time;
     `,
       [status, reservationId],
     );
+    const r = updated.rows[0];
+    if (r?.customer_id && (status === "Confirmed" || status === "Cancelled")) {
+      queuePush(context, { customerId: r.customer_id }, {
+        title: `Reservation ${status.toLowerCase()}`,
+        body: `Your table for ${r.day} at ${r.time} is ${status.toLowerCase()}.`,
+        url: "/home.html",
+        tag: `reservation-${reservationId}`,
+      });
+    }
 
     return jsonResponse({ success: true });
   } catch (err) {

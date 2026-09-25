@@ -1,10 +1,39 @@
 import { requireAdmin } from "../../_lib/auth.js";
 import { runQuery, jsonResponse } from "../../_lib/db.js";
+import { logAudit } from "../../_lib/audit.js";
+import { getRequestIp } from "../../_lib/security.js";
+
+/**
+ * DELETE /api/admin/audit  { confirm: "CLEAR" }
+ * Permanently wipes the audit log (admins with the Audit permission only).
+ * The admin UI asks "are you sure" first; the confirm token guards against
+ * a stray request. One fresh entry records who cleared it and how much.
+ */
+async function clearAuditLog(request, env) {
+  let body = {};
+  try {
+    body = await request.json();
+  } catch {
+    /* handled below */
+  }
+  if (body.confirm !== "CLEAR") {
+    return jsonResponse({ error: "Clearing the audit log must be confirmed." }, 400);
+  }
+  const deleted = (await runQuery(env, "WITH d AS (DELETE FROM audit_logs RETURNING 1) SELECT COUNT(*)::int AS n FROM d;")).rows[0]?.n ?? 0;
+  await logAudit(env, {
+    actor_ip: getRequestIp(request),
+    action: "audit_log_cleared",
+    target_type: "audit_logs",
+    details: { entries_deleted: deleted },
+  });
+  return jsonResponse({ success: true, deleted });
+}
 
 export async function onRequest(context) {
   const { request, env } = context;
   const authErr = await requireAdmin(request, env);
   if (authErr) return authErr;
+  if (request.method === "DELETE") return clearAuditLog(request, env);
 
   const url = new URL(request.url);
   const p = url.searchParams;

@@ -203,6 +203,11 @@ async function initAuth() {
     window.history.replaceState({}, document.title, window.location.pathname);
     confirmPasswordChange(confirmPasswordToken);
   }
+  // Tapped an "order update" notification: open My Orders straight away.
+  if (params.get("my_orders")) {
+    window.history.replaceState({}, document.title, window.location.pathname);
+    if (currentCustomer) openMyOrdersModal();
+  }
   const resetToken = params.get("reset_token");
   if (resetToken) {
     openResetPasswordModal(resetToken);
@@ -217,7 +222,6 @@ function updateAccountNav() {
 }
 
 // ----------------- Customer buffet bookings (My Bookings) -----------------
-const myBuffetBtn = document.getElementById("myBuffetBtn");
 const myBuffetModal = document.getElementById("myBuffetModal");
 const myBuffetClose = document.getElementById("myBuffetClose");
 const myBuffetList = document.getElementById("myBuffetList");
@@ -228,17 +232,34 @@ const BOOKING_STATUS_LABELS = {
   cancelled: "Cancelled",
 };
 
+const LIVE_POLL_MS = 5000; // statuses (orders, bookings) refresh on their own - no page reloads
+
+/** Re-runs fn every 5s while `modal` stays open and the tab is visible. */
+function pollWhileOpen(modal, fn) {
+  if (!modal) return;
+  clearInterval(modal._pollTimer);
+  modal._pollTimer = setInterval(() => {
+    if (!modal.classList.contains("active")) {
+      clearInterval(modal._pollTimer);
+      return;
+    }
+    if (!document.hidden) fn();
+  }, LIVE_POLL_MS);
+}
+
 function setOverlay(el, on) {
   if (!el) return;
   el.style.display = "";
   el.classList.toggle("active", on);
 }
 
+let myBuffetBookedEventIds = new Set(); // events with a pending/confirmed booking by this customer
+
 async function loadCustomerBuffetBookings() {
-  if (!myBuffetList) return;
   if (!currentCustomer || !customerToken) {
-    if (myBuffetBtn) myBuffetBtn.style.display = "none";
-    myBuffetList.innerHTML = `<p class="menu-empty">Please sign in to see your buffet bookings.</p>`;
+    myBuffetBookedEventIds = new Set();
+    renderPublicBuffet();
+    if (myBuffetList) myBuffetList.innerHTML = `<p class="menu-empty">Please sign in to see your buffet bookings.</p>`;
     return;
   }
   try {
@@ -248,11 +269,11 @@ async function loadCustomerBuffetBookings() {
     if (!res.ok) throw new Error("Failed to load");
     const data = await readApiResponse(res);
     const bookings = data.bookings || [];
-    const active = bookings.filter((b) => b.status !== "cancelled").length;
-    if (myBuffetBtn) {
-      myBuffetBtn.style.display = active ? "inline-block" : "none";
-      myBuffetBtn.textContent = `Buffet (${active})`;
-    }
+    myBuffetBookedEventIds = new Set(
+      bookings.filter((b) => b.status === "pending" || b.status === "confirmed").map((b) => Number(b.event_id)),
+    );
+    renderPublicBuffet();
+    if (!myBuffetList) return;
     if (!bookings.length) {
       myBuffetList.innerHTML = `<p class="menu-empty">You have no upcoming buffet bookings.</p>`;
       return;
@@ -264,8 +285,16 @@ async function loadCustomerBuffetBookings() {
       const canCancel = b.status === "pending" || b.status === "confirmed";
       const color =
         b.status === "confirmed" ? "#1a7f37" : b.status === "cancelled" ? "#b42318" : "#8a6d1d";
-      el.innerHTML = `<div class="receipt-card-header"><strong>${escapeHtml(b.title)}</strong></div>
-        <div class="receipt-meta">${new Date(b.event_date).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" })} · ${b.seats} seat${b.seats > 1 ? "s" : ""}</div>
+      const pricePerSeat = Number(b.price_cents || 0) / 100;
+      const fmtDate = (d) => new Date(d).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" });
+      el.innerHTML = `<div class="receipt-card-header"><strong>${escapeHtml(b.title)}</strong><span class="receipt-meta">Booking #${b.booking_id}</span></div>
+        <div class="buffet-receipt">
+          <div><span>Event date</span><span>${fmtDate(b.event_date)}</span></div>
+          <div><span>Seats</span><span>${b.seats}</span></div>
+          <div><span>Price per seat</span><span>R${pricePerSeat.toFixed(2)}</span></div>
+          <div><span>Booked on</span><span>${b.created_at ? fmtDate(b.created_at) : "-"}</span></div>
+          <div class="buffet-receipt-total"><span>Total</span><span>R${(pricePerSeat * b.seats).toFixed(2)}</span></div>
+        </div>
         <div style="margin:8px 0;font-weight:600;color:${color}">Status: ${BOOKING_STATUS_LABELS[b.status] || escapeHtml(b.status)}</div>
         ${canCancel ? `<button class="receipt-cancel-btn btn-cancel-booking" data-id="${b.booking_id}">Cancel booking</button>` : ""}`;
       myBuffetList.appendChild(el);
@@ -293,7 +322,7 @@ async function loadCustomerBuffetBookings() {
       }),
     );
   } catch (err) {
-    myBuffetList.innerHTML = `<p class="menu-empty">Couldn't load your bookings. Please try again.</p>`;
+    if (myBuffetList) myBuffetList.innerHTML = `<p class="menu-empty">Couldn't load your bookings. Please try again.</p>`;
   }
 }
 
@@ -306,9 +335,9 @@ async function openMyBuffetBookings() {
   }
   setOverlay(myBuffetModal, true);
   await loadCustomerBuffetBookings();
+  pollWhileOpen(myBuffetModal, loadCustomerBuffetBookings);
 }
 
-if (myBuffetBtn) myBuffetBtn.addEventListener("click", openMyBuffetBookings);
 if (myBuffetClose)
   myBuffetClose.addEventListener("click", () => setOverlay(myBuffetModal, false));
 
@@ -537,6 +566,7 @@ function onAuthSuccess(token, customer) {
   currentCustomer = customer;
   localStorage.setItem(CUSTOMER_TOKEN_KEY, token);
   updateAccountNav();
+  loadCustomerBuffetBookings();
 
   authModal.classList.remove("active");
   if (pendingCheckoutAfterAuth) {
@@ -626,44 +656,53 @@ function openResetPasswordModal(token) {
 }
 
 // ----------------- Buffet public UI -----------------
+let publicBuffetEvents = null; // last /api/buffet result, so bookings can re-render it
+
 async function loadPublicBuffet() {
   const el = document.getElementById("buffetContent");
   if (!el) return;
   try {
     const res = await fetch("/api/buffet");
     const data = await res.json();
-    const events = data.events || [];
-    if (!events.length) {
-      el.innerHTML = "<p>No upcoming buffet events.</p>";
-      return;
-    }
-    const checkBtn = `<div style="margin-bottom:16px"><button type="button" class="btn btn-secondary" id="checkMyBookingsBtn" style="background:#000;color:#fff;border-color:#000">Check My Bookings</button></div>`;
-    el.innerHTML = checkBtn + events
-      .map(
-        (evt) => `
-      <div class="sa-card" data-event-id="${evt.id}">
-        ${(evt.photos || []).length ? `<div style="display:flex;gap:8px;overflow-x:auto;margin-bottom:10px">${evt.photos.map((ph) => `<img src="${escapeHtml(ph)}" alt="${escapeHtml(evt.title)}" loading="lazy" style="height:180px;max-width:100%;object-fit:cover;border-radius:6px;flex:0 0 auto" onerror="this.style.display='none'" />`).join("")}</div>` : ""}
-        <div class="sa-card-title">${escapeHtml(evt.title)} <span class="admin-hint">${new Date(evt.event_date).toLocaleString()}</span></div>
-        <p>${escapeHtml(evt.description || "")}</p>
-        <div><strong>Seats:</strong> ${evt.seats_remaining} remaining of ${evt.capacity} &nbsp; <strong>Price:</strong> R${(Number(evt.price_cents) / 100).toFixed(2)}</div>
-        <div style="margin-top:8px"><button class="btn btn-primary btn-book-buffet" data-id="${evt.id}" data-title="${escapeHtml(evt.title)}" ${evt.seats_remaining <= 0 ? "disabled" : ""}>${evt.seats_remaining <= 0 ? "Sold out" : "Book"}</button></div>
-        ${evt.booking_closes_at ? `<div class="admin-hint">Booking closes: ${new Date(evt.booking_closes_at).toLocaleString()}</div>` : ""}
-      </div>
-    `,
-      )
-      .join("");
-
-    document.getElementById("checkMyBookingsBtn")?.addEventListener("click", openMyBuffetBookings);
-    document.querySelectorAll(".btn-book-buffet").forEach((b) =>
-      b.addEventListener("click", (e) => {
-        const id = b.dataset.id || e.target.dataset.id;
-        const title = b.dataset.title || e.target.dataset.title;
-        openBuffetBookingModal(id, title);
-      }),
-    );
+    publicBuffetEvents = data.events || [];
+    renderPublicBuffet();
   } catch (err) {
     el.innerHTML = "<p>Failed to load buffet events.</p>";
   }
+}
+
+/** Events the customer already holds a live booking for get "Check My Booking" instead of "Book". */
+function renderPublicBuffet() {
+  const el = document.getElementById("buffetContent");
+  if (!el || !publicBuffetEvents) return;
+  const events = publicBuffetEvents;
+  if (!events.length) {
+    el.innerHTML = "<p>No upcoming buffet events.</p>";
+    return;
+  }
+  el.innerHTML = events
+    .map((evt) => {
+      const booked = myBuffetBookedEventIds.has(Number(evt.id));
+      const soldOut = evt.seats_remaining <= 0;
+      const action = booked
+        ? `<button type="button" class="btn btn-gold btn-buffet btn-check-buffet">Check My Booking</button>`
+        : `<button type="button" class="btn btn-primary btn-buffet btn-book-buffet" data-id="${evt.id}" data-title="${escapeHtml(evt.title)}" ${soldOut ? "disabled" : ""}>${soldOut ? "Sold out" : "Book"}</button>`;
+      return `
+      <div class="sa-card buffet-card" data-event-id="${evt.id}">
+        ${(evt.photos || []).length ? `<div class="buffet-card-photos">${evt.photos.map((ph) => `<img src="${escapeHtml(ph)}" alt="${escapeHtml(evt.title)}" loading="lazy" style="height:180px;max-width:100%;object-fit:cover;border-radius:6px;flex:0 0 auto" onerror="this.style.display='none'" />`).join("")}</div>` : ""}
+        <div class="sa-card-title">${escapeHtml(evt.title)} <span class="admin-hint">${new Date(evt.event_date).toLocaleString()}</span></div>
+        <p>${escapeHtml(evt.description || "")}</p>
+        <div><strong>Seats:</strong> ${evt.seats_remaining} remaining of ${evt.capacity} &nbsp; <strong>Price:</strong> R${(Number(evt.price_cents) / 100).toFixed(2)}</div>
+        <div class="buffet-actions">${action}</div>
+        ${evt.booking_closes_at ? `<div class="admin-hint">Booking closes: ${new Date(evt.booking_closes_at).toLocaleString()}</div>` : ""}
+      </div>`;
+    })
+    .join("");
+
+  el.querySelectorAll(".btn-check-buffet").forEach((b) => b.addEventListener("click", openMyBuffetBookings));
+  el.querySelectorAll(".btn-book-buffet").forEach((b) =>
+    b.addEventListener("click", () => openBuffetBookingModal(b.dataset.id, b.dataset.title)),
+  );
 }
 
 function escapeHtml(s) {
@@ -808,6 +847,7 @@ document.getElementById("logoutBtn").addEventListener("click", async () => {
   localStorage.removeItem(CUSTOMER_TOKEN_KEY);
   updateAccountNav();
   accountModal.classList.remove("active");
+  loadCustomerBuffetBookings();
 });
 
 // ---------------------------------------------------------------------
@@ -916,16 +956,6 @@ function rememberReservation(r) {
 const reservationExisting = document.createElement("div");
 reservationExisting.id = "reservationExisting";
 reservationForm.parentNode.insertBefore(reservationExisting, reservationForm);
-const reservationBookAnotherBtn = document.createElement("button");
-reservationBookAnotherBtn.type = "button";
-reservationBookAnotherBtn.className = "btn btn-secondary btn-block";
-reservationBookAnotherBtn.style.cssText = "background:#000;color:#fff;border-color:#000;margin:10px 0 16px";
-reservationBookAnotherBtn.textContent = "Book another table";
-reservationExisting.after(reservationBookAnotherBtn);
-reservationBookAnotherBtn.addEventListener("click", () => {
-  reservationForm.style.display = "block";
-  reservationBookAnotherBtn.style.display = "none";
-});
 
 async function loadExistingReservations() {
   let list = [];
@@ -942,7 +972,6 @@ async function loadExistingReservations() {
   list = list.filter((r) => String(r.reservation_date || r.date).slice(0, 10) >= today && r.status !== "Completed");
   if (!list.length) {
     reservationExisting.innerHTML = "";
-    reservationBookAnotherBtn.style.display = "none";
     reservationForm.style.display = "block";
     return;
   }
@@ -974,8 +1003,10 @@ async function loadExistingReservations() {
       });
     }),
   );
-  reservationForm.style.display = "none";
-  reservationBookAnotherBtn.style.display = "block";
+  // One live booking at a time (the server enforces this per email too):
+  // the form only comes back once every booking is cancelled.
+  const hasLive = list.some((r) => (r.status || "Pending") !== "Cancelled");
+  reservationForm.style.display = hasLive ? "none" : "block";
 }
 
 /** Remember the booking as the pre-order target and go to the cart (items already in it stay). */
@@ -1006,6 +1037,7 @@ function openReservationModal() {
   if (dateInput) dateInput.min = todayKeyLocal();
   reservationModal.classList.add("active");
   loadExistingReservations();
+  pollWhileOpen(reservationModal, loadExistingReservations);
 }
 
 if (navReservationLink) {
@@ -1139,14 +1171,54 @@ reservationForm.addEventListener("submit", async (e) => {
 // ---------------------------------------------------------------------
 const myOrdersModal = document.getElementById("myOrdersModal");
 const myOrdersList = document.getElementById("myOrdersList");
-const MY_ORDERS_POLL_MS = 15000; // status can change any time the kitchen updates it
+const MY_ORDERS_POLL_MS = LIVE_POLL_MS; // status can change any time the kitchen updates it
 const CUSTOMER_CANCEL_WINDOW_MS = 2 * 60 * 1000; // keep in sync with CUSTOMER_CANCEL_WINDOW_MS in functions/api/order.js
 let expandedReceipts = new Set(); // which order ids currently have "View Receipt" open
 let myOrdersPollTimer = null;
 let cancelCountdownTimer = null;
 
+/** Loads js/pwa.js once (only customers who open My Orders need it). */
+let pwaScriptPromise = null;
+function loadPwaScript() {
+  if (typeof FuludePWA !== "undefined") return Promise.resolve();
+  pwaScriptPromise =
+    pwaScriptPromise ||
+    new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "js/pwa.js";
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  return pwaScriptPromise;
+}
+
+/** "Notify me about my orders" switch at the top of My Orders (push works even with the app closed). */
+function setupOrderNotifyToggle() {
+  if (document.getElementById("orderNotifyBtn")) return;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.id = "orderNotifyBtn";
+  btn.className = "receipt-cancel-btn";
+  btn.style.cssText = "margin:0 0 12px;background:#000;color:#fff;border-color:#000";
+  myOrdersList.parentNode.insertBefore(btn, myOrdersList);
+  loadPwaScript()
+    .then(() => {
+      if (!FuludePWA.pushSupported() && !/iphone|ipad|ipod/i.test(navigator.userAgent)) {
+        btn.remove();
+        return;
+      }
+      FuludePWA.bindPushToggle(btn, "customer", () => customerToken, {
+        onLabel: "Order notifications on",
+        offLabel: "Notify me about my orders",
+      });
+    })
+    .catch(() => btn.remove());
+}
+
 async function openMyOrdersModal() {
   myOrdersModal.classList.add("active");
+  if (currentCustomer) setupOrderNotifyToggle();
   await refreshMyOrders();
 
   clearInterval(myOrdersPollTimer);
@@ -1172,7 +1244,7 @@ function formatCountdown(ms) {
 /**
  * Ticks every second purely to keep each order's cancel countdown fresh
  * (and to drop the button the instant the 2-minute window closes) -
- * separate from the 15s network poll so the countdown doesn't look stuck.
+ * separate from the 5s network poll so the countdown doesn't look stuck.
  */
 function startCancelCountdownTicker() {
   clearInterval(cancelCountdownTimer);
@@ -1297,15 +1369,38 @@ async function refreshMyOrders() {
           body: JSON.stringify({ id: Number(btn.dataset.retryPayment) }),
         });
         const data = await res.json();
-        if (!res.ok || !data.payment?.action_url)
+        if (!res.ok || !(data.payment?.redirect_url || data.payment?.action_url))
           throw new Error(data.error || "Couldn't retry payment.");
-        window.location.href = data.payment.action_url;
+        goToYocoPayment(data.payment);
       } catch (err) {
         alert(err.message);
         btn.disabled = false;
       }
     });
   });
+}
+
+/**
+ * Sends the browser to Yoco. The server returns either Yoco's own
+ * redirect_url (Checkout API) or, in the legacy setup, a form to POST.
+ */
+function goToYocoPayment(payment) {
+  if (payment.redirect_url) {
+    window.location.href = payment.redirect_url;
+    return;
+  }
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = payment.action_url;
+  for (const [key, value] of Object.entries(payment.fields || {})) {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = key;
+    input.value = value;
+    form.appendChild(input);
+  }
+  document.body.appendChild(form);
+  form.submit();
 }
 
 function escapeAttr(str) {
@@ -1525,6 +1620,24 @@ myOrdersModal.addEventListener("click", (e) => {
 // ---------------------------------------------------------------------
 function checkPaymentReturn() {
   const params = new URLSearchParams(window.location.search);
+  const emailVerified = params.get("email_verified");
+  if (emailVerified) {
+    // Back from the sign-up verification link (functions/api/auth/verify-email.js).
+    const banner = document.getElementById("paymentBanner");
+    if (banner) {
+      banner.textContent =
+        emailVerified === "yes"
+          ? "Your email is verified - you can now sign in."
+          : emailVerified === "invalid"
+            ? "That verification link is invalid or has expired. Please sign up again or contact us."
+            : "We couldn't verify your email right now. Please try the link again in a moment.";
+      banner.className = `payment-banner ${emailVerified === "yes" ? "success" : "cancelled"}`;
+      banner.style.display = "block";
+    }
+    window.history.replaceState({}, document.title, window.location.pathname);
+    if (emailVerified === "yes" && !currentCustomer) openAuthModal("signin");
+    return;
+  }
   const paymentResult = params.get("payment");
   const orderId = params.get("order_id");
   if (!paymentResult) return;

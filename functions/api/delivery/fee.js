@@ -96,7 +96,7 @@ async function handlePost(context) {
     }
 
     return jsonResponse({
-      fee: matchedBand.fee,
+      fee: parseFloat(matchedBand.fee), // NUMERIC comes back from Postgres as a string
       distance_km: Math.round(roadKm * 100) / 100,
       band_up_to_km: matchedBand.up_to_km,
       too_far: false,

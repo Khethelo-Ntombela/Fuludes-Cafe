@@ -45,9 +45,17 @@ async function search(apiKey, query, box) {
     params.set("viewbox", `${box.west},${box.north},${box.east},${box.south}`);
     params.set("bounded", "1");
   }
-  const res = await fetch(`${LOCATIONIQ_BASE}?${params.toString()}`, {
-    headers: { Accept: "application/json" },
-  });
+  const doFetch = () =>
+    fetch(`${LOCATIONIQ_BASE}?${params.toString()}`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(6000), // never leave checkout stuck on "Calculating"
+    });
+  let res = await doFetch();
+  if (res.status === 429) {
+    // Free LocationIQ keys allow ~2 requests/second; our fallbacks can trip that.
+    await new Promise((r) => setTimeout(r, 1100));
+    res = await doFetch();
+  }
   if (res.status === 404) return []; // LocationIQ answers 404 for "no match"
   if (!res.ok) {
     const details = await res.text().catch(() => "");

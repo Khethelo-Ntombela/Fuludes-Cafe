@@ -10,6 +10,7 @@
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { getRequestIp } from "../../_lib/security.js";
+import { queueOrderStatusPush } from "../../_lib/push.js";
 import { logAudit } from "../../_lib/audit.js";
 
 const ALLOWED_STATUSES = [
@@ -166,7 +167,7 @@ export async function onRequestPost(context) {
               ELSE refund_needed
             END
         WHERE id = $2 AND status = $3
-        RETURNING id, status, order_type, delivery_address;
+        RETURNING id, status, order_type, delivery_address, customer_id;
       `,
       [nextStatus, orderId, currentStatus, nextOrderType],
     );
@@ -198,6 +199,8 @@ export async function onRequestPost(context) {
               : null,
       },
     });
+
+    queueOrderStatusPush(context, updatedOrder.customer_id, updatedOrder.id, updatedOrder.status);
 
     return jsonResponse({
       success: true,

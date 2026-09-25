@@ -46,7 +46,7 @@
  * -----------------------------------------------------------------------
  */
 import { runQuery, jsonResponse } from "../_lib/db.js";
-import { buildYocoCheckout } from "../_lib/yoco.js";
+import { createYocoCheckout } from "../_lib/yoco.js";
 import { refundYocoCheckout } from "../_lib/yocoRefund.js";
 import {
   requireCustomer,
@@ -625,7 +625,7 @@ export async function onRequestPost(context) {
 
     // ---- Hand back the Yoco checkout redirect payload ----
     const origin = new URL(request.url).origin;
-    const payment = buildYocoCheckout(env, {
+    const payment = await createYocoCheckout(env, {
       orderId: newOrderId,
       amount: totalAmount,
       itemName: `Fulude's Cafe Order #${newOrderId}`,

@@ -144,13 +144,6 @@
             <button class="btn btn-primary btn-block" id="checkoutBtn" disabled>
               Proceed to Checkout
             </button>
-            <button
-              type="button"
-              class="btn btn-secondary btn-block"
-              id="reservationBtn"
-            >
-              Book Reservation
-            </button>
           </div>
         </div>
       </div>
@@ -314,6 +307,10 @@
           <div class="form-group">
             <label for="special-instructions">Special Instructions</label>
             <textarea id="special-instructions" rows="3"></textarea>
+          </div>
+          <div class="form-group">
+            <label>Order Summary</label>
+            <div id="checkoutSummary" class="checkout-summary"></div>
           </div>
           <div class="form-group">
             <label>Payment</label>

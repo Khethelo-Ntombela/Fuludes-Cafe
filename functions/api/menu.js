@@ -45,11 +45,17 @@ export async function onRequest(context) {
       `),
       runQuery(context.env, `
         SELECT id, category_id, name, description, price, special_price, special_starts_at, special_ends_at, image_url,
+                 is_available, accepts_spice, accepts_addons, sort_order, drink_type
+        FROM menu_items
+        WHERE is_visible = TRUE
+        ORDER BY sort_order ASC, name ASC;
+      `).catch(() => runQuery(context.env, `
+        SELECT id, category_id, name, description, price, special_price, special_starts_at, special_ends_at, image_url,
                  is_available, accepts_spice, accepts_addons, sort_order
         FROM menu_items
         WHERE is_visible = TRUE
         ORDER BY sort_order ASC, name ASC;
-      `),
+      `)), // drink_type column not created yet (migration 008)
       runQuery(context.env, `
         SELECT mia.menu_item_id, a.id, a.name, a.price
         FROM menu_item_addons mia

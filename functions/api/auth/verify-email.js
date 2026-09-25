@@ -1,10 +1,17 @@
-import { runQuery, jsonResponse } from "../../_lib/db.js";
+import { runQuery } from "../../_lib/db.js";
 
+/**
+ * GET /api/auth/verify-email?token=...  (the link in the sign-up email)
+ * Always sends the browser back to the site with ?email_verified=yes|invalid|error,
+ * where site.js shows the result - never a bare text/JSON response, which
+ * some phone browsers offer to save as a file instead of showing it.
+ */
 export async function onRequestGet(context) {
   const { request, env } = context;
-  const token = new URL(request.url).searchParams.get("token") || "";
-  if (!token)
-    return jsonResponse({ error: "Verification token is required." }, 400);
+  const url = new URL(request.url);
+  const back = (result) => Response.redirect(`${url.origin}/home.html?email_verified=${result}`, 302);
+  const token = url.searchParams.get("token") || "";
+  if (!token) return back("invalid");
 
   try {
     const result = await runQuery(
@@ -18,10 +25,7 @@ export async function onRequestGet(context) {
       verification.used ||
       new Date(verification.expires_at) <= new Date()
     ) {
-      return jsonResponse(
-        { error: "This verification link is invalid or has expired." },
-        400,
-      );
+      return back("invalid");
     }
 
     await runQuery(
@@ -34,14 +38,8 @@ export async function onRequestGet(context) {
       "UPDATE email_verification_tokens SET used = TRUE WHERE token = $1;",
       [token],
     );
-    return new Response("Email verified. You can now sign in.", {
-      status: 200,
-      headers: { "content-type": "text/plain; charset=utf-8" },
-    });
+    return back("yes");
   } catch (err) {
-    return jsonResponse(
-      { error: "Failed to verify email.", message: err.message },
-      500,
-    );
+    return back("error");
   }
 }

@@ -19,7 +19,6 @@
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { sanitizeText } from "../../_lib/security.js";
-import { buildYocoCheckout } from "../../_lib/yoco.js";
 import { generateToken } from "../../_lib/password.js";
 import { logAudit } from "../../_lib/audit.js";
 import { calculateDeliveryFee } from "../../_lib/delivery.js";
@@ -210,23 +209,34 @@ export async function onRequestPost(context) {
         body.delivery_lat !== "" && body.delivery_lng !== "";
       const lat = hasCoords ? Number(body.delivery_lat) : NaN;
       const lng = hasCoords ? Number(body.delivery_lng) : NaN;
-      if (!deliveryAddress || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      const located = Number.isFinite(lat) && Number.isFinite(lng);
+      // Admin can set the fee by hand (e.g. an address beyond the fee bands, or
+      // one the geocoder can't find) - it's then used instead of the band price.
+      const override = body.delivery_fee_override;
+      const manualFee =
+        override !== undefined && override !== null && override !== "" && Number.isFinite(Number(override)) && Number(override) >= 0
+          ? Math.round(Number(override) * 100) / 100
+          : null;
+      if (!deliveryAddress || (!located && manualFee === null)) {
         return jsonResponse(
-          { error: "Enter the delivery address and let it be located (tap outside the box) before generating the link." },
+          { error: "Enter the delivery address and let it be located (tap outside the box), or set the delivery fee manually." },
           400,
         );
       }
-      const feeCalc = await calculateDeliveryFee(env, lat, lng);
-      if (feeCalc.too_far) {
-        return jsonResponse(
-          { error: `That address is too far to deliver to (about ${feeCalc.distance_km} km).`, too_far: true },
-          400,
-        );
+      if (located) {
+        const feeCalc = await calculateDeliveryFee(env, lat, lng);
+        if (feeCalc.too_far && manualFee === null) {
+          return jsonResponse(
+            { error: `That address is a bit far (about ${feeCalc.distance_km} km). Set the delivery fee manually to continue.`, too_far: true },
+            400,
+          );
+        }
+        deliveryFee = feeCalc.fee;
+        deliveryDistanceKm = feeCalc.distance_km;
+        deliveryLat = lat;
+        deliveryLng = lng;
       }
-      deliveryFee = feeCalc.fee;
-      deliveryDistanceKm = feeCalc.distance_km;
-      deliveryLat = lat;
-      deliveryLng = lng;
+      if (manualFee !== null) deliveryFee = manualFee;
     }
     if (orderType === "dine_in" && !tableNumber) {
       return jsonResponse({ error: "Enter the table number for a dine-in order." }, 400);
@@ -299,7 +309,8 @@ export async function onRequestPost(context) {
     });
 
     const origin = new URL(request.url).origin;
-    const payUrl = `${origin}/paylink.html?token=${token}`;
+    // Opens straight onto the Yoco payment page (functions/api/paylink.js).
+    const payUrl = `${origin}/api/paylink?token=${token}`;
 
     return jsonResponse({
       success: true,

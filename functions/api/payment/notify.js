@@ -1,5 +1,6 @@
 import { runQuery } from "../../_lib/db.js";
 import { logAudit } from "../../_lib/audit.js";
+import { queuePush } from "../../_lib/push.js";
 
 function toBase64(buffer) {
   let binary = "";
@@ -8,8 +9,34 @@ function toBase64(buffer) {
   return btoa(binary);
 }
 
+/**
+ * Yoco signs webhooks the "Standard Webhooks" way: HMAC-SHA256 over
+ * "<webhook-id>.<webhook-timestamp>.<body>" keyed with the base64 part of
+ * the whsec_... secret; webhook-signature holds "v1,<base64>" entries.
+ */
+async function verifyStandardWebhook(rawBody, request, env) {
+  const id = request.headers.get("webhook-id");
+  const timestamp = request.headers.get("webhook-timestamp");
+  const signatures = request.headers.get("webhook-signature");
+  if (!id || !timestamp || !signatures) return null; // not this scheme
+  if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return false; // replay guard: 5 minutes
+  let keyBytes;
+  try {
+    const secret = env.YOCO_WEBHOOK_SECRET.replace(/^whsec_/, "");
+    keyBytes = Uint8Array.from(atob(secret), (c) => c.charCodeAt(0));
+  } catch {
+    return false;
+  }
+  const key = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${id}.${timestamp}.${rawBody}`));
+  const expected = toBase64(signature);
+  return signatures.split(" ").some((entry) => entry.split(",")[1] === expected);
+}
+
 async function verifySignature(rawBody, request, env) {
   if (!env.YOCO_WEBHOOK_SECRET) return false;
+  const standard = await verifyStandardWebhook(rawBody, request, env);
+  if (standard !== null) return standard;
   const supplied =
     request.headers.get("x-yoco-signature") ||
     request.headers.get("x-signature") ||
@@ -64,7 +91,7 @@ function isSuccessful(payload) {
   ).toLowerCase();
   return (
     payload.paid === true ||
-    ["success", "successful", "paid", "complete", "completed"].some((value) =>
+    ["success", "succeeded", "paid", "complete", "completed"].some((value) =>
       status.includes(value),
     )
   );
@@ -96,6 +123,19 @@ export async function onRequestPost(context) {
         action: "payment_notify_invalid_signature",
       });
       return new Response("invalid signature", { status: 401 });
+    }
+
+    // Yoco Checkout API event: { type: "payment.succeeded", payload: { amount (cents),
+    // status, metadata: { checkoutId, order_id } } } - flatten it to the shape below.
+    // payment_ref becomes the checkout id (ch_...), which refunds need.
+    if (typeof payload.type === "string" && payload.payload && typeof payload.payload === "object") {
+      const inner = payload.payload;
+      payload = {
+        order_id: inner.metadata?.order_id,
+        amount: Number(inner.amount) / 100,
+        status: inner.status || (payload.type === "payment.succeeded" ? "succeeded" : payload.type),
+        id: inner.metadata?.checkoutId || inner.id,
+      };
     }
 
     const orderId = extractOrderId(payload);
@@ -208,7 +248,7 @@ export async function onRequestPost(context) {
       }
     }
 
-    await runQuery(
+    const paidUpdate = await runQuery(
       env,
       `
       UPDATE orders
@@ -216,10 +256,21 @@ export async function onRequestPost(context) {
           payment_confirmed_at = NOW(),
           kitchen_release_at = NOW() + INTERVAL '2 minutes',
           stock_decremented = TRUE
-      WHERE id = $2 AND payment_status = 'awaiting';
+      WHERE id = $2 AND payment_status = 'awaiting'
+      RETURNING id, total_amount, order_type;
     `,
       [paymentRef, orderId],
     );
+    const paid = paidUpdate.rows[0];
+    if (paid) {
+      const type = paid.order_type === "delivery" ? "Delivery" : paid.order_type === "dine_in" ? "Dine in" : "Collection";
+      queuePush(context, { roles: ["admin", "staff"] }, {
+        title: `New paid order #${paid.id}`,
+        body: `${type} · R${Number(paid.total_amount).toFixed(2)}`,
+        url: { admin: "/admin.html#orders", staff: "/staff.html" },
+        tag: `order-${paid.id}`,
+      });
+    }
     await logAudit(env, {
       actor_type: "payment_gateway",
       actor_role: "payment",

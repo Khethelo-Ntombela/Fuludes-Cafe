@@ -189,8 +189,57 @@ function renderCategoryTabs() {
   });
 }
 
+/** A category counts as drinks when its slug/name mentions drinks or beverages (keep in sync with admin.js). */
+function isDrinksCategory(cat) {
+  return !!cat && /drink|beverage/i.test(`${cat.slug} ${cat.name}`);
+}
+
+const DRINK_GROUPS = [
+  ["beverage", "Beverages"],
+  ["cocktail", "Cocktails"],
+  ["alcohol", "Alcohol"],
+  ["other", "Others"],
+];
+
+/** Drinks tab: a plain price list (no photos) grouped Beverages -> Cocktails -> Alcohol -> Others. */
+function renderDrinksList(grid, items) {
+  const byType = {};
+  for (const item of items) {
+    const type = DRINK_GROUPS.some(([key]) => key === item.drink_type) ? item.drink_type : "other";
+    (byType[type] || (byType[type] = [])).push(item);
+  }
+  grid.innerHTML = `<div class="drinks-list">${DRINK_GROUPS.filter(([key]) => byType[key])
+    .map(
+      ([key, label]) => `
+      <section class="drinks-group">
+        <h4 class="drinks-group-title">${label}</h4>
+        ${byType[key]
+          .map((item) => {
+            const priceHtml = item.is_on_special
+              ? `<span class="was-price">${money(item.price)}</span>${money(item.effective_price)}`
+              : money(item.price);
+            return `
+          <div class="drink-row${item.is_available ? "" : " sold-out"}" data-item="${item.id}">
+            <div class="drink-row-info">
+              <div class="order-card-header">
+                <span class="order-card-name">${item.name}</span>
+                <span class="order-card-dots" aria-hidden="true"></span>
+                <span class="order-card-price">${priceHtml}</span>
+              </div>
+              ${item.description ? `<p class="order-card-desc">${item.description}</p>` : ""}
+            </div>
+            <div class="order-card-footer" data-id="${item.id}">${cardControlsHtml(item)}</div>
+          </div>`;
+          })
+          .join("")}
+      </section>`,
+    )
+    .join("")}</div>`;
+}
+
 function renderOrderItems() {
   const grid = document.getElementById("orderItems");
+  grid.classList.remove("is-drinks");
 
   let items;
   if (searchQuery.trim()) {
@@ -202,13 +251,20 @@ function renderOrderItems() {
     }
   } else {
     const categoryBySlug = Object.fromEntries(categories.map((c) => [c.slug, c.id]));
+    // Drinks only appear under their own tab, never mixed into "All".
+    const drinkCategoryIds = new Set(categories.filter(isDrinksCategory).map((c) => c.id));
     items =
       activeCategorySlug === "all"
-        ? menuItems
+        ? menuItems.filter((item) => !drinkCategoryIds.has(item.category_id))
         : menuItems.filter((item) => item.category_id === categoryBySlug[activeCategorySlug]);
 
     if (items.length === 0) {
       grid.innerHTML = `<p class="menu-empty">No dishes in this category yet.</p>`;
+      return;
+    }
+    if (drinkCategoryIds.has(categoryBySlug[activeCategorySlug])) {
+      grid.classList.add("is-drinks");
+      renderDrinksList(grid, items);
       return;
     }
   }
@@ -774,6 +830,7 @@ function renderCart() {
 
   cartTotalEl.textContent = money(total);
   updateMobileCartBar(cart.reduce((n, l) => n + l.quantity, 0), total);
+  renderCheckoutSummary();
 
   cartItemsEl.querySelectorAll(".cart-item-remove").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -781,6 +838,54 @@ function renderCart() {
       renderCart();
     });
   });
+}
+
+/**
+ * The "Order Summary" inside the checkout modal: every line with its
+ * choices and extras, then subtotal, delivery fee and the total to pay -
+ * so the customer sees exactly what they're paying for before Yoco.
+ */
+function renderCheckoutSummary() {
+  const el = document.getElementById("checkoutSummary");
+  if (!el) return;
+  if (cart.length === 0) {
+    el.innerHTML = `<p class="cart-empty">Your cart is empty</p>`;
+    return;
+  }
+  let subtotal = 0;
+  const lines = cart
+    .map((line) => {
+      const extrasTotal = line.extras.reduce((s, e) => s + e.price, 0);
+      const lineTotal = (line.price + extrasTotal) * line.quantity;
+      subtotal += lineTotal;
+      const details = [
+        line.spiceLevel,
+        line.side ? `Side: ${line.side.name}` : "",
+        ...line.extras.map((e) => `+ ${e.name}`),
+      ].filter(Boolean);
+      return `<div class="checkout-summary-line">
+        <div><strong>${line.quantity} &times; ${line.name}</strong>${details.length ? `<div class="checkout-summary-detail">${details.join(" · ")}</div>` : ""}</div>
+        <span>${money(lineTotal)}</span>
+      </div>`;
+    })
+    .join("");
+
+  const isDelivery = orderTypeSelect?.value === "delivery";
+  let feeRow = "";
+  let fee = 0;
+  if (isDelivery) {
+    if (deliveryFeeLoading) feeRow = `<span><i class="fas fa-spinner fa-spin"></i> Calculating…</span>`;
+    else if (deliveryTooFar) feeRow = `<span>Not available</span>`;
+    else if (geocodedDeliveryLat !== null) {
+      fee = Number(deliveryFee) || 0;
+      feeRow = `<span>${money(fee)}</span>`;
+    } else feeRow = `<span class="checkout-summary-detail">Enter your address</span>`;
+    feeRow = `<div class="checkout-summary-row"><span>Delivery fee${deliveryDistanceKm && !deliveryTooFar ? ` (${deliveryDistanceKm} km)` : ""}</span>${feeRow}</div>`;
+  }
+  el.innerHTML = `${lines}
+    <div class="checkout-summary-row"><span>Subtotal</span><span>${money(subtotal)}</span></div>
+    ${feeRow}
+    <div class="checkout-summary-row checkout-summary-total"><span>Total to pay</span><span>${money(subtotal + fee)}</span></div>`;
 }
 
 // ---------------------------------------------------------------------
@@ -923,6 +1028,7 @@ async function handleDeliveryAddressBlur() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ address }),
+      signal: AbortSignal.timeout(25000),
     });
     const geoData = await safeJson(geoRes);
 
@@ -935,6 +1041,7 @@ async function handleDeliveryAddressBlur() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ lat: geoData.lat, lng: geoData.lng }),
+      signal: AbortSignal.timeout(15000),
     });
     const feeData = await safeJson(feeRes);
 
@@ -955,13 +1062,17 @@ async function handleDeliveryAddressBlur() {
         `${feeData.message} We found "${geoData.display_name}" (about ${feeData.distance_km} km away). If that's not the right place, add your suburb or village to the address. Otherwise call ${feeData.cafe_phone} or email ${feeData.cafe_email}.`
       );
     } else {
-      deliveryFee = feeData.fee;
+      deliveryFee = Number(feeData.fee) || 0;
       deliveryDistanceKm = feeData.distance_km;
       checkoutError.style.display = "none";
     }
   } catch (err) {
     resetDeliveryQuote();
-    showCheckoutError(err.message || "We couldn't find that address. Please check it and try again.");
+    showCheckoutError(
+      err.name === "TimeoutError"
+        ? "Looking up that address is taking too long. Please check your connection and try again."
+        : err.message || "We couldn't find that address. Please check it and try again.",
+    );
   } finally {
     deliveryFeeLoading = false;
     renderCart();
@@ -1201,22 +1312,9 @@ async function submitOrderCheckout(event) {
   }
 }
 
-/** Builds a hidden form and submits it to send the browser to the hosted Yoco checkout. */
+/** Hands the browser to the Yoco payment page (see goToYocoPayment in site.js). */
 function redirectToYoco(payment) {
-  const form = document.createElement("form");
-  form.method = "POST";
-  form.action = payment.action_url;
-
-  for (const [key, value] of Object.entries(payment.fields)) {
-    const input = document.createElement("input");
-    input.type = "hidden";
-    input.name = key;
-    input.value = value;
-    form.appendChild(input);
-  }
-
-  document.body.appendChild(form);
-  form.submit();
+  goToYocoPayment(payment);
 }
 
 function showCheckoutError(message) {

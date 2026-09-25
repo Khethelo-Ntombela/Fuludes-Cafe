@@ -498,3 +498,23 @@ ON CONFLICT (slug) DO NOTHING;
 INSERT INTO spice_levels (name, sort_order) VALUES
   ('Mild', 1), ('Medium', 2), ('Hot', 3), ('Extra Hot', 4)
 ON CONFLICT (name) DO NOTHING;
+
+-- ---------------------------------------------------------------------
+-- Drinks sub-type (migration 008) and push notifications (migration 009)
+-- ---------------------------------------------------------------------
+ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS drink_type TEXT; -- beverage | cocktail | alcohol | other (drinks only)
+
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id          SERIAL PRIMARY KEY,
+  role        TEXT NOT NULL,
+  customer_id INTEGER,
+  endpoint    TEXT NOT NULL UNIQUE,
+  p256dh      TEXT NOT NULL,
+  auth        TEXT NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS push_config (
+  id          INTEGER PRIMARY KEY DEFAULT 1,
+  public_key  TEXT NOT NULL,
+  private_key TEXT NOT NULL
+);
