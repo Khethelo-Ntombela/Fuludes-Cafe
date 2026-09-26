@@ -3390,3 +3390,33 @@ html {
   opacity: 0.6;
   cursor: default;
 }
+.catering-sent-note {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  border: 1px solid #e8d5b7;
+  background: #fbf6ea;
+  color: #3d3320;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+.catering-sent-note a {
+  color: #7a5f24;
+  font-weight: 600;
+}
+.catering-sent-note p {
+  margin: 0 0 10px;
+}
+.catering-sent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+}
+.catering-sent-actions .btn {
+  min-width: 96px;
+  padding: 10px 22px;
+}
+.catering-sent-wa {
+  font-size: 0.85rem;
+}
