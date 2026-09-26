@@ -217,9 +217,10 @@ function renderControlBar(allOrders) {
   const orders = allOrders.filter(kdsIsToday);
   const note = document.getElementById("sResetNote");
   if (note) note.textContent = kdsResetLabel();
-  const active = orders.filter((o) =>
-    ["New", "Preparing", "Ready", "Collection", "Delivery", "Out for Delivery"].includes(o.status),
-  );
+  // Only tickets the kitchen is still working on count towards ticket age,
+  // longest wait and load - once an order is out for collection/delivery
+  // it stops counting.
+  const active = orders.filter((o) => ["New", "Preparing", "Ready"].includes(o.status));
   const ages = active.map(kdsMinutes);
   const avgAge = ages.length
     ? Math.round(ages.reduce((s, m) => s + m, 0) / ages.length)

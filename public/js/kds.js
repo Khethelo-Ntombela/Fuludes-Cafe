@@ -236,7 +236,8 @@ function kdsBindBoard(container, orders, { onAction, confirmAction, onError }) {
       e.stopPropagation();
       const order = byId[el.dataset.openDetails];
       closeMenus();
-      if (order) kdsOpenDetails(order);
+      // The details window can finish the order itself (Collection / Delivery -> Completed).
+      if (order) kdsOpenDetails(order, (status) => dispatchAction(status, order.id, order));
     });
   });
 
@@ -291,7 +292,7 @@ document.addEventListener("click", () => {
 });
 
 /* ---------------- Details overlay ---------------- */
-function kdsOpenDetails(order) {
+function kdsOpenDetails(order, onAction) {
   let overlay = document.getElementById("kdsDetailOverlay");
   if (!overlay) {
     overlay = document.createElement("div");
@@ -332,6 +333,20 @@ function kdsOpenDetails(order) {
       ${order.special_instructions ? `<div class="row"><span>Note</span><span>${order.special_instructions}</span></div>` : ""}
       <ul>${itemsHtml}</ul>
     </div>
+    ${
+      onAction && ["Collection", "Delivery", "Out for Delivery"].includes(order.status)
+        ? `<button type="button" class="kds-complete-btn" id="kdsCompleteBtn"><i class="fas fa-circle-check"></i> Mark as Completed</button>`
+        : ""
+    }
   `;
+  const completeBtn = overlay.querySelector("#kdsCompleteBtn");
+  if (completeBtn) {
+    completeBtn.addEventListener("click", async () => {
+      completeBtn.disabled = true;
+      completeBtn.textContent = "Completing…";
+      await onAction("Completed");
+      overlay.classList.remove("active"); // the board refreshes and the order drops off it
+    });
+  }
   overlay.classList.add("active");
 }
