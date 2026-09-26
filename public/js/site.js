@@ -445,6 +445,8 @@ function switchAuthTab(tab) {
     }
     // update button label to match context
     setGoogleButtonLabel(tab === "signup" ? "Create account with Google" : "Sign in with Google");
+    // The window is visible now - (re)draw Google's real button at the right size.
+    requestAnimationFrame(() => renderGoogleButton(tab));
   }
   authTabsEl.style.display = tab === "forgot" ? "none" : "flex";
   signInError.style.display = "none";
@@ -599,34 +601,70 @@ function setGoogleButtonLabel(text) {
 }
 setGoogleButtonLabel("Sign in with Google");
 
+let googleSignInReady = false;
+
 function initGoogleSignIn() {
   const clientId = getGoogleClientId();
   if (!clientId) return;
   if (typeof google === "undefined" || !google.accounts || !google.accounts.id)
     return;
+  if (googleSignInReady) return; // Google's script and site.js can both call this - set up once
+  googleSignInReady = true;
 
   google.accounts.id.initialize({
     client_id: clientId,
     callback: handleGoogleCredential,
   });
+  renderGoogleButton();
+}
+// Google's script calls this when it finishes loading, whichever script loads first.
+window.onGoogleLibraryLoad = initGoogleSignIn;
 
-  // The real Google button is rendered into #googleSignInContainer, which
-  // is stacked invisibly (opacity: 0) directly on top of the styled
-  // #googleSignInBtn via CSS (position: absolute; inset: 0) - see the
-  // .auth-google markup. The user's click lands on Google's real button,
-  // which reliably opens the sign-in flow. We deliberately do NOT also
-  // wire #googleSignInBtn to google.accounts.id.prompt() - that's Google's
-  // "One Tap" prompt, which fails completely silently (no popup, no
-  // error) under common conditions like blocked third-party cookies or
-  // FedCM restrictions, and would double-fire alongside the overlay click.
+// A tap only reaches this invisible layer when Google's real button didn't
+// appear (e.g. the site's address isn't allowed for this Client ID, or
+// Google's script didn't load). Never let the button do nothing: try
+// Google's prompt, and say what's wrong if that can't open either.
+document.getElementById("googleSignInContainer")?.addEventListener("click", () => {
+  const showError = (text) => {
+    const signupOpen = document.getElementById("signUpForm")?.style.display !== "none";
+    const el = document.getElementById(signupOpen ? "signUpError" : "signInError");
+    if (!el) return alert(text);
+    el.textContent = text;
+    el.style.display = "block";
+  };
+  // Getting here means Google's button itself couldn't appear, so say so
+  // straight away, and still try Google's prompt in case that can open.
+  showError("Google sign-in isn't available right now. Please use your email and password, or try again later.");
+  if (googleSignInReady && typeof google !== "undefined") google.accounts.id.prompt();
+});
+
+/**
+ * The real Google button is rendered into #googleSignInContainer, which is
+ * stacked invisibly (opacity: 0) directly on top of the styled
+ * #googleSignInBtn - the user's tap lands on Google's real button, which
+ * opens the sign-in. (We don't use google.accounts.id.prompt(), the "One
+ * Tap" prompt, which fails silently when third-party cookies are blocked.)
+ *
+ * It must be drawn while the sign-in window is VISIBLE and at a pixel width
+ * (Google rejects "100%"): drawn while hidden it ends up 0x0 and taps land
+ * on nothing. So it's redrawn whenever the window opens or switches between
+ * Sign in / Create account.
+ */
+function renderGoogleButton(tab) {
+  if (!googleSignInReady) return;
   const container = document.getElementById("googleSignInContainer");
-  if (container) {
-    google.accounts.id.renderButton(container, {
-      theme: "outline",
-      size: "large",
-      width: "100%",
-    });
-  }
+  const gold = document.getElementById("googleSignInBtn");
+  if (!container || !gold) return;
+  const width = Math.round(gold.getBoundingClientRect().width);
+  if (width < 40) return; // window not open yet - drawn when it opens
+  container.innerHTML = "";
+  google.accounts.id.renderButton(container, {
+    theme: "outline",
+    size: "large",
+    shape: "rectangular",
+    text: tab === "signup" ? "signup_with" : "signin_with",
+    width: Math.min(400, width), // Google allows up to 400px
+  });
 }
 
 async function handleGoogleCredential(response) {

@@ -3353,3 +3353,15 @@ html {
     letter-spacing: 0.2px;
   }
 }
+
+/* Google's real (invisible) button must cover the whole gold button:
+   same height (Google's "large" button is ~44px) and centred over it. */
+.auth-google .btn-google {
+  padding: 8px 14px;
+  min-height: 44px;
+}
+#googleSignInContainer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
