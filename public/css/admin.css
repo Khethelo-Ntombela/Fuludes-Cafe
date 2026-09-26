@@ -3225,3 +3225,103 @@ button.kpi-card {
   border: 1px dashed var(--sa-border-strong);
   border-radius: 8px;
 }
+
+/* =====================================================================
+   Responsive admin (phones + tablets): nothing is cut off or pushed off
+   the screen - wide things scroll sideways inside their own box.
+   ===================================================================== */
+/* Top bar: on tablets the quick buttons show just their icon (title on hover),
+   and if space is still short they wrap instead of widening the page. */
+.admin-topbar,
+.topbar-search,
+.topbar-actions {
+  min-width: 0;
+}
+.topbar-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 6px;
+}
+@media (max-width: 1280px) {
+  .topbar-quick-btn > span {
+    display: none;
+  }
+  .topbar-quick-btn {
+    padding: 8px 10px;
+  }
+}
+@media (max-width: 1000px) {
+  .admin-topbar {
+    height: auto;
+    min-height: 56px;
+    flex-wrap: wrap;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  /* Kitchen board: one column per row, each scrolls on its own */
+  .kds-board {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .kds-col,
+  .kds-col-list,
+  .kds-card {
+    min-width: 0;
+  }
+  /* Buffet page: form above the events list */
+  .buffet-admin-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* No form field or card can force its column wider than the screen */
+.admin-main .form-row > *,
+.admin-main .form-group,
+.admin-main .sa-card,
+.admin-main .admin-form-card,
+.admin-main .admin-item-card,
+.admin-main .admin-item-info {
+  min-width: 0;
+}
+.admin-main input,
+.admin-main select,
+.admin-main textarea {
+  max-width: 100%;
+}
+.admin-main .admin-item-info,
+.admin-main .sa-list-main,
+.admin-main .admin-order-meta {
+  overflow-wrap: anywhere;
+}
+/* Tables and long rows scroll sideways (with a visible bar) instead of being cut off */
+@media (max-width: 900px) {
+  .admin-main table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .settings-tabs,
+  .po-chips,
+  .admin-tabs-strip {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+  .settings-tabs > *,
+  .po-chips > * {
+    flex-shrink: 0;
+  }
+}
+.admin-main ::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+.admin-main ::-webkit-scrollbar-thumb {
+  background: var(--sa-border-strong);
+  border-radius: 6px;
+}
+/* Sidebar: size to the visible screen on phones (browser toolbars can hide
+   the bottom of a 100vh menu) and scroll so every section can be reached. */
+.admin-sidebar {
+  height: 100dvh;
+  overscroll-behavior: contain;
+}
