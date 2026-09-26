@@ -75,7 +75,7 @@ function showCateringSent(body) {
   }
   const waLink = `https://wa.me/${CATERING_WHATSAPP}?text=${encodeURIComponent(body)}`;
   note.innerHTML = `
-    <p><strong>Thank you!</strong> Your inquiry has opened in your email app &mdash; just press <strong>Send</strong> there. We'll get back to you within 24 hours.</p>
+    <p><strong>Thank you!</strong> Your inquiry has opened in your email app - just press <strong>Send</strong> there. We'll get back to you within 24 hours.</p>
     <div class="catering-sent-actions">
       <button type="button" class="btn btn-primary" id="cateringSentOk">OK</button>
       <a href="${waLink}" target="_blank" rel="noopener" class="catering-sent-wa">Email didn't open? Send it on WhatsApp instead</a>
