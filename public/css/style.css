@@ -3323,3 +3323,33 @@ html {
     gap: 10px;
   }
 }
+
+/* "Sign in / Create account with Google" button: Google G logo */
+.btn-google {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.google-g-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #fff;
+  flex-shrink: 0;
+}
+.google-g {
+  display: block;
+}
+.btn-google span:last-child {
+  white-space: nowrap;
+}
+@media (max-width: 480px) {
+  .btn-google {
+    font-size: 0.86rem;
+    letter-spacing: 0.2px;
+  }
+}
