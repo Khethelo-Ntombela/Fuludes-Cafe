@@ -3358,3 +3358,35 @@ html {
   padding: 8px 14px;
   min-height: 44px;
 }
+
+/* Reservation window: "Your reservations" heading + Clear history */
+.reservation-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.reservation-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid #b42318;
+  border-radius: 999px;
+  background: transparent;
+  color: #b42318;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.reservation-clear-btn:hover {
+  background: #b42318;
+  color: #fff;
+}
+.reservation-clear-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

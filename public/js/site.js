@@ -1033,7 +1033,8 @@ async function loadExistingReservations() {
   const colors = { Confirmed: "#1a7f37", Cancelled: "#b42318", Pending: "#8a6d1d", AwaitingPayment: "#8a6d1d" };
   const labels = { AwaitingPayment: "Waiting for your pre-order payment" };
   reservationExisting.innerHTML =
-    `<h4 style="margin:0 0 8px">Your reservation${list.length > 1 ? "s" : ""}</h4>` +
+    `<div class="reservation-history-head"><h4 style="margin:0">Your reservation${list.length > 1 ? "s" : ""}</h4>` +
+    `<button type="button" class="reservation-clear-btn" id="reservationClearBtn"><i class="fas fa-trash-can"></i> Clear history</button></div>` +
     list.map((r) => {
       const date = r.reservation_date || r.date;
       const time = r.reservation_time || r.time;
@@ -1067,6 +1068,8 @@ async function loadExistingReservations() {
         ${action}
       </div>`;
     }).join("");
+  const clearBtn = document.getElementById("reservationClearBtn");
+  if (clearBtn) clearBtn.addEventListener("click", clearReservationHistory);
   reservationExisting.querySelectorAll("[data-pay-preorder]").forEach((btn) =>
     btn.addEventListener("click", async () => {
       btn.disabled = true;
@@ -1097,10 +1100,32 @@ async function loadExistingReservations() {
       });
     }),
   );
-  // One live booking at a time (the server enforces this per email too):
-  // the form only comes back once every booking is cancelled.
-  const hasLive = list.some((r) => (r.status || "Pending") !== "Cancelled");
-  reservationForm.style.display = hasLive ? "none" : "block";
+  // Existing bookings (even unpaid or unconfirmed ones) never block booking another table.
+  reservationForm.style.display = "block";
+}
+
+/**
+ * "Clear history": removes every booking from the customer's own list.
+ * Signed in, the server hides them on the account (the cafe still has them);
+ * the copy kept on this device for guests is wiped too.
+ */
+async function clearReservationHistory() {
+  if (!confirm("Clear your reservation history? Your bookings will be removed from this list. The cafe still has them - contact us if you need to change or cancel one.")) return;
+  const btn = document.getElementById("reservationClearBtn");
+  if (btn) btn.disabled = true;
+  try {
+    if (currentCustomer && customerToken) {
+      const res = await fetch("/api/reservations", { method: "DELETE", headers: { Authorization: `Bearer ${customerToken}` } });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || "Couldn't clear your reservation history.");
+    }
+    localStorage.removeItem(MY_RES_KEY);
+    localStorage.removeItem(ACTIVE_RES_KEY);
+    await loadExistingReservations();
+  } catch (err) {
+    alert(err.message);
+    if (btn) btn.disabled = false;
+  }
 }
 
 /** Remember the booking as the pre-order target and go to the cart (items already in it stay). */

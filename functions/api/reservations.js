@@ -8,6 +8,11 @@
  *
  * GET /api/reservations
  * Returns the reservations for the currently signed-in customer.
+ *
+ * DELETE /api/reservations
+ * "Clear history" for the signed-in customer: hides every one of their
+ * bookings from their own list (hidden_by_customer). The bookings stay in
+ * the database and on the admin Reservations tab.
  * -----------------------------------------------------------------------
  */
 import { runQuery, jsonResponse } from "../_lib/db.js";
@@ -20,12 +25,20 @@ import { logAudit } from "../_lib/audit.js";
 import { validateReservationSlot } from "../_lib/hours.js";
 import { queuePush } from "../_lib/push.js";
 
+let hiddenColumnReady = false;
+async function ensureHiddenByCustomerColumn(env) {
+  if (hiddenColumnReady) return;
+  await runQuery(env, "ALTER TABLE customer_reservations ADD COLUMN IF NOT EXISTS hidden_by_customer BOOLEAN NOT NULL DEFAULT FALSE;");
+  hiddenColumnReady = true;
+}
+
 export async function onRequestGet(context) {
   const { request, env } = context;
   const { customer, error } = await requireCustomer(request, env);
   if (error) return error;
 
   try {
+    await ensureHiddenByCustomerColumn(env);
     const result = await runQuery(
       env,
       `
@@ -37,7 +50,7 @@ export async function onRequestGet(context) {
              o.payment_status AS preorder_payment_status, o.total_amount AS preorder_total
       FROM customer_reservations r
       LEFT JOIN orders o ON o.id = r.advance_order_id
-      WHERE r.customer_id = $1
+      WHERE r.customer_id = $1 AND NOT r.hidden_by_customer
       ORDER BY r.reservation_date DESC, r.reservation_time DESC;
     `,
       [customer.id],
@@ -49,6 +62,24 @@ export async function onRequestGet(context) {
       { error: "Failed to load your reservations.", message: err.message },
       500,
     );
+  }
+}
+
+export async function onRequestDelete(context) {
+  const { request, env } = context;
+  const { customer, error } = await requireCustomer(request, env);
+  if (error) return error;
+
+  try {
+    await ensureHiddenByCustomerColumn(env);
+    const result = await runQuery(
+      env,
+      "UPDATE customer_reservations SET hidden_by_customer = TRUE WHERE customer_id = $1 AND NOT hidden_by_customer RETURNING id;",
+      [customer.id],
+    );
+    return jsonResponse({ success: true, cleared_count: result.rows.length });
+  } catch (err) {
+    return jsonResponse({ error: "Couldn't clear your reservation history.", message: err.message }, 500);
   }
 }
 
@@ -130,43 +161,9 @@ export async function onRequestPost(context) {
   }
 
   try {
-    // A pre-order booking that was never paid was abandoned - drop it so it
-    // doesn't block booking again (it was never shown to the admin).
-    await runQuery(
-      env,
-      `
-      DELETE FROM customer_reservations
-      WHERE LOWER(customer_email) = $1 AND status = 'AwaitingPayment'
-        AND (advance_order_id IS NULL
-             OR advance_order_id IN (SELECT id FROM orders WHERE payment_status <> 'paid'));
-    `,
-      [email],
-    );
-
-    // One live booking per email: a new one is only allowed once the
-    // previous one is Completed, Cancelled, or its date has passed.
-    const existing = await runQuery(
-      env,
-      `
-      SELECT id FROM customer_reservations
-      WHERE LOWER(customer_email) = $1
-        AND status IN ('Pending', 'Confirmed', 'AwaitingPayment')
-        AND reservation_date >= (NOW() AT TIME ZONE 'Africa/Johannesburg')::date
-      LIMIT 1;
-    `,
-      [email],
-    );
-    if (existing.rows[0]) {
-      return jsonResponse(
-        {
-          error:
-            "You already have a reservation with us under this email. Please wait until it has passed, or contact us to change it.",
-          existing_reservation_id: existing.rows[0].id,
-        },
-        409,
-      );
-    }
-
+    // Customers can hold several bookings at once - an earlier one that is
+    // still pending, confirmed or waiting for its pre-order payment no
+    // longer blocks booking another table.
     const result = await runQuery(
       env,
       `
