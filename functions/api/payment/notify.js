@@ -2,7 +2,8 @@ import { runQuery } from "../../_lib/db.js";
 import { logAudit } from "../../_lib/audit.js";
 import { queuePush } from "../../_lib/push.js";
 import { yocoWebhookSecrets, ensureYocoTables } from "../../_lib/yoco.js";
-import { confirmPreorderReservation } from "../../_lib/reservations.js";
+import { confirmPreorderReservation, cancelAndRefundOrder } from "../../_lib/reservations.js";
+import { takeOrderStock } from "../../_lib/stock.js";
 
 function toBase64(buffer) {
   let binary = "";
@@ -240,63 +241,12 @@ export async function onRequestPost(context) {
       return new Response("payment failed", { status: 200 });
     }
 
-    const items = await runQuery(
-      env,
-      `
-      SELECT oi.menu_item_id, SUM(oi.quantity)::int AS quantity, mi.stock_quantity
-      FROM order_items oi
-      LEFT JOIN menu_items mi ON mi.id = oi.menu_item_id
-      WHERE oi.order_id = $1
-      GROUP BY oi.menu_item_id, mi.stock_quantity;
-    `,
-      [orderId],
-    );
-    for (const item of items.rows) {
-      if (item.stock_quantity === null || item.stock_quantity === undefined)
-        continue;
-      const available = await runQuery(
-        env,
-        "SELECT id FROM menu_items WHERE id = $1 AND stock_quantity >= $2;",
-        [item.menu_item_id, item.quantity],
-      );
-      if (!available.rows.length) {
-        await runQuery(
-          env,
-          "UPDATE orders SET payment_status = 'failed' WHERE id = $1 AND payment_status = 'awaiting';",
-          [orderId],
-        );
-        await logAudit(env, {
-          actor_type: "payment_gateway",
-          action: "payment_notify_stock_mismatch",
-          target_type: "order",
-          target_id: orderId,
-        });
-        return new Response("stock mismatch", { status: 409 });
-      }
-    }
-    for (const item of items.rows) {
-      if (item.stock_quantity === null || item.stock_quantity === undefined)
-        continue;
-      const updated = await runQuery(
-        env,
-        `
-        UPDATE menu_items
-        SET stock_quantity = stock_quantity - $1,
-            is_available = (stock_quantity - $1 > 0)
-        WHERE id = $2 AND stock_quantity >= $1
-        RETURNING id;
-      `,
-        [item.quantity, item.menu_item_id],
-      );
-      if (!updated.rows.length) {
-        await runQuery(
-          env,
-          "UPDATE orders SET payment_status = 'failed' WHERE id = $1 AND payment_status = 'awaiting';",
-          [orderId],
-        );
-        return new Response("stock mismatch", { status: 409 });
-      }
-    }
+    // Stock is checked and taken only now, when the payment is complete.
+    // Several customers can be on Yoco for the last items at once - the
+    // first completed payment gets them; any later one finds them gone and
+    // is refunded automatically below.
+    const stockResult = await takeOrderStock(env, orderId);
+    const soldOutAfterPayment = stockResult.ok ? null : stockResult;
 
     const paidUpdate = await runQuery(
       env,
@@ -305,13 +255,25 @@ export async function onRequestPost(context) {
       SET payment_status = 'paid', payment_ref = $1,
           payment_confirmed_at = NOW(),
           kitchen_release_at = NOW() + INTERVAL '2 minutes',
-          stock_decremented = TRUE
+          stock_decremented = ($3::text IS NULL)
       WHERE id = $2 AND payment_status IN ('awaiting', 'failed') -- a retry on Yoco's page can succeed after a failed attempt
       RETURNING id, total_amount, order_type;
     `,
-      [paymentRef, orderId],
+      [paymentRef, orderId, soldOutAfterPayment ? "sold_out" : null],
     );
     const paid = paidUpdate.rows[0];
+    if (paid && soldOutAfterPayment) {
+      // Someone else's payment got the last stock first - refund this one automatically.
+      const refund = await cancelAndRefundOrder(env, orderId, "system");
+      await logAudit(env, {
+        actor_type: "payment_gateway",
+        action: "payment_after_sold_out_refunded",
+        target_type: "order",
+        target_id: orderId,
+        details: { sold_out: soldOutAfterPayment.sold_out, refund: refund.outcome, error: refund.error || null },
+      });
+      return new Response("sold out - refunded", { status: 200 });
+    }
     if (paid) {
       // A table booking waiting on this pre-order payment is now confirmed.
       await confirmPreorderReservation(context, paid.id);

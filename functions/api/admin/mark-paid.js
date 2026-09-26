@@ -35,7 +35,7 @@ export async function onRequestPost(context) {
   try {
     await ensureYocoTables(env).catch(() => {});
     const order = (
-      await runQuery(env, "SELECT id, total_amount, order_type, payment_status, yoco_checkout_id FROM orders WHERE id = $1;", [id])
+      await runQuery(env, "SELECT id, total_amount, order_type, payment_status, yoco_checkout_id, stock_decremented FROM orders WHERE id = $1;", [id])
     ).rows[0];
     if (!order) return jsonResponse({ error: "Order not found." }, 404);
     if (!["awaiting", "failed"].includes(order.payment_status)) {
@@ -56,12 +56,15 @@ export async function onRequestPost(context) {
     );
     if (!updated.rows.length) return jsonResponse({ error: "This order was just updated - refresh and check again." }, 409);
 
-    // Take the stock the payment webhook would have taken (never below zero).
-    const items = await runQuery(
-      env,
-      "SELECT menu_item_id, SUM(quantity)::int AS quantity FROM order_items WHERE order_id = $1 AND menu_item_id IS NOT NULL GROUP BY menu_item_id;",
-      [id],
-    );
+    // Take the stock the payment webhook would have taken (never below zero) -
+    // unless this order's stock was already taken.
+    const items = order.stock_decremented
+      ? { rows: [] }
+      : await runQuery(
+          env,
+          "SELECT menu_item_id, SUM(quantity)::int AS quantity FROM order_items WHERE order_id = $1 AND menu_item_id IS NOT NULL GROUP BY menu_item_id;",
+          [id],
+        );
     for (const item of items.rows) {
       await runQuery(
         env,
