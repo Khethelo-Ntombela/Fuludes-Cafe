@@ -10,6 +10,8 @@ let ready = false;
 export async function ensureCancelledByColumn(env) {
   if (ready) return;
   await runQuery(env, "ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancelled_by TEXT;");
+  // Why an order was cancelled, when the system did it (e.g. "Sold out: Coke, Pap").
+  await runQuery(env, "ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancel_reason TEXT;");
   // refund_ref / refund_error come from migration 004 - make sure they exist too.
   await runQuery(env, "ALTER TABLE orders ADD COLUMN IF NOT EXISTS refund_ref TEXT;");
   await runQuery(env, "ALTER TABLE orders ADD COLUMN IF NOT EXISTS refund_error TEXT;");

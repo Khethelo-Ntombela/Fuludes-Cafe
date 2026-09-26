@@ -94,7 +94,7 @@ function cancelledStatusLabel(order) {
         : order.cancelled_by === "admin"
           ? "Cancelled by admin"
           : order.cancelled_by === "system"
-            ? "Cancelled automatically (sold out after payment)"
+            ? `Cancelled automatically (${order.cancel_reason ? escapeHtml(order.cancel_reason) : "sold out"} - after payment)`
             : "Cancelled";
   if (order.payment_status === "refunded") {
     // The customer can only cancel inside the 2-minute window, where the refund is automatic.

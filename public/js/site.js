@@ -840,12 +840,25 @@ accountModal.addEventListener("click", (e) => {
   if (e.target === accountModal) accountModal.classList.remove("active");
 });
 
-document
-  .getElementById("viewMyOrdersFromAccountBtn")
-  .addEventListener("click", () => {
-    accountModal.classList.remove("active");
+// "Orders" link in the header, just left of the account/profile link.
+(function addNavOrdersLink() {
+  const actions = accountNavBtn?.parentElement;
+  if (!actions || document.getElementById("navOrdersLink")) return;
+  const link = document.createElement("a");
+  link.href = "#";
+  link.id = "navOrdersLink";
+  link.className = "nav-orders-link";
+  link.textContent = "Orders";
+  actions.insertBefore(link, accountNavBtn);
+  link.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (!currentCustomer) {
+      openAuthModal("signin", "Sign in to see your orders.");
+      return;
+    }
     openMyOrdersModal();
   });
+})();
 
 document.getElementById("logoutBtn").addEventListener("click", async () => {
   try {
@@ -1572,12 +1585,32 @@ function escapeAttr(str) {
  * The customer never paid, or paid but nothing's owed back - a flat
  * "cancelled" is accurate and enough.
  */
+/** "A", "A and B", "A, B and C" */
+function listNames(names) {
+  return names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/**
+ * The whole order is refunded when one or more of its items sold out
+ * before the payment completed (someone else's payment got them first).
+ */
+function soldOutRefundMessage(order) {
+  const names = String(order.cancel_reason || "")
+    .replace(/^Sold out:\s*/i, "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s && s !== "an item in the order");
+  const what = names.length ? `${listNames(names)} ${names.length > 1 ? "were" : "was"}` : "one of the items";
+  return `Sorry, your order #${order.id} was refunded because ${what} sold out before your payment went through. The money goes back to your card, usually within a few business days.`;
+}
+
 function cancelledMessage(order) {
   // Only a paid (or already refunded) order has money to give back -
   // never mention a refund for one that was never paid.
   if (!["paid", "refunded"].includes(order.payment_status)) {
     return "This order was cancelled.";
   }
+  if (order.cancelled_by === "system") return soldOutRefundMessage(order);
 
   if (order.payment_status === "refunded") {
     const when = order.refund_processed_at
@@ -1790,6 +1823,32 @@ myOrdersModal.addEventListener("click", (e) => {
 // `payment` query param. The real confirmation is the server-side ITN
 // webhook; this banner is just a friendly heads-up, not a source of truth.
 // ---------------------------------------------------------------------
+/** Polls My Orders for this order until the payment is confirmed or refunded (about 30 seconds max). */
+async function showPaymentOutcome(banner, orderId) {
+  for (let attempt = 0; attempt < 15; attempt++) {
+    if (!customerToken) break;
+    try {
+      const res = await fetch("/api/order/my", { headers: { Authorization: `Bearer ${customerToken}` } });
+      const order = res.ok ? ((await res.json()).orders || []).find((o) => Number(o.id) === orderId) : null;
+      if (order && order.status === "Cancelled") {
+        banner.textContent = order.cancelled_by === "system" ? soldOutRefundMessage(order) : cancelledMessage(order);
+        banner.className = "payment-banner cancelled";
+        return;
+      }
+      if (order && order.payment_status === "paid") {
+        banner.textContent = `Payment received - thank you! Order #${orderId} is confirmed and on its way to the kitchen.`;
+        banner.className = "payment-banner success";
+        return;
+      }
+    } catch {
+      /* try again */
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  banner.textContent = `Thank you! We're still confirming the payment for order #${orderId} - check Orders in a moment to see its status.`;
+  banner.className = "payment-banner success";
+}
+
 function checkPaymentReturn() {
   const params = new URLSearchParams(window.location.search);
   const emailVerified = params.get("email_verified");
@@ -1817,8 +1876,12 @@ function checkPaymentReturn() {
   const banner = document.getElementById("paymentBanner");
   if (!banner) return;
   if (paymentResult === "success") {
-    banner.textContent = `Payment received - thank you! Order #${orderId} is confirmed and on its way to the kitchen.`;
+    // Coming back from Yoco doesn't mean the order went through yet - the
+    // payment is confirmed (or refunded if an item sold out) moments later.
+    // Show what really happened to this order.
+    banner.textContent = `Thank you! Confirming your payment for order #${orderId}…`;
     banner.className = "payment-banner success";
+    showPaymentOutcome(banner, Number(orderId));
   } else {
     banner.textContent = `Payment was cancelled. Order #${orderId} is still saved but won't be sent to the kitchen until it's paid - contact us to complete payment, or place a new order to try again.`;
     banner.className = "payment-banner cancelled";

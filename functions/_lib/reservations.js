@@ -51,7 +51,7 @@ export async function confirmPreorderReservation(context, orderId) {
  * A failed refund leaves refund_needed = TRUE so it shows in admin Order
  * History with the "Refund via Yoco" button.
  */
-export async function cancelAndRefundOrder(env, orderId, cancelledBy) {
+export async function cancelAndRefundOrder(env, orderId, cancelledBy, reason = null) {
   await ensureCancelledByColumn(env);
   await ensureYocoTables(env).catch(() => {});
   const order = (
@@ -76,9 +76,10 @@ export async function cancelAndRefundOrder(env, orderId, cancelledBy) {
 
   await runQuery(
     env,
-    `UPDATE orders SET status = 'Cancelled', cancelled_by = COALESCE(cancelled_by, $2), refund_needed = TRUE
+    `UPDATE orders SET status = 'Cancelled', cancelled_by = COALESCE(cancelled_by, $2), refund_needed = TRUE,
+            cancel_reason = COALESCE($3, cancel_reason)
       WHERE id = $1 AND payment_status = 'paid';`,
-    [orderId, cancelledBy],
+    [orderId, cancelledBy, reason],
   );
   await restoreOrderStock(env, orderId); // cancelled pre-order: its items go back into stock
 

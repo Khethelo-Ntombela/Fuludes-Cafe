@@ -264,7 +264,8 @@ export async function onRequestPost(context) {
     const paid = paidUpdate.rows[0];
     if (paid && soldOutAfterPayment) {
       // Someone else's payment got the last stock first - refund this one automatically.
-      const refund = await cancelAndRefundOrder(env, orderId, "system");
+      const names = (soldOutAfterPayment.sold_out || []).filter(Boolean);
+      const refund = await cancelAndRefundOrder(env, orderId, "system", `Sold out: ${names.join(", ") || "an item in the order"}`);
       await logAudit(env, {
         actor_type: "payment_gateway",
         action: "payment_after_sold_out_refunded",
