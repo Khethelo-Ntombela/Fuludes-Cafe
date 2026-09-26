@@ -11,7 +11,7 @@ import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireStaff } from "../../_lib/auth.js";
 import { getRequestIp } from "../../_lib/security.js";
 import { queueOrderStatusPush } from "../../_lib/push.js";
-import { ensureCancelledByColumn } from "../../_lib/orderCancel.js";
+import { ensureCancelledByColumn, restoreOrderStock } from "../../_lib/orderCancel.js";
 import { logAudit } from "../../_lib/audit.js";
 
 const ALLOWED_STATUSES = [
@@ -189,6 +189,8 @@ export async function onRequestPost(context) {
     }
 
     const updatedOrder = updateResult.rows[0];
+    // A cancelled order's items go back into stock.
+    if (nextStatus === "Cancelled") await restoreOrderStock(env, orderId);
     await logAudit(env, {
       actor_type: "staff",
       actor_role: "staff",

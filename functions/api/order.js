@@ -56,7 +56,7 @@ import {
 import { sanitizeText, getRequestIp } from "../_lib/security.js";
 import { logAudit } from "../_lib/audit.js";
 import { isOpenNow, CLOSED_MESSAGE } from "../_lib/hours.js";
-import { ensureCancelledByColumn } from "../_lib/orderCancel.js";
+import { ensureCancelledByColumn, restoreOrderStock } from "../_lib/orderCancel.js";
 import { MAX_DELIVERY_KM } from "../_lib/delivery.js";
 
 const CUSTOMER_CANCEL_WINDOW_MS = 2 * 60 * 1000; // keep in sync with CUSTOMER_CANCEL_WINDOW_MS in public/js/main.js
@@ -200,6 +200,9 @@ export async function onRequestPut(context) {
         400,
       );
     }
+
+    // The items go back into stock.
+    await restoreOrderStock(env, orderId);
 
     // Customer-initiated cancellation itself is not written to audit_logs
     // (audit reserved for admin/staff actions) - but the refund below is a

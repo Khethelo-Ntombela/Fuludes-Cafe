@@ -17,7 +17,7 @@ import { logAudit } from "./audit.js";
 import { queuePush } from "./push.js";
 import { refundYocoCheckout } from "./yocoRefund.js";
 import { ensureYocoTables } from "./yoco.js";
-import { ensureCancelledByColumn } from "./orderCancel.js";
+import { ensureCancelledByColumn, restoreOrderStock } from "./orderCancel.js";
 
 /** Called once an order is paid: confirms the booking it pre-orders for (if any) and tells the admin. */
 export async function confirmPreorderReservation(context, orderId) {
@@ -70,6 +70,7 @@ export async function cancelAndRefundOrder(env, orderId, cancelledBy) {
       "UPDATE orders SET status = 'Cancelled', cancelled_by = $2 WHERE id = $1 AND status <> 'Cancelled';",
       [orderId, cancelledBy],
     );
+    await restoreOrderStock(env, orderId); // (only if its stock was ever taken)
     return { outcome: "not_paid" };
   }
 
@@ -79,6 +80,7 @@ export async function cancelAndRefundOrder(env, orderId, cancelledBy) {
       WHERE id = $1 AND payment_status = 'paid';`,
     [orderId, cancelledBy],
   );
+  await restoreOrderStock(env, orderId); // cancelled pre-order: its items go back into stock
 
   const checkoutId = [order.payment_ref, order.yoco_checkout_id].find((r) => r && String(r).startsWith("ch_"));
   if (!checkoutId) {
