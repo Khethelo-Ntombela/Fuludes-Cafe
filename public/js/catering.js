@@ -30,12 +30,39 @@ function renderCateringGallery() {
   });
 }
 
-// Simple inquiry - no backend endpoint yet, shows a confirmation locally;
-// wire this up to an /api/catering route if the cafe wants inquiries saved to Neon too.
+// Catering inquiries go to orders@fuludescafe.co.za: the form opens the
+// customer's email app with a ready-to-send message (no email service needed).
+const CATERING_INQUIRY_EMAIL = "orders@fuludescafe.co.za";
+
 document.getElementById("cateringForm").addEventListener("submit", (e) => {
   e.preventDefault();
-  alert("Thank you for your inquiry! Our catering team will contact you within 24 hours.");
-  e.target.reset();
+  const val = (id) => document.getElementById(id).value.trim();
+  const name = val("catName");
+  const body = [
+    "Hi Fulude's Cafe,",
+    "",
+    "I'd like to book your catering service.",
+    "",
+    `Name: ${name}`,
+    `Email: ${val("catEmail")}`,
+    `Phone: ${val("catPhone")}`,
+    `Event date: ${val("catDate")}`,
+    `Estimated guests: ${val("catGuests")}`,
+    "",
+    "Additional details:",
+    val("catMessage") || "-",
+  ].join("\n");
+  const subject = `Catering inquiry - ${name}${val("catDate") ? ` - ${val("catDate")}` : ""}`;
+  window.location.href = `mailto:${CATERING_INQUIRY_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+  let note = document.getElementById("cateringSentNote");
+  if (!note) {
+    note = document.createElement("p");
+    note.id = "cateringSentNote";
+    note.className = "catering-sent-note";
+    e.target.appendChild(note);
+  }
+  note.innerHTML = `Your email app should now open with your inquiry - just press <strong>Send</strong>. If nothing opened, email us at <a href="mailto:${CATERING_INQUIRY_EMAIL}">${CATERING_INQUIRY_EMAIL}</a> or WhatsApp <a href="https://wa.me/27663649016">+27 66 364 9016</a>.`;
 });
 
 renderCateringGallery();
