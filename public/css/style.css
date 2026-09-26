@@ -1372,10 +1372,9 @@ body {
   background: transparent;
   color: var(--charcoal);
   cursor: pointer;
-  font: inherit;
-  font-size: 0.8rem;
-  font-weight: 600;
-  padding: 4px;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 6px;
 }
 
 .password-visibility-toggle:hover,

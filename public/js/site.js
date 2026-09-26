@@ -149,13 +149,16 @@ function addPasswordVisibilityToggle(inputId) {
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "password-visibility-toggle";
-  toggle.textContent = "Show";
+  // Eye icon only (no "Show"/"Hide" text); the label keeps it clear for screen readers.
+  toggle.innerHTML = '<i class="fas fa-eye" aria-hidden="true"></i>';
   toggle.setAttribute("aria-label", "Show password");
+  toggle.title = "Show password";
   toggle.addEventListener("click", () => {
     const isVisible = input.type === "text";
     input.type = isVisible ? "password" : "text";
-    toggle.textContent = isVisible ? "Show" : "Hide";
+    toggle.innerHTML = `<i class="fas ${isVisible ? "fa-eye" : "fa-eye-slash"}" aria-hidden="true"></i>`;
     toggle.setAttribute("aria-label", `${isVisible ? "Show" : "Hide"} password`);
+    toggle.title = `${isVisible ? "Show" : "Hide"} password`;
   });
   wrapper.appendChild(toggle);
 }
