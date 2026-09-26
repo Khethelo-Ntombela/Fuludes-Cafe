@@ -1,7 +1,7 @@
 /* Service worker: makes the site installable as an app and gives an offline
    fallback. API calls are never cached (orders/payments must be live). */
-const CACHE = "fulude-shell-v4";
-const SHELL = ["/home.html", "/offline.html", "/css/style.css", "/js/site.js", "/icon-192.png"];
+const CACHE = "fulude-shell-v5";
+const SHELL = ["/home.html", "/offline.html", "/css/style.css", "/js/site.js", "/icon-192.png?v=2"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -45,8 +45,8 @@ self.addEventListener("push", (e) => {
   e.waitUntil(
     self.registration.showNotification(data.title || "Fulude's Cafe", {
       body: data.body || "",
-      icon: "/icon-192.png",
-      badge: "/icon-192.png",
+      icon: "/icon-192.png?v=2",
+      badge: "/icon-192.png?v=2",
       tag: data.tag,
       renotify: Boolean(data.tag),
       data: { url: data.url || "/" },
