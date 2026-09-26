@@ -2696,9 +2696,16 @@
 .po-jump-btn {
   display: none;
 }
+/* Both columns may shrink to the screen: without min-width 0 the one-line
+   row of category chips stretches the menu column wider than the phone,
+   and everything past the screen edge gets cut off. */
+.place-order-main,
+.place-order-sidebar {
+  min-width: 0;
+}
 @media (max-width: 900px) {
   .place-order-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .place-order-sidebar {
     position: static;

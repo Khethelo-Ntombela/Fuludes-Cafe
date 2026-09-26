@@ -1,10 +1,24 @@
 /**
  * functions/api/auth/google.js
  * -----------------------------------------------------------------------
- * POST /api/auth/google  { id_token }
- * Exchanges a Google ID token issued by the client for a local session.
- * The server verifies the token with Google's tokeninfo endpoint and
- * upserts a `customers` row with `google_id` and `is_verified = TRUE`.
+ * POST /api/auth/google
+ * Exchanges a Google ID token for a local session. Two ways in:
+ *
+ *  1. Redirect flow (what the site uses): the "Sign in with Google" button
+ *     sends the whole page to Google with response_mode=form_post, and
+ *     Google POSTs back here as a form { id_token, state }. We verify it,
+ *     then 303-redirect back to the page the customer started on with the
+ *     session token in the URL fragment (#google_token=...), which site.js
+ *     picks up. No popup and no iframe, so it works in iPhone Safari, the
+ *     installed app, and in-app browsers where Google's popup silently fails.
+ *     `state` is "<nonce>.<return path>"; the nonce must match the
+ *     g_oauth_nonce cookie site.js set just before leaving AND the nonce
+ *     claim inside the ID token (stops login-CSRF and token replay).
+ *
+ *  2. JSON { id_token } - kept for API clients that already have a token.
+ *
+ * The token is verified with Google's tokeninfo endpoint, then a
+ * `customers` row is upserted with `google_id` and `is_verified = TRUE`.
  * Google accounts never get a stored password_hash/salt per FR07.
  * -----------------------------------------------------------------------
  */
@@ -12,38 +26,103 @@ import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { generateToken } from "../../_lib/password.js";
 import { ensureCustomerProfileColumns } from "../../_lib/customerAuth.js";
 
+const NONCE_COOKIE = "g_oauth_nonce";
+
 export async function onRequestPost(context) {
-  const { request, env } = context;
+  const { request } = context;
+  const contentType = request.headers.get("Content-Type") || "";
+  if (contentType.includes("application/x-www-form-urlencoded") || contentType.includes("multipart/form-data")) {
+    return handleRedirectFlow(context);
+  }
+
   let body;
   try {
     body = await request.json();
   } catch {
     return jsonResponse({ error: 'Invalid JSON body.' }, 400);
   }
+  if (!body.id_token) return jsonResponse({ error: 'Missing id_token.' }, 400);
 
-  const idToken = body.id_token;
-  if (!idToken) return jsonResponse({ error: 'Missing id_token.' }, 400);
+  const result = await signInWithGoogleToken(context.env, body.id_token, null);
+  if (result.error) return jsonResponse({ error: result.error, message: result.message }, result.status);
+  return jsonResponse({ success: true, token: result.token, customer: result.customer });
+}
 
+/** Google's form_post callback - always answers with a redirect back to the site. */
+async function handleRedirectFlow(context) {
+  const { request, env } = context;
+  let form;
+  try {
+    form = await request.formData();
+  } catch {
+    form = new FormData();
+  }
+  const state = String(form.get("state") || "");
+  const dot = state.indexOf(".");
+  const nonce = dot > 0 ? state.slice(0, dot) : "";
+  const returnPath = safeReturnPath(dot > 0 ? state.slice(dot + 1) : "");
+
+  const back = (fragment) =>
+    new Response(null, {
+      status: 303,
+      headers: {
+        Location: `${returnPath}#${fragment}`,
+        // one-time nonce - clear it whatever happened
+        "Set-Cookie": `${NONCE_COOKIE}=; Path=/; Max-Age=0; Secure; SameSite=None`,
+        "Cache-Control": "no-store",
+      },
+    });
+  const fail = (message) => back(`google_error=${encodeURIComponent(message)}`);
+
+  // Customer pressed "Cancel" on Google's page, or Google refused the request.
+  if (form.get("error")) {
+    return fail(form.get("error") === "access_denied" ? "Google sign-in was cancelled." : "Google sign-in failed. Please try again.");
+  }
+
+  const cookieNonce = readCookie(request.headers.get("Cookie"), NONCE_COOKIE);
+  if (!nonce || !cookieNonce || cookieNonce !== nonce) {
+    return fail("Google sign-in expired. Please try again.");
+  }
+
+  const idToken = String(form.get("id_token") || "");
+  if (!idToken) return fail("Google sign-in failed. Please try again.");
+
+  const result = await signInWithGoogleToken(env, idToken, nonce);
+  if (result.error) {
+    return fail(result.status >= 500 ? "Google sign-in failed. Please try again." : result.message || result.error);
+  }
+  return back(`google_token=${encodeURIComponent(result.token)}`);
+}
+
+/**
+ * Verifies a Google ID token and returns { token, customer } for a new
+ * local session, or { error, message, status }. If `expectedNonce` is
+ * given, the token's nonce claim must match it.
+ */
+async function signInWithGoogleToken(env, idToken, expectedNonce) {
   try {
     // Verify token with Google's tokeninfo endpoint
     const verifyRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
-    if (!verifyRes.ok) return jsonResponse({ error: 'Invalid Google ID token.' }, 401);
+    if (!verifyRes.ok) return { error: 'Invalid Google ID token.', status: 401 };
     const payload = await verifyRes.json();
 
     // GOOGLE_CLIENT_ID must be configured server-side, or any Google ID token
     // from ANY app (not just this one) would be accepted. Treat as required.
     if (!env.GOOGLE_CLIENT_ID) {
-      return jsonResponse({ error: 'Google sign-in is not configured.' }, 500);
+      return { error: 'Google sign-in is not configured.', status: 500 };
     }
     if (payload.aud !== env.GOOGLE_CLIENT_ID) {
-      return jsonResponse({ error: 'Token audience mismatch.' }, 401);
+      return { error: 'Token audience mismatch.', status: 401 };
+    }
+    if (expectedNonce !== null && payload.nonce !== expectedNonce) {
+      return { error: 'Google sign-in expired. Please try again.', status: 401 };
     }
 
     const email = (payload.email || '').toLowerCase();
     const name = payload.name || '';
     const googleId = payload.sub;
 
-    if (!email || !googleId) return jsonResponse({ error: 'Google token missing required fields.' }, 400);
+    if (!email || !googleId) return { error: 'Google token missing required fields.', status: 400 };
 
     await ensureCustomerProfileColumns(env);
 
@@ -58,7 +137,11 @@ export async function onRequestPost(context) {
       // flip is_verified on a bare email match - require the user to prove
       // ownership via their existing password first.
       if (row.password_hash && !row.google_id) {
-        return jsonResponse({ error: 'account_exists_use_password', message: 'An account with this email already exists. Please sign in with your password, then link Google from your account settings.' }, 409);
+        return {
+          error: 'account_exists_use_password',
+          message: 'An account with this email already exists. Please sign in with your password instead.',
+          status: 409,
+        };
       }
       customerId = row.id;
       await runQuery(env, "UPDATE customers SET google_id = $1, is_verified = TRUE, name = COALESCE(NULLIF($2, ''), name) WHERE id = $3;", [googleId, name, customerId]);
@@ -77,8 +160,31 @@ export async function onRequestPost(context) {
 
     // Google sign-in not written to audit_logs (audit reserved for admin/staff actions)
 
-    return jsonResponse({ success: true, token, customer });
+    return { token, customer };
   } catch (err) {
-    return jsonResponse({ error: 'Google sign-in failed.', message: err.message }, 500);
+    return { error: 'Google sign-in failed.', message: err.message, status: 500 };
   }
+}
+
+/** Only same-site paths like "/menu" - never "//evil.com" or "https://...". */
+function safeReturnPath(path) {
+  let decoded = "";
+  try {
+    decoded = decodeURIComponent(path);
+  } catch {
+    return "/home";
+  }
+  if (!decoded.startsWith("/") || decoded.startsWith("//") || decoded.includes("\\") || decoded.includes("#")) {
+    return "/home";
+  }
+  return decoded;
+}
+
+function readCookie(header, name) {
+  if (!header) return "";
+  for (const part of header.split(";")) {
+    const [k, ...v] = part.trim().split("=");
+    if (k === name) return v.join("=");
+  }
+  return "";
 }

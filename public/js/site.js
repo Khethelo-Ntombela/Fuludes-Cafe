@@ -168,6 +168,11 @@ addPasswordVisibilityToggle("signup-password");
 
 /** Runs once on page load: confirms any stored token is still valid, and opens the reset-password form if we landed here from an emailed link. */
 async function initAuth() {
+  const googleResult = takeGoogleRedirectResult();
+  if (googleResult.token) {
+    customerToken = googleResult.token;
+    localStorage.setItem(CUSTOMER_TOKEN_KEY, customerToken);
+  }
   if (customerToken) {
     try {
       const res = await fetch("/api/auth/me", {
@@ -193,11 +198,17 @@ async function initAuth() {
     /* ignore */
   }
 
-  // Initialize optional Google Sign-In if configured
-  try {
-    initGoogleSignIn();
-  } catch (e) {
-    /* ignore if GIS missing */
+  // Back from Google's sign-in page: finish what the customer was doing.
+  if (googleResult.token && currentCustomer) {
+    if (googleResult.checkout) {
+      pendingCheckoutAfterAuth = true;
+      onAuthSuccess(customerToken, currentCustomer);
+    }
+  } else if (googleResult.error) {
+    pendingCheckoutAfterAuth = googleResult.checkout;
+    openAuthModal("signin");
+    signInError.textContent = googleResult.error;
+    signInError.style.display = "block";
   }
 
   const params = new URLSearchParams(window.location.search);
@@ -445,8 +456,6 @@ function switchAuthTab(tab) {
     }
     // update button label to match context
     setGoogleButtonLabel(tab === "signup" ? "Create account with Google" : "Sign in with Google");
-    // The window is visible now - (re)draw Google's real button at the right size.
-    requestAnimationFrame(() => renderGoogleButton(tab));
   }
   authTabsEl.style.display = tab === "forgot" ? "none" : "flex";
   signInError.style.display = "none";
@@ -601,83 +610,71 @@ function setGoogleButtonLabel(text) {
 }
 setGoogleButtonLabel("Sign in with Google");
 
-let googleSignInReady = false;
-
-function initGoogleSignIn() {
-  const clientId = getGoogleClientId();
-  if (!clientId) return;
-  if (typeof google === "undefined" || !google.accounts || !google.accounts.id)
-    return;
-  if (googleSignInReady) return; // Google's script and site.js can both call this - set up once
-  googleSignInReady = true;
-
-  google.accounts.id.initialize({
-    client_id: clientId,
-    callback: handleGoogleCredential,
-  });
-  renderGoogleButton();
-}
-// Google's script calls this when it finishes loading, whichever script loads first.
-window.onGoogleLibraryLoad = initGoogleSignIn;
-
-
-
 /**
- * The real Google button is rendered into #googleSignInContainer, which is
- * stacked invisibly (opacity: 0) directly on top of the styled
- * #googleSignInBtn - the user's tap lands on Google's real button, which
- * opens the sign-in. (We don't use google.accounts.id.prompt(), the "One
- * Tap" prompt, which fails silently when third-party cookies are blocked.)
+ * "Sign in / Create account with Google" sends the whole page to Google's
+ * sign-in (OpenID Connect, response_mode=form_post). Google then POSTs the
+ * ID token to /api/auth/google, which creates the session and redirects
+ * back here with #google_token=... (or #google_error=...) for
+ * takeGoogleRedirectResult() to pick up.
  *
- * It must be drawn while the sign-in window is VISIBLE and at a pixel width
- * (Google rejects "100%"): drawn while hidden it ends up 0x0 and taps land
- * on nothing. So it's redrawn whenever the window opens or switches between
- * Sign in / Create account.
+ * (The old approach - Google's button in an invisible iframe that opened a
+ * popup - did nothing on iPhones, in the installed app and in in-app
+ * browsers, where the popup is blocked or can't report back.)
+ *
+ * The nonce goes to Google as both `state` and `nonce`, and into a cookie
+ * the server compares against - so a sign-in can't be started by another
+ * site or replayed. The cart is in localStorage so it survives the trip;
+ * a pending checkout is remembered in sessionStorage.
  */
-function renderGoogleButton(tab) {
-  if (!googleSignInReady) return;
-  const container = document.getElementById("googleSignInContainer");
-  const gold = document.getElementById("googleSignInBtn");
-  if (!container || !gold) return;
-  const width = Math.round(gold.getBoundingClientRect().width);
-  if (width < 40) return; // window not open yet - drawn when it opens
-  container.innerHTML = "";
-  google.accounts.id.renderButton(container, {
-    theme: "outline",
-    size: "large",
-    shape: "rectangular",
-    text: tab === "signup" ? "signup_with" : "signin_with",
-    width: Math.min(400, width), // Google allows up to 400px
+const GOOGLE_CHECKOUT_KEY = "fulude_google_checkout";
+
+function startGoogleSignIn() {
+  const clientId = getGoogleClientId();
+  if (!clientId) {
+    signInError.textContent = "Google sign-in is not available right now.";
+    signInError.style.display = "block";
+    return;
+  }
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  const nonce = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  document.cookie = `g_oauth_nonce=${nonce}; Path=/; Max-Age=600; Secure; SameSite=None`;
+  try {
+    if (pendingCheckoutAfterAuth) sessionStorage.setItem(GOOGLE_CHECKOUT_KEY, "1");
+    else sessionStorage.removeItem(GOOGLE_CHECKOUT_KEY);
+  } catch {
+    /* private mode - checkout just won't auto-resume */
+  }
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: `${location.origin}/api/auth/google`,
+    response_type: "id_token",
+    response_mode: "form_post",
+    scope: "openid email profile",
+    nonce,
+    state: `${nonce}.${encodeURIComponent(location.pathname + location.search)}`,
+    prompt: "select_account",
   });
+  location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
 }
 
-async function handleGoogleCredential(response) {
-  if (!response || !response.credential) return;
+const googleSignInBtn = document.getElementById("googleSignInBtn");
+if (googleSignInBtn) googleSignInBtn.addEventListener("click", startGoogleSignIn);
+
+/** Reads (and clears from the address bar) the result of a Google sign-in redirect. */
+function takeGoogleRedirectResult() {
+  const result = { token: null, error: null, checkout: false };
+  const hash = new URLSearchParams(location.hash.slice(1));
+  result.token = hash.get("google_token");
+  result.error = hash.get("google_error");
+  if (!result.token && !result.error) return result;
+  history.replaceState({}, document.title, location.pathname + location.search);
   try {
-    const res = await fetch("/api/auth/google", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id_token: response.credential }),
-    });
-    const data = await res.json();
-    if (!res.ok || !data.success) {
-      if (data.error === "account_exists_use_password") {
-        throw new Error(
-          data.message ||
-            "An account with this email already exists. Please sign in with your password instead.",
-        );
-      }
-      throw new Error(data.error || "Google sign-in failed");
-    }
-    onAuthSuccess(data.token, data.customer);
-  } catch (err) {
-    // surface error in sign-in form area
-    const el = document.getElementById("signInError");
-    if (el) {
-      el.textContent = err.message || "Google sign-in failed";
-      el.style.display = "block";
-    }
+    result.checkout = sessionStorage.getItem(GOOGLE_CHECKOUT_KEY) === "1";
+    sessionStorage.removeItem(GOOGLE_CHECKOUT_KEY);
+  } catch {
+    /* ignore */
   }
+  return result;
 }
 
 // ---- Reset password (from the emailed link) ----
