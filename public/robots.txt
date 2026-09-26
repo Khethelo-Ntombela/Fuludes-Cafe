@@ -1,11 +1,11 @@
 User-agent: *
 Allow: /
-Allow: /home.html
-Allow: /privacy.html
+Allow: /home
+Allow: /privacy
 Allow: /css/
 Allow: /js/
-Disallow: /admin.html
-Disallow: /staff.html
+Disallow: /admin
+Disallow: /staff
 Disallow: /functions/
 Disallow: /api/admin/
 Disallow: /api/staff/
