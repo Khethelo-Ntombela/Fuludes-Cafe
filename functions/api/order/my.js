@@ -14,6 +14,7 @@
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireCustomer } from "../../_lib/customerAuth.js";
 import { ensureCancelledByColumn } from "../../_lib/orderCancel.js";
+import { queueDueNewOrderPushes } from "../../_lib/push.js";
 
 const MAX_ORDERS = 100;
 
@@ -22,6 +23,8 @@ export async function onRequestGet(context) {
   const { customer, error } = await requireCustomer(request, env);
   if (error) return error;
 
+  // Sends the "new paid order" notification for orders whose 2-minute window just ended.
+  queueDueNewOrderPushes(context);
   try {
     await ensureCancelledByColumn(env);
     const ordersResult = await runQuery(env, `

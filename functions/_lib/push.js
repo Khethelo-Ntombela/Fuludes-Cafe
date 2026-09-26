@@ -194,6 +194,76 @@ export function queuePush(context, target, message) {
   return job;
 }
 
+/**
+ * "New paid order" notifications for admin + kitchen staff.
+ *
+ * A paid order only shows on the admin/staff boards once its 2-minute
+ * customer-cancel window ends (kitchen_release_at), so the notification
+ * waits for that too - sent 1 second after release, and never for an order
+ * the customer cancelled inside the window.
+ *
+ * Cloudflare can't sleep 2 minutes after the payment webhook, so this runs
+ * on the requests that already come in every few seconds (the admin and
+ * staff boards, the customer's My Orders countdown) plus /api/push/dispatch
+ * for an optional once-a-minute outside cron. new_order_push_sent_at is
+ * claimed in the same UPDATE that picks the order, so it's sent only once
+ * however many requests race. Orders released over 30 minutes ago are
+ * skipped - a late "new order" would just be noise.
+ */
+let newOrderPushColumnReady = false;
+export async function ensureNewOrderPushColumn(env) {
+  if (newOrderPushColumnReady) return;
+  const exists = await runQuery(
+    env,
+    "SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'new_order_push_sent_at';",
+  );
+  if (!exists.rows.length) {
+    await runQuery(env, "ALTER TABLE orders ADD COLUMN IF NOT EXISTS new_order_push_sent_at TIMESTAMPTZ;");
+    // Orders paid before this existed were already notified at payment time.
+    await runQuery(
+      env,
+      "UPDATE orders SET new_order_push_sent_at = NOW() WHERE new_order_push_sent_at IS NULL AND payment_status = 'paid';",
+    );
+  }
+  newOrderPushColumnReady = true;
+}
+
+export async function sendDueNewOrderPushes(env, { origin } = {}) {
+  try {
+    await ensureNewOrderPushColumn(env);
+    const due = await runQuery(
+      env,
+      `UPDATE orders SET new_order_push_sent_at = NOW()
+        WHERE new_order_push_sent_at IS NULL
+          AND payment_status = 'paid'
+          AND status = 'New'
+          AND kitchen_release_at <= NOW() - INTERVAL '1 second'
+          AND kitchen_release_at > NOW() - INTERVAL '30 minutes'
+        RETURNING id, order_type, total_amount;`,
+    );
+    for (const order of due.rows) {
+      const type = order.order_type === "delivery" ? "Delivery" : order.order_type === "dine_in" ? "Dine in" : "Collection";
+      await sendPush(env, { roles: ["admin", "staff"] }, {
+        title: `New paid order #${order.id}`,
+        body: `${type} · R${Number(order.total_amount).toFixed(2)}`,
+        url: { admin: "/admin.html#orders", staff: "/staff.html" },
+        tag: `order-${order.id}`,
+      }, { origin });
+    }
+    return due.rows.length;
+  } catch {
+    return 0; // notifications are best-effort
+  }
+}
+
+/** Runs sendDueNewOrderPushes after the response, without slowing the request down. */
+export function queueDueNewOrderPushes(context) {
+  const origin = new URL(context.request.url).origin;
+  const job = sendDueNewOrderPushes(context.env, { origin });
+  if (typeof context.waitUntil === "function") context.waitUntil(job);
+  return job;
+}
+
 const ORDER_STATUS_TEXT = {
   Preparing: "is being prepared in the kitchen.",
   Ready: "is ready!",

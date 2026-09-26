@@ -22,12 +22,15 @@
  */
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireStaff } from "../../_lib/auth.js";
+import { queueDueNewOrderPushes } from "../../_lib/push.js";
 
 export async function onRequestGet(context) {
   const { request, env } = context;
   const authError = await requireStaff(request, env);
   if (authError) return authError;
 
+  // Sends the "new paid order" notification for orders whose 2-minute window just ended.
+  queueDueNewOrderPushes(context);
   try {
     const ordersResult = await runQuery(
       env,

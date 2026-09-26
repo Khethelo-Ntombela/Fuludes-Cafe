@@ -6,15 +6,15 @@
  * for payment" (e.g. the payment notification never arrived). The admin
  * checks the payment in the Yoco dashboard first, then this does what the
  * payment webhook would have done: marks the order paid, takes the stock,
- * sends it to the kitchen (after the usual 2-minute cancel window) and
- * notifies staff. Every use is written to the audit log.
+ * sends it to the kitchen (after the usual 2-minute cancel window), where
+ * staff get the new-order notification. Every use is written to the audit log.
  * -----------------------------------------------------------------------
  */
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { logAudit } from "../../_lib/audit.js";
 import { sanitizeText, getRequestIp } from "../../_lib/security.js";
-import { queuePush } from "../../_lib/push.js";
+import { ensureNewOrderPushColumn } from "../../_lib/push.js";
 import { ensureYocoTables } from "../../_lib/yoco.js";
 import { confirmPreorderReservation } from "../../_lib/reservations.js";
 
@@ -34,6 +34,7 @@ export async function onRequestPost(context) {
 
   try {
     await ensureYocoTables(env).catch(() => {});
+    await ensureNewOrderPushColumn(env).catch(() => {});
     const order = (
       await runQuery(env, "SELECT id, total_amount, order_type, payment_status, yoco_checkout_id, stock_decremented FROM orders WHERE id = $1;", [id])
     ).rows[0];
@@ -87,13 +88,7 @@ export async function onRequestPost(context) {
       details: { payment_ref: paymentRef, total_amount: Number(order.total_amount) },
     });
 
-    const type = order.order_type === "delivery" ? "Delivery" : order.order_type === "dine_in" ? "Dine in" : "Collection";
-    queuePush(context, { roles: ["admin", "staff"] }, {
-      title: `New paid order #${id}`,
-      body: `${type} · R${Number(order.total_amount).toFixed(2)}`,
-      url: { admin: "/admin.html#orders", staff: "/staff.html" },
-      tag: `order-${id}`,
-    });
+    // Staff are notified when it reaches the kitchen, after the 2-minute window (sendDueNewOrderPushes).
 
     return jsonResponse({ success: true });
   } catch (err) {

@@ -1,6 +1,6 @@
 import { runQuery } from "../../_lib/db.js";
 import { logAudit } from "../../_lib/audit.js";
-import { queuePush } from "../../_lib/push.js";
+import { ensureNewOrderPushColumn } from "../../_lib/push.js";
 import { yocoWebhookSecrets, ensureYocoTables } from "../../_lib/yoco.js";
 import { confirmPreorderReservation, cancelAndRefundOrder } from "../../_lib/reservations.js";
 import { takeOrderStock } from "../../_lib/stock.js";
@@ -245,6 +245,9 @@ export async function onRequestPost(context) {
     // Several customers can be on Yoco for the last items at once - the
     // first completed payment gets them; any later one finds them gone and
     // is refunded automatically below.
+    // The new-order notification is sent once the 2-minute window ends (see
+    // sendDueNewOrderPushes) - make sure its column exists before marking paid.
+    await ensureNewOrderPushColumn(env).catch(() => {});
     const stockResult = await takeOrderStock(env, orderId);
     const soldOutAfterPayment = stockResult.ok ? null : stockResult;
 
@@ -278,13 +281,6 @@ export async function onRequestPost(context) {
     if (paid) {
       // A table booking waiting on this pre-order payment is now confirmed.
       await confirmPreorderReservation(context, paid.id);
-      const type = paid.order_type === "delivery" ? "Delivery" : paid.order_type === "dine_in" ? "Dine in" : "Collection";
-      queuePush(context, { roles: ["admin", "staff"] }, {
-        title: `New paid order #${paid.id}`,
-        body: `${type} · R${Number(paid.total_amount).toFixed(2)}`,
-        url: { admin: "/admin.html#orders", staff: "/staff.html" },
-        tag: `order-${paid.id}`,
-      });
     }
     await logAudit(env, {
       actor_type: "payment_gateway",
