@@ -13,6 +13,19 @@
  * testing).
  * -----------------------------------------------------------------------
  */
+/**
+ * The "From" customers see: "Fulude's Cafe <orders@...>" instead of just
+ * the address (Gmail would otherwise show "orders"). Name comes from
+ * EMAIL_FROM_NAME if set; a RESEND_FROM_EMAIL that already includes a
+ * name ("Name <address>") is used as-is.
+ */
+function fromAddress(env) {
+  const from = String(env.RESEND_FROM_EMAIL || "").trim();
+  if (from.includes("<")) return from;
+  const name = String(env.EMAIL_FROM_NAME || "Fulude's Cafe").replace(/["\\]/g, "");
+  return `"${name}" <${from}>`;
+}
+
 export async function sendEmail(env, { to, subject, html, attachments = [] }) {
   if (!env.RESEND_API_KEY || !env.RESEND_FROM_EMAIL) {
     throw new Error("Email sending isn't configured on the server yet.");
@@ -25,7 +38,7 @@ export async function sendEmail(env, { to, subject, html, attachments = [] }) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: env.RESEND_FROM_EMAIL,
+      from: fromAddress(env),
       to,
       subject,
       html,
@@ -59,7 +72,7 @@ export async function sendEmailBatch(env, emails) {
         Authorization: `Bearer ${env.RESEND_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(chunk.map((e) => ({ from: env.RESEND_FROM_EMAIL, to: e.to, subject: e.subject, html: e.html }))),
+      body: JSON.stringify(chunk.map((e) => ({ from: fromAddress(env), to: e.to, subject: e.subject, html: e.html }))),
     });
     if (res.ok) {
       sent += chunk.length;
