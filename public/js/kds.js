@@ -76,9 +76,50 @@ function kdsStartTime(order) {
   return new Date(order.kitchen_release_at || order.created_at).getTime();
 }
 
-function kdsMinutes(order) {
-  return Math.max(0, Math.round((Date.now() - kdsStartTime(order)) / 60000));
+/**
+ * Order times come from the database's clock; this device's clock can be
+ * minutes off, which made every timer start at e.g. "6 min". Each board
+ * fetch reports the database's current time, so timers count on that clock.
+ */
+let kdsClockOffset = 0;
+function kdsNow() {
+  return Date.now() + kdsClockOffset;
 }
+
+/** Whole minutes since the order reached the board: 0 for the first minute, then 1, 2, ... */
+function kdsMinutes(order) {
+  return Math.max(0, Math.floor((kdsNow() - kdsStartTime(order)) / 60000));
+}
+
+/**
+ * Timers tick every second between fetches: card/row timers update in place
+ * and each board's callbacks (Avg Ticket Age, Longest Waiting) re-run.
+ */
+const kdsTickCallbacks = [];
+function kdsOnTick(fn) {
+  kdsTickCallbacks.push(fn);
+}
+setInterval(() => {
+  document.querySelectorAll("[data-kds-start]").forEach((el) => {
+    const order = { kitchen_release_at: Number(el.dataset.kdsStart), status: el.dataset.kdsStatus };
+    const { cls, mins } = kdsUrgency(order);
+    if (el.classList.contains("kds-timer")) {
+      el.innerHTML = `${mins}<small>min</small>`;
+      el.className = `kds-timer ${cls}`;
+      const card = el.closest(".kds-card");
+      if (card) card.className = card.className.replace(/u-(ok|warn|hot|late|done)/, cls);
+    } else {
+      el.textContent = `${mins} min`;
+    }
+  });
+  kdsTickCallbacks.forEach((fn) => {
+    try {
+      fn();
+    } catch {
+      /* a board that isn't showing - ignore */
+    }
+  });
+}, 1000);
 
 /**
  * The boards poll every 5s; the API also says when the next paid order
@@ -88,6 +129,7 @@ function kdsMinutes(order) {
 let kdsReleaseTimer = null;
 function kdsScheduleNextRelease(data, refresh) {
   clearTimeout(kdsReleaseTimer);
+  if (data && data.server_now) kdsClockOffset = new Date(data.server_now).getTime() - Date.now();
   if (!data || !data.next_release_at) return;
   // Server clock for both ends - a wrong clock on this device doesn't matter.
   const serverNow = data.server_now ? new Date(data.server_now).getTime() : Date.now();
@@ -163,7 +205,7 @@ function kdsCardHtml(order) {
           ${kdsTypeBadgeHtml(order)}
           ${order.total_amount !== undefined ? `<span class="kds-card-total">${kdsFmt(order.total_amount)}</span>` : ""}
         </div>
-        <span class="kds-timer ${cls}">${mins}<small>min</small></span>
+        <span class="kds-timer ${cls}" data-kds-start="${kdsStartTime(order)}" data-kds-status="${order.status}">${mins}<small>min</small></span>
       </div>
       <ul class="kds-card-items">${shown.map((i) => `<li>${kdsItemLine(i)}</li>`).join("")}</ul>
       ${moreCount > 0 ? `<div class="kds-more">+${moreCount} more item${moreCount === 1 ? "" : "s"} · tap ⋮</div>` : ""}
@@ -193,7 +235,7 @@ function kdsRowHtml(order) {
       <strong>#${order.id}</strong>
       <span class="kds-row-meta">${type}</span>
       ${order.total_amount !== undefined ? `<span class="kds-row-total">${kdsFmt(order.total_amount)}</span>` : ""}
-      <span class="kds-row-age">${mins} min</span>
+      <span class="kds-row-age" data-kds-start="${kdsStartTime(order)}" data-kds-status="${order.status}">${mins} min</span>
       <div class="kds-card-actions kds-row-actions">
         <button type="button" class="kds-menu-btn" data-menu-toggle aria-label="More actions">⋮</button>
         <div class="kds-menu">

@@ -695,8 +695,12 @@ function renderKitchenStrip(allOrders) {
   set("kpiEfficiency", `${load}%`, load >= 90);
 }
 
+let lastKitchenOrders = [];
+kdsOnTick(() => renderKitchenStrip(lastKitchenOrders)); // live Avg Ticket Age / Longest Waiting
+
 function renderOrders(orders) {
   const list = document.getElementById("ordersList");
+  lastKitchenOrders = orders;
   renderKitchenStrip(orders);
 
   list.innerHTML = kdsBoardHtml(orders, [

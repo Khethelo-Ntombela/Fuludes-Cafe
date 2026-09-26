@@ -210,7 +210,11 @@ function renderControlBar(allOrders) {
   set("sLoad", `${load}%`, load >= 90);
 }
 
+let lastBoardOrders = [];
+kdsOnTick(() => renderControlBar(lastBoardOrders)); // live Avg Ticket Age / Longest Waiting
+
 function renderBoard(orders) {
+  lastBoardOrders = orders;
   renderControlBar(orders);
 
   const container = document.getElementById("staffColumns");
