@@ -16,7 +16,6 @@ const STAFF_TOKEN_KEY = "fulude_staff_token";
 let staffToken = localStorage.getItem(STAFF_TOKEN_KEY);
 let pollIntervalId = null;
 let knownPaidNewOrderIds = new Set();
-let staffAudioContext = null;
 const STAFF_ALERTS_MUTED_KEY = "fulude_staff_alerts_muted";
 
 function addStaffPasswordVisibilityToggle() {
@@ -125,54 +124,19 @@ document
   });
 
 function initStaffAudio() {
-  if (staffAudioContext) return;
-  try {
-    staffAudioContext = new (
-      window.AudioContext || window.webkitAudioContext
-    )();
-  } catch (e) {
-    staffAudioContext = null;
-  }
+  FuludeOrderAlert.init();
 }
 
 function playStaffBeep(repeats = 2) {
-  if (!staffAudioContext) return;
-  if (localStorage.getItem(STAFF_ALERTS_MUTED_KEY) === "1") return;
-  const ctx = staffAudioContext;
-  const now = ctx.currentTime;
-  for (let i = 0; i < repeats; i++) {
-    const t = now + i * 0.18;
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = "sine";
-    o.frequency.value = 880 - i * 80;
-    g.gain.value = 0;
-    o.connect(g);
-    g.connect(ctx.destination);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.12, t + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
-    o.start(t);
-    o.stop(t + 0.14);
-  }
+  FuludeOrderAlert.play(repeats, STAFF_ALERTS_MUTED_KEY);
 }
 
 function setupStaffAlertToggle() {
-  const btn = document.getElementById("staffAlertMuteBtn");
-  const icon = document.getElementById("staffAlertMuteIcon");
-  if (!btn) return;
-  const update = () => {
-    const muted = localStorage.getItem(STAFF_ALERTS_MUTED_KEY) === "1";
-    if (icon)
-      icon.className = muted ? "fas fa-volume-mute" : "fas fa-volume-up";
-    btn.title = muted ? "Unmute order alerts" : "Mute order alerts";
-  };
-  btn.addEventListener("click", () => {
-    const muted = localStorage.getItem(STAFF_ALERTS_MUTED_KEY) === "1";
-    localStorage.setItem(STAFF_ALERTS_MUTED_KEY, muted ? "0" : "1");
-    update();
-  });
-  update();
+  FuludeOrderAlert.bindMuteButton(
+    document.getElementById("staffAlertMuteBtn"),
+    document.getElementById("staffAlertMuteIcon"),
+    STAFF_ALERTS_MUTED_KEY,
+  );
 }
 
 // ---------------------------------------------------------------------

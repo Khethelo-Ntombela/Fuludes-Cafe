@@ -3385,3 +3385,32 @@ button.kpi-card {
     font-size: 0.8rem;
   }
 }
+
+/* Shown when a new order arrives but the browser is still blocking sound */
+.order-sound-banner {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100vw - 32px);
+  padding: 14px 20px;
+  border: none;
+  border-radius: 999px;
+  background: var(--sa-gold, #c9a96e);
+  color: #111;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  animation: order-sound-pulse 1.2s ease-in-out infinite;
+}
+@keyframes order-sound-pulse {
+  50% {
+    box-shadow: 0 8px 32px rgba(201, 169, 110, 0.8);
+  }
+}

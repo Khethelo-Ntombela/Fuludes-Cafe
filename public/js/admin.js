@@ -21,7 +21,6 @@ let staffAccounts = [];
 let reservations = [];
 let pollIntervalId = null;
 let knownPaidNewOrderIds = new Set();
-let adminAudioContext = null;
 const ADMIN_ALERTS_MUTED_KEY = "fulude_admin_alerts_muted";
 
 const money = (n) => `R${Number(n).toFixed(2)}`;
@@ -285,54 +284,19 @@ document.getElementById("loginForm").addEventListener("submit", async (e) => {
 });
 
 function initAdminAudio() {
-  if (adminAudioContext) return;
-  try {
-    adminAudioContext = new (
-      window.AudioContext || window.webkitAudioContext
-    )();
-  } catch (e) {
-    adminAudioContext = null;
-  }
+  FuludeOrderAlert.init();
 }
 
 function playAdminBeep(repeats = 2) {
-  if (!adminAudioContext) return;
-  if (localStorage.getItem(ADMIN_ALERTS_MUTED_KEY) === "1") return;
-  const ctx = adminAudioContext;
-  const now = ctx.currentTime;
-  for (let i = 0; i < repeats; i++) {
-    const t = now + i * 0.18;
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = "sine";
-    o.frequency.value = 880 - i * 80;
-    g.gain.value = 0;
-    o.connect(g);
-    g.connect(ctx.destination);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.12, t + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
-    o.start(t);
-    o.stop(t + 0.14);
-  }
+  FuludeOrderAlert.play(repeats, ADMIN_ALERTS_MUTED_KEY);
 }
 
 function setupAdminAlertToggle() {
-  const btn = document.getElementById("alertMuteBtn");
-  const icon = document.getElementById("alertMuteIcon");
-  if (!btn) return;
-  const update = () => {
-    const muted = localStorage.getItem(ADMIN_ALERTS_MUTED_KEY) === "1";
-    if (icon)
-      icon.className = muted ? "fas fa-volume-mute" : "fas fa-volume-up";
-    btn.title = muted ? "Unmute order alerts" : "Mute order alerts";
-  };
-  btn.addEventListener("click", () => {
-    const muted = localStorage.getItem(ADMIN_ALERTS_MUTED_KEY) === "1";
-    localStorage.setItem(ADMIN_ALERTS_MUTED_KEY, muted ? "0" : "1");
-    update();
-  });
-  update();
+  FuludeOrderAlert.bindMuteButton(
+    document.getElementById("alertMuteBtn"),
+    document.getElementById("alertMuteIcon"),
+    ADMIN_ALERTS_MUTED_KEY,
+  );
 }
 
 // ---------------------------------------------------------------------
