@@ -29,14 +29,16 @@ export async function onRequestGet(context) {
     const result = await runQuery(
       env,
       `
-      SELECT id, customer_name, customer_phone,
-             to_char(reservation_date, 'YYYY-MM-DD') AS reservation_date,
-             to_char(reservation_time, 'HH24:MI') AS reservation_time,
-             party_size, table_number, notes,
-             advance_order_requested, advance_order_details, advance_order_id, status, created_at
-      FROM customer_reservations
-      WHERE customer_id = $1
-      ORDER BY customer_reservations.reservation_date DESC, customer_reservations.reservation_time DESC;
+      SELECT r.id, r.customer_name, r.customer_phone,
+             to_char(r.reservation_date, 'YYYY-MM-DD') AS reservation_date,
+             to_char(r.reservation_time, 'HH24:MI') AS reservation_time,
+             r.party_size, r.table_number, r.notes,
+             r.advance_order_requested, r.advance_order_details, r.advance_order_id, r.status, r.created_at,
+             o.payment_status AS preorder_payment_status, o.total_amount AS preorder_total
+      FROM customer_reservations r
+      LEFT JOIN orders o ON o.id = r.advance_order_id
+      WHERE r.customer_id = $1
+      ORDER BY r.reservation_date DESC, r.reservation_time DESC;
     `,
       [customer.id],
     );
@@ -128,6 +130,19 @@ export async function onRequestPost(context) {
   }
 
   try {
+    // A pre-order booking that was never paid was abandoned - drop it so it
+    // doesn't block booking again (it was never shown to the admin).
+    await runQuery(
+      env,
+      `
+      DELETE FROM customer_reservations
+      WHERE LOWER(customer_email) = $1 AND status = 'AwaitingPayment'
+        AND (advance_order_id IS NULL
+             OR advance_order_id IN (SELECT id FROM orders WHERE payment_status <> 'paid'));
+    `,
+      [email],
+    );
+
     // One live booking per email: a new one is only allowed once the
     // previous one is Completed, Cancelled, or its date has passed.
     const existing = await runQuery(
@@ -135,7 +150,7 @@ export async function onRequestPost(context) {
       `
       SELECT id FROM customer_reservations
       WHERE LOWER(customer_email) = $1
-        AND status IN ('Pending', 'Confirmed')
+        AND status IN ('Pending', 'Confirmed', 'AwaitingPayment')
         AND reservation_date >= (NOW() AT TIME ZONE 'Africa/Johannesburg')::date
       LIMIT 1;
     `,
@@ -160,7 +175,7 @@ export async function onRequestPost(context) {
         reservation_date, reservation_time, party_size, table_number,
         notes, advance_order_requested, advance_order_details, advance_order_id, status
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'Pending')
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING id;
     `,
       [
@@ -176,6 +191,9 @@ export async function onRequestPost(context) {
         advanceOrderRequested,
         advanceOrderDetails || null,
         advanceOrderId,
+        // With a pre-order the booking waits (hidden from the admin) until the
+        // food is paid for - then it's confirmed automatically.
+        advanceOrderRequested ? "AwaitingPayment" : "Pending",
       ],
     );
 
@@ -195,7 +213,7 @@ export async function onRequestPost(context) {
       },
     });
 
-    queuePush(context, { roles: ["admin"] }, {
+    if (!advanceOrderRequested) queuePush(context, { roles: ["admin"] }, {
       title: "New reservation request",
       body: `${name} · ${partySize} guest${partySize > 1 ? "s" : ""} · ${reservationDate} ${reservationTime}`,
       url: "/admin.html#reservations",

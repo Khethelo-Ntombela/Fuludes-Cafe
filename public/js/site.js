@@ -975,7 +975,8 @@ async function loadExistingReservations() {
     reservationForm.style.display = "block";
     return;
   }
-  const colors = { Confirmed: "#1a7f37", Cancelled: "#b42318", Pending: "#8a6d1d" };
+  const colors = { Confirmed: "#1a7f37", Cancelled: "#b42318", Pending: "#8a6d1d", AwaitingPayment: "#8a6d1d" };
+  const labels = { AwaitingPayment: "Waiting for your pre-order payment" };
   reservationExisting.innerHTML =
     `<h4 style="margin:0 0 8px">Your reservation${list.length > 1 ? "s" : ""}</h4>` +
     list.map((r) => {
@@ -983,14 +984,52 @@ async function loadExistingReservations() {
       const time = r.reservation_time || r.time;
       const size = r.party_size || r.party;
       const status = r.status || "Pending";
-      const needsPreorder = r.advance_order_requested && !r.advance_order_id && status !== "Cancelled";
+      const prepaid = ["paid", "refunded"].includes(r.preorder_payment_status);
+      const unpaidOrder = r.advance_order_id && ["awaiting", "failed"].includes(r.preorder_payment_status);
+      // Day and time as the customer reads them: "Saturday, 26 September" at "15:00"
+      const day = new Date(`${String(date).slice(0, 10)}T00:00:00`).toLocaleDateString("en-ZA", { weekday: "long", day: "numeric", month: "long" });
+      const hhmm = String(time || "").slice(0, 5);
+      const name = escapeHtml(r.customer_name || currentCustomer?.name || "there");
+      let note = "";
+      if (status === "Confirmed" && prepaid) {
+        note = "Thank you, we have received your reservation and order. We look forward to seeing you! If there are any changes we will let you know.";
+      } else if (status === "Cancelled") {
+        note = `Hi ${name}, your table booking at Fulude's Cafe for ${day} at ${hhmm} has been cancelled${prepaid ? " and will be refunded" : ""}. Please contact us if you need any further assistance.`;
+      } else if (status === "AwaitingPayment") {
+        note = "Your table is held until your pre-order is paid - it's confirmed as soon as the payment goes through.";
+      }
+      const action =
+        status !== "AwaitingPayment"
+          ? ""
+          : unpaidOrder
+            ? `<button type="button" class="receipt-cancel-btn" data-pay-preorder="${r.advance_order_id}">Pay for my pre-order${r.preorder_total ? ` (${money(r.preorder_total)})` : ""}</button>`
+            : `<button type="button" class="receipt-cancel-btn" data-continue-preorder="${r.id}" data-date="${escapeHtml(String(date).slice(0, 10))}" data-time="${escapeHtml(hhmm)}" data-party="${size}">Continue pre-order</button>`;
       return `<div class="receipt-card" style="margin-bottom:10px">
         <div class="receipt-card-header"><strong>${escapeHtml(formatReservationWhen(date, time))}</strong></div>
-        <div class="receipt-meta">${size} guest${size > 1 ? "s" : ""}${r.table_number ? ` · Table ${escapeHtml(r.table_number)}` : ""}</div>
-        <div style="margin:6px 0;font-weight:600;color:${colors[status] || "#8a6d1d"}">Status: ${escapeHtml(status)}${status === "Pending" ? " (we should confirm on WhatsApp)" : ""}</div>
-        ${needsPreorder ? `<button type="button" class="receipt-cancel-btn" data-continue-preorder="${r.id}" data-date="${escapeHtml(String(date).slice(0, 10))}" data-time="${escapeHtml(String(time).slice(0, 5))}" data-party="${size}">Continue pre-order</button>` : ""}
+        <div class="receipt-meta">${size} guest${size > 1 ? "s" : ""}${r.table_number ? ` · Table ${escapeHtml(r.table_number)}` : ""}${prepaid ? ` · Pre-order ${r.preorder_payment_status === "refunded" ? "refunded" : "paid"}` : ""}</div>
+        <div style="margin:6px 0;font-weight:600;color:${colors[status] || "#8a6d1d"}">Status: ${escapeHtml(labels[status] || status)}${status === "Pending" ? " (we should confirm on WhatsApp)" : ""}</div>
+        ${note ? `<p class="reservation-note${status === "Cancelled" ? " is-cancelled" : ""}">${note}</p>` : ""}
+        ${action}
       </div>`;
     }).join("");
+  reservationExisting.querySelectorAll("[data-pay-preorder]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      try {
+        const res = await fetch("/api/order/retry", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${customerToken}` },
+          body: JSON.stringify({ id: Number(btn.dataset.payPreorder) }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !(data.payment?.redirect_url || data.payment?.action_url)) throw new Error(data.error || "Couldn't start the payment.");
+        goToYocoPayment(data.payment);
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+      }
+    }),
+  );
   reservationExisting.querySelectorAll("[data-continue-preorder]").forEach((btn) =>
     btn.addEventListener("click", () => {
       startPreorder({
@@ -1143,7 +1182,7 @@ reservationForm.addEventListener("submit", async (e) => {
       party_size: payload.party_size,
       name: payload.name,
       phone: payload.phone,
-      status: "Pending",
+      status: payload.advance_order_requested ? "AwaitingPayment" : "Pending",
       advance_order_requested: payload.advance_order_requested,
     };
     rememberReservation(booked);

@@ -2439,7 +2439,8 @@ function reservationWhatsAppText(r) {
   const time = r.reservation_time ? String(r.reservation_time).slice(0, 5) : "";
   const cancelled = r.status === "Cancelled";
   if (cancelled) {
-    return `Hi ${r.customer_name}, your table booking at Fulude's Cafe for ${dateLabel} at ${time} has been cancelled. Please contact us if you'd like to rebook.`;
+    const prepaid = ["paid", "refunded"].includes(r.preorder_payment_status);
+    return `Hi ${r.customer_name}, your table booking at Fulude's Cafe for ${dateLabel} at ${time} has been cancelled${prepaid ? " and will be refunded" : ""}. Please contact us if you need any further assistance.`;
   }
   return `Hi ${r.customer_name}, your table at Fulude's Cafe is ${r.status === "Confirmed" ? "confirmed" : "reserved"} for ${dateLabel} at ${time} for ${r.party_size} guest${r.party_size > 1 ? "s" : ""}${r.table_number ? ` (table ${r.table_number})` : ""}. We look forward to seeing you! Reply here if you need to change anything.`;
 }
@@ -2518,6 +2519,9 @@ function renderReservations() {
       const timeLabel = reservation.reservation_time
         ? reservation.reservation_time.slice(0, 5)
         : "";
+      // Paid pre-order: confirmed by the payment, so only Confirmed / Cancelled / Completed.
+      const prepaid = ["paid", "refunded"].includes(reservation.preorder_payment_status);
+      const statusOptions = prepaid ? ["Confirmed", "Cancelled", "Completed"] : ["Pending", "Confirmed", "Cancelled", "Completed"];
       return `
         <div class="admin-item-card" style="flex-direction: column; align-items: stretch;">
           <div class="admin-item-info">
@@ -2525,15 +2529,18 @@ function renderReservations() {
             <div class="admin-item-meta">${dateLabel} at ${timeLabel} · ${reservation.customer_phone} · ${reservation.customer_email}</div>
             ${reservation.table_number ? `<div class="admin-item-meta">Table: ${reservation.table_number}</div>` : ""}
             ${reservation.notes ? `<div class="admin-item-meta">Notes: ${reservation.notes}</div>` : ""}
-            ${reservation.advance_order_requested ? `<div class="admin-item-meta">Advance order requested: ${reservation.advance_order_details || "Details provided"}</div>` : ""}
+            ${
+              prepaid
+                ? `<div class="admin-item-meta"><span class="badge badge-paid">${reservation.preorder_payment_status === "refunded" ? "Pre-order refunded" : "Pre-order paid"}</span> Order #${reservation.advance_order_id} · ${money(reservation.preorder_total)}</div>`
+                : reservation.advance_order_requested
+                  ? `<div class="admin-item-meta">Advance order requested: ${reservation.advance_order_details || "Details provided"}</div>`
+                  : ""
+            }
             <div class="admin-item-meta">Status: ${reservation.status}</div>
           </div>
           <div class="admin-form-inline" style="padding: 0; margin-top: 10px;">
-            <select data-reservation-status="${reservation.id}">
-              <option value="Pending" ${reservation.status === "Pending" ? "selected" : ""}>Pending</option>
-              <option value="Confirmed" ${reservation.status === "Confirmed" ? "selected" : ""}>Confirmed</option>
-              <option value="Cancelled" ${reservation.status === "Cancelled" ? "selected" : ""}>Cancelled</option>
-              <option value="Completed" ${reservation.status === "Completed" ? "selected" : ""}>Completed</option>
+            <select data-reservation-status="${reservation.id}" data-prepaid="${prepaid && reservation.preorder_payment_status === "paid" ? "1" : ""}" data-total="${reservation.preorder_total || 0}">
+              ${statusOptions.map((s) => `<option value="${s}" ${reservation.status === s ? "selected" : ""}>${s}</option>`).join("")}
             </select>
             <button type="button" class="btn btn-primary admin-mini-btn" data-reservation-update="${reservation.id}">Save</button>
             ${reservation.status === "Completed" || reservation.status === "Cancelled" ? `<button type="button" class="btn admin-mini-btn" data-reservation-clear="${reservation.id}" title="Remove from this list"><i class="fas fa-eraser"></i> Clear</button>` : ""}
@@ -2569,15 +2576,24 @@ function renderReservations() {
       const id = parseInt(btn.dataset.reservationUpdate, 10);
       const select = list.querySelector(`[data-reservation-status="${id}"]`);
       if (!select) return;
+      const current = reservations.find((r) => r.id === id);
+      if (select.value === "Cancelled" && select.dataset.prepaid && current?.status !== "Cancelled") {
+        if (!confirm(`Cancel this booking?\n\nIts pre-order (${money(select.dataset.total)}) will be cancelled and refunded to the customer's card through Yoco.`)) return;
+      }
       try {
-        await adminFetch("/api/admin/reservations", {
+        const res = await adminFetch("/api/admin/reservations", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ reservation_id: id, status: select.value }),
         });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) throw new Error(data.error || "Couldn't update the reservation.");
+        if (data.refund?.outcome === "refunded") alert("Booking cancelled and the pre-order refunded through Yoco.");
+        else if (data.refund?.outcome === "refund_needed")
+          alert(`Booking cancelled, but the automatic refund didn't go through (${data.refund.error || "unknown reason"}). Refund it from Order History with "Refund via Yoco".`);
         loadReservations();
-      } catch {
-        alert("Couldn't update the reservation.");
+      } catch (err) {
+        alert(err.message || "Couldn't update the reservation.");
       }
     });
   });

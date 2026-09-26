@@ -16,6 +16,7 @@ import { logAudit } from "../../_lib/audit.js";
 import { sanitizeText, getRequestIp } from "../../_lib/security.js";
 import { queuePush } from "../../_lib/push.js";
 import { ensureYocoTables } from "../../_lib/yoco.js";
+import { confirmPreorderReservation } from "../../_lib/reservations.js";
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -72,6 +73,7 @@ export async function onRequestPost(context) {
       );
     }
 
+    await confirmPreorderReservation(context, id);
     await logAudit(env, {
       actor_type: "admin",
       actor_role: "admin",

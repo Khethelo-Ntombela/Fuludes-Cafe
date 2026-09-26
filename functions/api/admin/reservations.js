@@ -20,6 +20,7 @@ import { requireAdmin } from "../../_lib/auth.js";
 import { sanitizeText } from "../../_lib/security.js";
 import { logAudit } from "../../_lib/audit.js";
 import { queuePush } from "../../_lib/push.js";
+import { cancelAndRefundOrder } from "../../_lib/reservations.js";
 
 let _colReady = false;
 async function ensureClearedColumn(env) {
@@ -40,14 +41,18 @@ export async function onRequestGet(context) {
     const result = await runQuery(
       env,
       `
-      SELECT id, customer_name, customer_email, customer_phone,
-             to_char(reservation_date, 'YYYY-MM-DD') AS reservation_date,
-             to_char(reservation_time, 'HH24:MI') AS reservation_time,
-             party_size, table_number, notes,
-             advance_order_requested, advance_order_details, advance_order_id,
-             status, admin_cleared, created_at
-      FROM customer_reservations
-      ORDER BY customer_reservations.reservation_date ASC, customer_reservations.reservation_time ASC, created_at DESC;
+      SELECT r.id, r.customer_name, r.customer_email, r.customer_phone,
+             to_char(r.reservation_date, 'YYYY-MM-DD') AS reservation_date,
+             to_char(r.reservation_time, 'HH24:MI') AS reservation_time,
+             r.party_size, r.table_number, r.notes,
+             r.advance_order_requested, r.advance_order_details, r.advance_order_id,
+             r.status, r.admin_cleared, r.created_at,
+             o.payment_status AS preorder_payment_status, o.total_amount AS preorder_total
+      FROM customer_reservations r
+      LEFT JOIN orders o ON o.id = r.advance_order_id
+      -- Pre-order bookings only appear once the food has been paid for.
+      WHERE r.status <> 'AwaitingPayment'
+      ORDER BY r.reservation_date ASC, r.reservation_time ASC, r.created_at DESC;
     `,
     );
 
@@ -104,6 +109,23 @@ export async function onRequestPost(context) {
   }
 
   try {
+    const current = (
+      await runQuery(
+        env,
+        `SELECT r.status, r.advance_order_id, o.payment_status AS preorder_payment_status
+           FROM customer_reservations r LEFT JOIN orders o ON o.id = r.advance_order_id
+          WHERE r.id = $1;`,
+        [reservationId],
+      )
+    ).rows[0];
+    if (!current) return jsonResponse({ error: "Reservation not found." }, 404);
+    const prepaid = ["paid", "refunded"].includes(current.preorder_payment_status);
+    // A paid pre-order booking is confirmed by the payment - it can only
+    // move on to Cancelled or Completed, never back to Pending.
+    if (prepaid && status === "Pending") {
+      return jsonResponse({ error: "This booking's pre-order is paid, so it stays Confirmed (or choose Cancelled / Completed)." }, 400);
+    }
+
     const updated = await runQuery(
       env,
       `
@@ -115,16 +137,26 @@ export async function onRequestPost(context) {
       [status, reservationId],
     );
     const r = updated.rows[0];
+
+    // Cancelling a prepaid booking cancels its pre-order and refunds it through Yoco.
+    let refund = null;
+    if (status === "Cancelled" && current.status !== "Cancelled" && current.advance_order_id && prepaid) {
+      refund = await cancelAndRefundOrder(env, current.advance_order_id, "admin");
+    }
+
     if (r?.customer_id && (status === "Confirmed" || status === "Cancelled")) {
       queuePush(context, { customerId: r.customer_id }, {
         title: `Reservation ${status.toLowerCase()}`,
-        body: `Your table for ${r.day} at ${r.time} is ${status.toLowerCase()}.`,
+        body:
+          status === "Cancelled" && prepaid
+            ? `Your table for ${r.day} at ${r.time} has been cancelled and your pre-order will be refunded.`
+            : `Your table for ${r.day} at ${r.time} is ${status.toLowerCase()}.`,
         url: "/home.html",
         tag: `reservation-${reservationId}`,
       });
     }
 
-    return jsonResponse({ success: true });
+    return jsonResponse({ success: true, refund });
   } catch (err) {
     return jsonResponse(
       { error: "Failed to update reservation.", message: err.message },

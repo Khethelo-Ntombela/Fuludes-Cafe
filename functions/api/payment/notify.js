@@ -2,6 +2,7 @@ import { runQuery } from "../../_lib/db.js";
 import { logAudit } from "../../_lib/audit.js";
 import { queuePush } from "../../_lib/push.js";
 import { yocoWebhookSecrets, ensureYocoTables } from "../../_lib/yoco.js";
+import { confirmPreorderReservation } from "../../_lib/reservations.js";
 
 function toBase64(buffer) {
   let binary = "";
@@ -312,6 +313,8 @@ export async function onRequestPost(context) {
     );
     const paid = paidUpdate.rows[0];
     if (paid) {
+      // A table booking waiting on this pre-order payment is now confirmed.
+      await confirmPreorderReservation(context, paid.id);
       const type = paid.order_type === "delivery" ? "Delivery" : paid.order_type === "dine_in" ? "Dine in" : "Collection";
       queuePush(context, { roles: ["admin", "staff"] }, {
         title: `New paid order #${paid.id}`,

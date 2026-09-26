@@ -3123,3 +3123,18 @@ textarea:focus-visible {
   background: var(--black);
   color: var(--white);
 }
+
+/* Reservation window: thank-you / cancellation note on a booking */
+.reservation-note {
+  margin: 6px 0 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #ecfdf3;
+  color: #14532d;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+.reservation-note.is-cancelled {
+  background: #fef3f2;
+  color: #7a271a;
+}
