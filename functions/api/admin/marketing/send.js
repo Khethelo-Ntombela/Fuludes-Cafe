@@ -74,6 +74,13 @@ export async function onRequestPost(context) {
       WHERE marketing_email_opt_in = TRUE AND email IS NOT NULL AND email <> '';
     `,
     );
+    if (!subscribers.rows.length) {
+      return jsonResponse(
+        { error: "No customers are subscribed yet - nothing was sent. Customers subscribe under Settings > Account (\"Send me email offers and news\")." },
+        400,
+      );
+    }
+
     const { sent, failures } = await sendEmailBatch(
       env,
       subscribers.rows.map((s) => ({ to: s.email, subject, html })),

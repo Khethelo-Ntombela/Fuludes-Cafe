@@ -2369,11 +2369,7 @@ document
     const form = event.currentTarget;
     const status = document.getElementById("marketingEmailStatus");
     const button = form.querySelector("button[type=submit]");
-    const picked = [...document.getElementById("marketingImages").files];
-    if (picked.length > 5) {
-      status.textContent = "Please pick no more than 5 images.";
-      return;
-    }
+    const picked = getMarketingPicker().files();
     const formData = new FormData();
     formData.append(
       "subject",
@@ -2413,12 +2409,20 @@ document
         );
       status.textContent = `Sent to ${data.sent} subscriber${data.sent === 1 ? "" : "s"}${data.images ? ` with ${data.images} image${data.images === 1 ? "" : "s"}` : ""}.`;
       form.reset();
+      getMarketingPicker().reset();
     } catch (error) {
       status.textContent = error.message;
     } finally {
       button.disabled = false;
     }
   });
+
+let marketingPicker = null;
+function getMarketingPicker() {
+  if (!marketingPicker) marketingPicker = createImagePicker({ inputId: "marketingImages", previewId: "marketingImagePreview", max: 5 });
+  return marketingPicker;
+}
+getMarketingPicker();
 
 document
   .getElementById("staffAccountForm")
@@ -2782,7 +2786,7 @@ function resetBuffetEventForm() {
   if (!form) return;
   form.reset();
   form.dataset.existingPhotos = "[]";
-  document.getElementById("buffetEventPhotoPreview").innerHTML = "";
+  getBuffetPhotoPicker().reset();
   document.getElementById("buffetEventId").value = "";
   document.getElementById("buffetFormTitle").textContent = "Add Buffet Event";
 }
@@ -2790,6 +2794,7 @@ function resetBuffetEventForm() {
 /** The Buffet page (its own sidebar tab): event form, events list and bookings. */
 function initBuffetAdminHandlers() {
   const form = document.getElementById("buffetEventForm");
+  if (form) getBuffetPhotoPicker(); // start collecting picked photos
   document.getElementById("buffetEventNewBtn")?.addEventListener("click", resetBuffetEventForm);
   if (form) {
     form.addEventListener("submit", async (e) => {
@@ -2832,13 +2837,9 @@ function initBuffetAdminHandlers() {
       const saveLabel = saveBtn ? saveBtn.textContent : "";
       try {
         if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = "Saving…"; }
-        const photoInput = document.getElementById("buffetEventPhotos");
         const existingPhotos = JSON.parse(form.dataset.existingPhotos || "[]");
         const photos = [...existingPhotos];
-        for (const file of Array.from(photoInput.files).slice(
-          0,
-          6 - photos.length,
-        )) {
+        for (const file of getBuffetPhotoPicker().files().slice(0, 6 - photos.length)) {
           // Phone photos are several MB - shrink to WebP (<300KB) first,
           // otherwise the server rejects them and the picture never shows.
           const webpBlob = await compressImageToWebP(file, 300 * 1024);
@@ -2890,22 +2891,76 @@ function initBuffetAdminHandlers() {
 let buffetEventsById = {};
 
 /** Photo thumbnails in the buffet form, each with a remove (x) button. */
-function renderBuffetPhotoPreview(form) {
-  const photos = JSON.parse(form.dataset.existingPhotos || "[]");
-  const box = document.getElementById("buffetEventPhotoPreview");
-  box.innerHTML = photos
-    .map(
-      (photo, i) =>
-        `<span style="position:relative;display:inline-block;margin-right:6px"><img src="${photo}" alt="Buffet event" style="width:72px;height:54px;object-fit:cover;border-radius:4px;" /><button type="button" data-remove-buffet-photo="${i}" style="position:absolute;top:-6px;right:-6px;border:none;border-radius:50%;width:18px;height:18px;line-height:16px;background:#b42318;color:#fff;cursor:pointer">&times;</button></span>`,
-    )
-    .join("");
-  box.querySelectorAll("[data-remove-buffet-photo]").forEach((b) =>
-    b.addEventListener("click", () => {
-      photos.splice(Number(b.dataset.removeBuffetPhoto), 1);
-      form.dataset.existingPhotos = JSON.stringify(photos);
-      renderBuffetPhotoPreview(form);
-    }),
-  );
+/**
+ * Photo picker that lets admins add pictures in several goes: every pick is
+ * ADDED to the list (never replaces it), all of them - already-saved and
+ * new - show as thumbnails with a remove (x), and nothing is uploaded until
+ * Save / Send. Used by the buffet event form and the marketing email.
+ */
+function createImagePicker({ inputId, previewId, max, existing = () => [], setExisting = () => {} }) {
+  const input = document.getElementById(inputId);
+  const preview = document.getElementById(previewId);
+  let pending = []; // [{ file, url }]
+  const thumb = (src, attr, isNew) =>
+    `<span class="picker-thumb"><img src="${escapeHtml(src)}" alt="" />${isNew ? '<span class="picker-new">new</span>' : ""}<button type="button" ${attr} aria-label="Remove photo">&times;</button></span>`;
+  const render = () => {
+    if (!preview) return;
+    const saved = existing();
+    const total = saved.length + pending.length;
+    preview.innerHTML =
+      saved.map((src, i) => thumb(src, `data-remove-saved="${i}"`, false)).join("") +
+      pending.map((p, i) => thumb(p.url, `data-remove-new="${i}"`, true)).join("") +
+      (total ? `<span class="picker-count">${total} of ${max}</span>` : "");
+  };
+  input?.addEventListener("change", () => {
+    const room = max - existing().length - pending.length;
+    const picked = [...input.files];
+    picked.slice(0, Math.max(0, room)).forEach((file) => pending.push({ file, url: URL.createObjectURL(file) }));
+    if (picked.length > room) alert(`Up to ${max} photos - ${picked.length - Math.max(0, room)} weren't added.`);
+    input.value = ""; // the next pick adds to the list instead of replacing it
+    render();
+  });
+  preview?.addEventListener("click", (e) => {
+    const savedBtn = e.target.closest("[data-remove-saved]");
+    const newBtn = e.target.closest("[data-remove-new]");
+    if (savedBtn) {
+      const list = existing();
+      list.splice(Number(savedBtn.dataset.removeSaved), 1);
+      setExisting(list);
+    } else if (newBtn) {
+      const [gone] = pending.splice(Number(newBtn.dataset.removeNew), 1);
+      if (gone) URL.revokeObjectURL(gone.url);
+    } else return;
+    render();
+  });
+  return {
+    files: () => pending.map((p) => p.file),
+    reset() {
+      pending.forEach((p) => URL.revokeObjectURL(p.url));
+      pending = [];
+      render();
+    },
+    render,
+  };
+}
+
+let buffetPhotoPicker = null;
+function getBuffetPhotoPicker() {
+  if (!buffetPhotoPicker) {
+    const form = document.getElementById("buffetEventForm");
+    buffetPhotoPicker = createImagePicker({
+      inputId: "buffetEventPhotos",
+      previewId: "buffetEventPhotoPreview",
+      max: 6,
+      existing: () => JSON.parse(form.dataset.existingPhotos || "[]"),
+      setExisting: (list) => (form.dataset.existingPhotos = JSON.stringify(list)),
+    });
+  }
+  return buffetPhotoPicker;
+}
+
+function renderBuffetPhotoPreview() {
+  getBuffetPhotoPicker().render();
 }
 
 function buffetWhatsAppText(bk) {
@@ -3099,7 +3154,7 @@ async function loadBuffetEventsAdmin() {
           evt.description || "";
         const eventPhotos = Array.isArray(evt.photos) ? evt.photos : [];
         form.dataset.existingPhotos = JSON.stringify(eventPhotos);
-        renderBuffetPhotoPreview(form);
+        getBuffetPhotoPicker().reset(); // drop unsaved picks, show this event's photos
         document.getElementById("buffetEventPublished").checked =
           !!evt.is_published;
         if (evt.booking_closes_at) {

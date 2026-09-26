@@ -7,7 +7,7 @@
     <title>Fulude's Cafe | Admin</title>
   
     <link rel="stylesheet" href="css/style.css?v=9" />
-    <link rel="stylesheet" href="css/admin.css?v=7" />
+    <link rel="stylesheet" href="css/admin.css?v=8" />
     <link
       href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&display=swap"
       rel="stylesheet"
@@ -1436,8 +1436,9 @@
                     multiple
                   />
                   <span class="admin-hint"
-                    >Optional - up to 5. They're resized automatically and shown under your message.</span
+                    >Optional - up to 5. Pick them in one go or a few at a time; they're resized automatically and shown under your message.</span
                   >
+                  <div id="marketingImagePreview" class="admin-thumb-strip"></div>
                 </div>
                 <div class="admin-form-actions">
                   <button type="submit" class="btn btn-primary">
@@ -1521,7 +1522,7 @@
                         multiple
                       />
                       <span class="admin-hint"
-                        >Up to 6 images. Existing photos remain unless replaced.</span
+                        >Up to 6 photos - pick them in one go or a few at a time. They're uploaded when you save.</span
                       >
                     </div>
                     <div id="buffetEventPhotoPreview" class="admin-thumb-strip"></div>
@@ -1566,10 +1567,10 @@
       </div>
     </div>
 
-    <script src="js/pwa.js?v=11"></script>
-    <script src="js/kds.js?v=11"></script>
-    <script src="js/admin.js?v=11"></script>
-    <script src="js/admin-app.js?v=11"></script>
+    <script src="js/pwa.js?v=12"></script>
+    <script src="js/kds.js?v=12"></script>
+    <script src="js/admin.js?v=12"></script>
+    <script src="js/admin-app.js?v=12"></script>
   <script>
   if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 </script>

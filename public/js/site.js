@@ -1905,9 +1905,9 @@ loadConfig();
         <label class="checkbox-option" style="margin-bottom:8px">
           <input type="checkbox" id="settingsEmailOptIn" /> Send me email offers and news
         </label>
+        <p class="auth-hint" style="margin:0 0 8px">Saved automatically - you stay subscribed until you untick it.</p>
         <p id="settingsAccountMsg" class="form-success" style="display:none"></p>
         <p id="settingsAccountErr" class="form-error" style="display:none"></p>
-        <button type="button" class="btn btn-secondary btn-block" id="settingsSaveMarketingBtn">Save preference</button>
         <div class="settings-danger-zone">
           <h4>Delete account</h4>
           <p class="auth-hint">This permanently removes your account and saved details. It can't be undone. Past orders may be kept for our accounting records without your login.</p>
@@ -2040,14 +2040,21 @@ loadConfig();
     }
   });
 
-  // Email marketing preference
-  $("settingsSaveMarketingBtn").addEventListener("click", async () => {
+  // Email marketing preference - saved the moment it's ticked/unticked, so it
+  // stays that way after refreshing or signing in again.
+  $("settingsEmailOptIn").addEventListener("change", async (e) => {
+    const box = e.currentTarget;
+    const wanted = box.checked;
     hide($("settingsAccountMsg"), $("settingsAccountErr"));
+    box.disabled = true;
     try {
-      await saveAccount({ marketing_email_opt_in: $("settingsEmailOptIn").checked });
-      show($("settingsAccountMsg"), "Preference saved.");
+      await saveAccount({ marketing_email_opt_in: wanted });
+      show($("settingsAccountMsg"), wanted ? "You're subscribed to our email offers and news." : "You've been unsubscribed.");
     } catch (err) {
+      box.checked = !wanted; // didn't save - show what's really stored
       show($("settingsAccountErr"), userFriendlyError(err, "Couldn't save your preference."));
+    } finally {
+      box.disabled = false;
     }
   });
 

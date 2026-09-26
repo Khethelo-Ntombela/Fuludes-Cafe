@@ -3149,3 +3149,48 @@ button.kpi-card {
 .chip-remove:hover {
   color: var(--sa-red);
 }
+
+/* Photo picker thumbnails (buffet event photos, marketing email images) */
+.picker-thumb {
+  position: relative;
+  display: inline-block;
+  margin: 6px 8px 0 0;
+}
+.picker-thumb img {
+  width: 84px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--sa-border);
+  display: block;
+}
+.picker-thumb button {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: var(--sa-red);
+  color: #fff;
+  line-height: 18px;
+  cursor: pointer;
+}
+.picker-new {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  background: var(--sa-gold);
+  color: #fff;
+  font-size: 0.65rem;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.picker-count {
+  display: inline-block;
+  vertical-align: bottom;
+  font-size: 0.78rem;
+  color: var(--sa-faint, #888);
+  margin-left: 4px;
+}
