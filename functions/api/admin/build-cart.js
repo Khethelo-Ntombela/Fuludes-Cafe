@@ -18,7 +18,7 @@
  */
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
-import { sanitizeText } from "../../_lib/security.js";
+import { sanitizeText, isValidEmail, isValidName, normalizePhone, VALIDATION_MESSAGES } from "../../_lib/security.js";
 import { generateToken } from "../../_lib/password.js";
 import { logAudit } from "../../_lib/audit.js";
 import { calculateDeliveryFee } from "../../_lib/delivery.js";
@@ -41,7 +41,8 @@ export async function onRequestPost(context) {
     body.customer_email || "",
     200,
   ).toLowerCase();
-  const customerPhone = sanitizeText(body.customer_phone || "", 50);
+  const customerPhoneInput = sanitizeText(body.customer_phone || "", 50);
+  const customerPhone = normalizePhone(customerPhoneInput) || "";
   const cartItems = Array.isArray(body.cart_items) ? body.cart_items : [];
   const orderType = ["delivery", "dine_in"].includes(body.order_type) ? body.order_type : "collection";
   const deliveryAddress = sanitizeText(body.delivery_address || "", 500);
@@ -49,6 +50,9 @@ export async function onRequestPost(context) {
   const pickupTime = sanitizeText(body.pickup_time || "As soon as possible", 60);
   const specialInstructions = sanitizeText(body.special_instructions || "", 500);
 
+  if (customerName && !isValidName(customerName)) return jsonResponse({ error: VALIDATION_MESSAGES.name }, 400);
+  if (customerPhoneInput && !customerPhone) return jsonResponse({ error: VALIDATION_MESSAGES.phone }, 400);
+  if (customerEmail && !isValidEmail(customerEmail)) return jsonResponse({ error: VALIDATION_MESSAGES.email }, 400);
   if (!customerName || !customerPhone || cartItems.length === 0) {
     return jsonResponse(
       { error: "Incomplete details: customer name, phone and cart items are required." },

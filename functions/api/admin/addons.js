@@ -54,6 +54,7 @@ export async function onRequestPost(context) {
     const body = await context.request.json();
     const name = (body.name || "").trim();
     if (!name) return jsonResponse({ error: "Name is required." }, 400);
+    if (name.length > 60) return jsonResponse({ error: "Names can be at most 60 characters." }, 400);
 
     if (isSide) {
       const result = await runQuery(
@@ -83,6 +84,9 @@ export async function onRequestPost(context) {
     }
 
     const price = parseFloat(body.price);
+    if (body.price !== undefined && body.price !== "" && (!Number.isFinite(price) || price < 0 || price > 100000)) {
+      return jsonResponse({ error: "Please enter a valid price (R0 or more)." }, 400);
+    }
     const result = await runQuery(
       context.env,
       `

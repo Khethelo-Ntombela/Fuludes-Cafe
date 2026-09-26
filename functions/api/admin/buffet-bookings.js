@@ -12,6 +12,7 @@
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { queuePush } from "../../_lib/push.js";
+import { isValidEmail, isValidName, normalizePhone, VALIDATION_MESSAGES } from "../../_lib/security.js";
 
 /** Lets a signed-in customer know their buffet booking was confirmed/cancelled. */
 async function pushBookingStatus(context, bookingId, status) {
@@ -70,9 +71,14 @@ export async function onRequestPost(context) {
     if (body.action === "create") {
       const event_id = Number(body.event_id);
       const name = String(body.name || "").replace(/[<>]/g, "").trim().slice(0, 100);
-      const phone = String(body.phone || "").replace(/[<>]/g, "").trim().slice(0, 50);
+      const phoneInput = String(body.phone || "").replace(/[<>]/g, "").trim().slice(0, 50);
+      const phone = normalizePhone(phoneInput) || "";
       const email = String(body.email || "").replace(/[<>]/g, "").trim().toLowerCase().slice(0, 100);
       const seats = Math.max(1, parseInt(body.seats, 10) || 0);
+      if (name && !isValidName(name)) return jsonResponse({ error: VALIDATION_MESSAGES.name }, 400);
+      if (phoneInput && !phone) return jsonResponse({ error: VALIDATION_MESSAGES.phone }, 400);
+      if (email && !isValidEmail(email)) return jsonResponse({ error: VALIDATION_MESSAGES.email }, 400);
+      if (seats > 500) return jsonResponse({ error: "That's more seats than any event holds." }, 400);
       if (!event_id || !name || !phone || !seats) {
         return jsonResponse({ error: "Event, name, phone and number of seats are required." }, 400);
       }

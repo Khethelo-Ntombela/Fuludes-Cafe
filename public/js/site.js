@@ -2366,3 +2366,20 @@ async function confirmPasswordChange(token) {
   });
   window.addEventListener("appinstalled", () => (btn.style.display = "none"));
 })();
+
+// ---------------------------------------------------------------------
+// Form validation (every customer form on every page) - rules live in
+// js/form-validation.js, shared with the admin and staff dashboards.
+// ---------------------------------------------------------------------
+if (typeof FuludeValidation !== "undefined") {
+  FuludeValidation.apply({
+    names: ["reservation-name", "signup-name", "customer-name", "buffetName", "catName", "reviewName", "orderReviewName", "settings-name"],
+    newPasswords: ["signup-password", "reset-new-password", "settings-new-password"],
+    futureDates: ["reservation-date", "catDate"],
+    numbers: {
+      "reservation-party-size": { min: 1, max: 50, step: 1, title: "1 to 50 guests - for bigger groups please contact us." },
+    },
+    maxLengths: { "special-instructions": 500, "reservation-notes": 500, catMessage: 1000, reviewComment: 1000 },
+    patterns: { "addr-postal": { pattern: "[0-9]{4}", title: "4-digit postal code, e.g. 0950" } },
+  });
+}

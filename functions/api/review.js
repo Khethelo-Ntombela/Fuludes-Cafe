@@ -11,7 +11,7 @@
  * -----------------------------------------------------------------------
  */
 import { runQuery, jsonResponse } from "../_lib/db.js";
-import { sanitizeText } from "../_lib/security.js";
+import { sanitizeText, isValidEmail, isValidName, normalizePhone, VALIDATION_MESSAGES } from "../_lib/security.js";
 import { requireCustomer } from "../_lib/customerAuth.js";
 import { reviewItemsByOrder } from "../_lib/reviewItems.js";
 
@@ -72,6 +72,10 @@ export async function onRequest(context) {
       const comment = sanitizeText(body.comment || "", 1000);
       const orderId = body.order_id ? parseInt(body.order_id, 10) : null;
 
+      if (customerName && !isValidName(customerName)) return jsonResponse({ error: VALIDATION_MESSAGES.name }, 400);
+      if (comment && comment.length < 3) {
+        return jsonResponse({ error: "Please write a short comment about your visit." }, 400);
+      }
       if (
         !customerName ||
         !comment ||

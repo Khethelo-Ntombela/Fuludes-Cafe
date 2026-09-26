@@ -4,7 +4,7 @@ import {
   ADMIN_PERMISSIONS,
 } from "../../_lib/adminAuth.js";
 import { hashPassword } from "../../_lib/password.js";
-import { sanitizeText, getRequestIp } from "../../_lib/security.js";
+import { sanitizeText, getRequestIp, isValidEmail, VALIDATION_MESSAGES } from "../../_lib/security.js";
 import { logAudit } from "../../_lib/audit.js";
 
 /** Main admin = full access ({"all": true}). Only they can edit or delete admin accounts. */
@@ -72,6 +72,7 @@ async function manageAccount(request, env, actor) {
   // PUT - edit
   const email = body.email !== undefined ? sanitizeText(body.email || "", 200).trim().toLowerCase() : target.email;
   if (!email) return jsonResponse({ error: "Email is required." }, 400);
+  if (!isValidEmail(email)) return jsonResponse({ error: VALIDATION_MESSAGES.email }, 400);
   const permissions = body.permissions !== undefined ? cleanPermissions(body.permissions, true) : target.permissions;
   const isActive = body.is_active !== undefined ? Boolean(body.is_active) : target.is_active;
   if (isSelf && (!isMainAdmin(permissions) || !isActive)) {
@@ -152,6 +153,7 @@ export async function onRequest(context) {
       .toLowerCase();
     const password = sanitizeText(body.password || "");
     const permissions = cleanPermissions(body.permissions, isMainAdmin(auth.actor.permissions));
+    if (email && !isValidEmail(email)) return jsonResponse({ error: VALIDATION_MESSAGES.email }, 400);
     if (!email || password.length < 8)
       return jsonResponse(
         { error: "Email and password of at least 8 characters are required." },

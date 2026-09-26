@@ -12,7 +12,7 @@ import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { hashPassword } from "../../_lib/password.js";
 import { logAudit } from "../../_lib/audit.js";
-import { getRequestIp, sanitizeText } from "../../_lib/security.js";
+import { getRequestIp, sanitizeText, isValidEmail, isValidName, normalizePhone, VALIDATION_MESSAGES } from "../../_lib/security.js";
 
 function normalizeEmail(value) {
   return sanitizeText(value || "")
@@ -85,6 +85,8 @@ export async function onRequest(context) {
           400,
         );
       }
+      if (!isValidName(name)) return jsonResponse({ error: VALIDATION_MESSAGES.name }, 400);
+      if (!isValidEmail(email)) return jsonResponse({ error: VALIDATION_MESSAGES.email }, 400);
       if (password.length < 8) {
         return jsonResponse(
           { error: "Password must be at least 8 characters." },
@@ -135,6 +137,8 @@ export async function onRequest(context) {
           400,
         );
       }
+      if (!isValidName(name)) return jsonResponse({ error: VALIDATION_MESSAGES.name }, 400);
+      if (!isValidEmail(email)) return jsonResponse({ error: VALIDATION_MESSAGES.email }, 400);
 
       let query =
         "UPDATE staff_accounts SET name = $1, email = $2, permissions = $3, updated_at = NOW() WHERE id = $4;";

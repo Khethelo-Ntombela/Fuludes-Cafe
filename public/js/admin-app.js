@@ -1360,6 +1360,13 @@ async function generatePaymentLink() {
     toast("Enter the customer's name and phone number.");
     return;
   }
+  // Sent from a button, not a form submit - run the same field checks the forms get.
+  if (
+    typeof FuludeValidation !== "undefined" &&
+    !FuludeValidation.check(["orderCustomerName", "orderCustomerPhone", "orderCustomerEmail", "orderTableNumber", "poStreet", "poPostal", "poManualFee"])
+  ) {
+    return;
+  }
   if (type === "dine_in" && !table) {
     toast("Enter the table number.");
     return;

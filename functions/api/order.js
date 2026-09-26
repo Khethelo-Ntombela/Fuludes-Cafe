@@ -53,7 +53,7 @@ import {
   requireCustomer,
   ensureCustomerProfileColumns,
 } from "../_lib/customerAuth.js";
-import { sanitizeText, getRequestIp } from "../_lib/security.js";
+import { sanitizeText, getRequestIp, isValidEmail, isValidName, normalizePhone, VALIDATION_MESSAGES } from "../_lib/security.js";
 import { logAudit } from "../_lib/audit.js";
 import { isOpenNow, CLOSED_MESSAGE } from "../_lib/hours.js";
 import { ensureCancelledByColumn, restoreOrderStock } from "../_lib/orderCancel.js";
@@ -352,7 +352,8 @@ export async function onRequestPost(context) {
   }
 
   const customerName = sanitizeText(orderData.customer_name || "", 100);
-  const phoneNumber = sanitizeText(orderData.phone_number || "", 50);
+  const phoneInput = sanitizeText(orderData.phone_number || "", 50);
+  const phoneNumber = normalizePhone(phoneInput) || "";
   const orderType = ["delivery", "dine_in"].includes(orderData.order_type)
     ? orderData.order_type
     : "collection";
@@ -377,6 +378,8 @@ export async function onRequestPost(context) {
     : [];
 
   // ---- Strict validation ----
+  if (customerName && !isValidName(customerName)) return jsonResponse({ error: VALIDATION_MESSAGES.name }, 400);
+  if (phoneInput && !phoneNumber) return jsonResponse({ error: VALIDATION_MESSAGES.phone }, 400);
   if (!customerName || !phoneNumber || cartItems.length === 0) {
     return jsonResponse(
       { error: "Incomplete order details or empty cart." },

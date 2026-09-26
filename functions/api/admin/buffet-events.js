@@ -12,6 +12,14 @@ import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { sanitizeText } from "../../_lib/security.js";
 
+/** Capacity, price and timing rules shared by create and edit. Returns an error message or null. */
+function checkBuffetEvent(capacity, priceCents, eventDate, bookingClosesAt) {
+  if (!Number.isInteger(capacity) || capacity < 1 || capacity > 1000) return "Capacity must be a whole number of seats between 1 and 1000.";
+  if (!Number.isFinite(priceCents) || priceCents < 0 || priceCents > 10000000) return "Please enter a valid price (R0 or more).";
+  if (new Date(bookingClosesAt).getTime() > new Date(eventDate).getTime()) return "Booking must close before the event starts.";
+  return null;
+}
+
 export async function onRequestGet(context) {
   const { request, env } = context;
   const authErr = await requireAdmin(request, env);
@@ -58,6 +66,8 @@ export async function onRequestPost(context) {
         { error: "Please add the date & time booking closes." },
         400,
       );
+    const eventCheck = checkBuffetEvent(capacity, price_cents, event_date, booking_closes_at);
+    if (eventCheck) return jsonResponse({ error: eventCheck }, 400);
     const res = await runQuery(
       env,
       "INSERT INTO buffet_events (title,description,event_date,capacity,price_cents,photos,is_published,booking_closes_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id;",
@@ -110,6 +120,8 @@ export async function onRequestPut(context) {
         { error: "Please add the date & time booking closes." },
         400,
       );
+    const eventCheck = checkBuffetEvent(capacity, price_cents, event_date, booking_closes_at);
+    if (eventCheck) return jsonResponse({ error: eventCheck }, 400);
     await runQuery(
       env,
       "UPDATE buffet_events SET title=$1, description=$2, event_date=$3, capacity=$4, price_cents=$5, photos=$6, is_published=$7, booking_closes_at=$8, updated_at = NOW() WHERE id=$9;",

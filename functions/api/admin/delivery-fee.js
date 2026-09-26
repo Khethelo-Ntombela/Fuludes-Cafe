@@ -8,7 +8,7 @@
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { MAX_DELIVERY_KM } from "../../_lib/delivery.js";
-import { sanitizeText } from "../../_lib/security.js";
+import { sanitizeText, isValidEmail, normalizePhone, VALIDATION_MESSAGES } from "../../_lib/security.js";
 import { logAudit, money } from "../../_lib/audit.js";
 import { getRequestIp } from "../../_lib/security.js";
 
@@ -50,6 +50,23 @@ export async function onRequestPost(context) {
   }
 
   const { bands, cafe_latitude, cafe_longitude, cafe_phone, cafe_email } = body;
+
+  if (cafe_latitude != null && cafe_latitude !== "" && !(Math.abs(parseFloat(cafe_latitude)) <= 90)) {
+    return jsonResponse({ error: "Latitude must be between -90 and 90." }, 400);
+  }
+  if (cafe_longitude != null && cafe_longitude !== "" && !(Math.abs(parseFloat(cafe_longitude)) <= 180)) {
+    return jsonResponse({ error: "Longitude must be between -180 and 180." }, 400);
+  }
+  // Shown to customers as typed (e.g. "+27 66 364 9016") - just make sure it's a real number.
+  if (cafe_phone && !normalizePhone(sanitizeText(cafe_phone, 50))) {
+    return jsonResponse({ error: VALIDATION_MESSAGES.phone }, 400);
+  }
+  if (cafe_email && !isValidEmail(sanitizeText(cafe_email, 200))) {
+    return jsonResponse({ error: VALIDATION_MESSAGES.email }, 400);
+  }
+  if (Array.isArray(bands) && bands.some((b) => typeof b.fee === "number" && (b.fee < 0 || b.fee > 10000))) {
+    return jsonResponse({ error: "Delivery fees must be between R0 and R10 000." }, 400);
+  }
 
   try {
     // Snapshot the "before" values so the audit log can show exactly what changed.

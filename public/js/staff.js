@@ -260,3 +260,6 @@ async function handleAdvance(status, orderId) {
 if (staffToken) {
   showBoard();
 }
+
+// Staff login: email checked with the shared rules (js/form-validation.js).
+if (typeof FuludeValidation !== "undefined") FuludeValidation.apply({});

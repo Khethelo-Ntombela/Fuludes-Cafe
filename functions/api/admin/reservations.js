@@ -17,7 +17,7 @@
  */
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
-import { sanitizeText } from "../../_lib/security.js";
+import { sanitizeText, isValidEmail, isValidName, normalizePhone, VALIDATION_MESSAGES } from "../../_lib/security.js";
 import { logAudit } from "../../_lib/audit.js";
 import { queuePush } from "../../_lib/push.js";
 import { cancelAndRefundOrder } from "../../_lib/reservations.js";
@@ -168,7 +168,8 @@ export async function onRequestPost(context) {
 async function createReservation(env, body) {
   const name = sanitizeText(body.name || "", 100);
   const email = sanitizeText(body.email || "", 100).toLowerCase();
-  const phone = sanitizeText(body.phone || "", 50);
+  const phoneInput = sanitizeText(body.phone || "", 50);
+  const phone = normalizePhone(phoneInput) || "";
   const date = sanitizeText(body.reservation_date || "", 30);
   const time = sanitizeText(body.reservation_time || "", 30);
   const partySize = parseInt(body.party_size, 10);
@@ -176,6 +177,12 @@ async function createReservation(env, body) {
   const notes = sanitizeText(body.notes || "", 500);
   const status = ["Pending", "Confirmed"].includes(body.status) ? body.status : "Confirmed";
 
+  if (name && !isValidName(name)) return jsonResponse({ error: VALIDATION_MESSAGES.name }, 400);
+  if (phoneInput && !phone) return jsonResponse({ error: VALIDATION_MESSAGES.phone }, 400);
+  if (email && !isValidEmail(email)) return jsonResponse({ error: VALIDATION_MESSAGES.email }, 400);
+  if (Number.isInteger(partySize) && partySize > 200) {
+    return jsonResponse({ error: "Party size can be at most 200." }, 400);
+  }
   if (!name || !phone || !date || !time || !Number.isInteger(partySize) || partySize < 1) {
     return jsonResponse(
       { error: "Please fill in the customer's name, phone, date, time and party size." },
@@ -185,6 +192,8 @@ async function createReservation(env, body) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return jsonResponse({ error: "Enter the date as YYYY-MM-DD." }, 400);
   }
+  const todaySA = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Johannesburg" }).format(new Date());
+  if (date < todaySA) return jsonResponse({ error: "The booking date can't be in the past." }, 400);
 
   try {
     let customerId = null;

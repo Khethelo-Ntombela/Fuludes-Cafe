@@ -3486,3 +3486,52 @@ function initAuditHandlers() {
 if (adminToken) {
   showDashboard();
 }
+
+// ---------------------------------------------------------------------
+// Form validation for every admin form - rules live in js/form-validation.js
+// (shared with the customer site); the server re-checks all of it.
+// ---------------------------------------------------------------------
+if (typeof FuludeValidation !== "undefined") {
+  const money = (max, title) => ({ min: 0, max, step: 0.01, title });
+  FuludeValidation.apply({
+    // Customer details entered by staff: Place Order, Book for a customer, buffet seats
+    names: ["resNewName", "orderCustomerName", "bbName", "staffAccountName"],
+    newPasswords: ["staffAccountPassword", "adminAccountPassword", "newAdminPassword", "adminResetPassword"],
+    futureDates: ["resNewDate"],
+    futureDateTimes: ["buffetEventDate"],
+    numbers: {
+      itemPrice: money(100000, "Price in Rand, e.g. 85 or 85.50"),
+      addonPrice: money(100000, "Price in Rand, e.g. 15"),
+      specialPriceInput: money(100000, "Special price in Rand"),
+      buffetEventPrice: money(100000, "Price per seat in Rand"),
+      poManualFee: money(10000, "Delivery fee in Rand"),
+      itemStockQuantity: { min: 0, max: 100000, step: 1, title: "Whole number - leave empty for unlimited" },
+      buffetEventCapacity: { min: 1, max: 1000, step: 1, title: "Number of seats (1-1000)" },
+      resNewParty: { min: 1, max: 200, step: 1, title: "1 to 200 guests" },
+      bbSeats: { min: 1, max: 500, step: 1, title: "Number of seats" },
+      cafeLatitude: { min: -90, max: 90, step: "any", title: "Between -90 and 90, e.g. -22.9834" },
+      cafeLongitude: { min: -180, max: 180, step: "any", title: "Between -180 and 180, e.g. 30.3571" },
+    },
+    maxLengths: {
+      itemName: 100, itemDescription: 500, itemIngredients: 1000,
+      addonName: 60, spiceName: 60, sideName: 60, categoryName: 60,
+      resNewTable: 30, resNewNotes: 500, orderTableNumber: 30, orderInstructions: 500,
+      poStreet: 200, poUnit: 50, poSuburb: 100, poCity: 100,
+      buffetEventTitle: 200, buffetEventDescription: 2000,
+      marketingSubject: 150, marketingBody: 5000,
+    },
+    patterns: { poPostal: { pattern: "[0-9]{4}", title: "4-digit postal code, e.g. 0950" } },
+    custom: [
+      {
+        id: "buffetEventBookingCloses",
+        test: (v) => !document.getElementById("buffetEventDate")?.value || v <= document.getElementById("buffetEventDate").value,
+        message: "Booking must close before the event starts.",
+      },
+      {
+        id: "specialEndsInput",
+        test: (v) => !document.getElementById("specialStartsInput")?.value || v > document.getElementById("specialStartsInput").value,
+        message: "The special must end after it starts.",
+      },
+    ],
+  });
+}

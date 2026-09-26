@@ -12,7 +12,7 @@
  */
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireCustomer } from "../../_lib/customerAuth.js";
-import { sanitizeText } from "../../_lib/security.js";
+import { sanitizeText, isValidEmail, isValidName, normalizePhone, VALIDATION_MESSAGES } from "../../_lib/security.js";
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -37,10 +37,14 @@ export async function onRequest(context) {
     if (body.name !== undefined) {
       const name = sanitizeText(body.name, 100);
       if (!name) return jsonResponse({ error: "Username can't be empty." }, 400);
+      if (!isValidName(name)) return jsonResponse({ error: VALIDATION_MESSAGES.name }, 400);
       push("name", name);
     }
     if (body.phone_number !== undefined) {
-      push("phone_number", sanitizeText(body.phone_number, 30) || null);
+      const phoneInput = sanitizeText(body.phone_number, 30);
+      const phone = phoneInput ? normalizePhone(phoneInput) : null; // empty clears it
+      if (phoneInput && !phone) return jsonResponse({ error: VALIDATION_MESSAGES.phone }, 400);
+      push("phone_number", phone);
     }
     if (body.delivery_address !== undefined) {
       push("delivery_address", sanitizeText(body.delivery_address, 500) || null);

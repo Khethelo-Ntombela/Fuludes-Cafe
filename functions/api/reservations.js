@@ -20,7 +20,7 @@ import {
   requireCustomer,
   ensureCustomerProfileColumns,
 } from "../_lib/customerAuth.js";
-import { sanitizeText, getRequestIp } from "../_lib/security.js";
+import { sanitizeText, getRequestIp, isValidEmail, isValidName, normalizePhone, VALIDATION_MESSAGES } from "../_lib/security.js";
 import { logAudit } from "../_lib/audit.js";
 import { validateReservationSlot } from "../_lib/hours.js";
 import { queuePush } from "../_lib/push.js";
@@ -100,7 +100,8 @@ export async function onRequestPost(context) {
 
   const name = sanitizeText(body.name || "", 100);
   const email = sanitizeText(body.email || "", 100).toLowerCase();
-  const phone = sanitizeText(body.phone || "", 50);
+  const phoneInput = sanitizeText(body.phone || "", 50);
+  const phone = normalizePhone(phoneInput) || "";
   const reservationDate = sanitizeText(body.reservation_date || "", 30);
   const reservationTime = sanitizeText(body.reservation_time || "", 30);
   const partySize = parseInt(body.party_size || body.partySize, 10);
@@ -117,6 +118,12 @@ export async function onRequestPost(context) {
     500,
   );
 
+  if (name && !isValidName(name)) return jsonResponse({ error: VALIDATION_MESSAGES.name }, 400);
+  if (email && !isValidEmail(email)) return jsonResponse({ error: VALIDATION_MESSAGES.email }, 400);
+  if (phoneInput && !phone) return jsonResponse({ error: VALIDATION_MESSAGES.phone }, 400);
+  if (Number.isInteger(partySize) && partySize > 50) {
+    return jsonResponse({ error: "For groups of more than 50 please contact us directly." }, 400);
+  }
   if (
     !name ||
     !email ||

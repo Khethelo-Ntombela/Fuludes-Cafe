@@ -7,7 +7,7 @@
  * -----------------------------------------------------------------------
  */
 import { runQuery, jsonResponse } from "../_lib/db.js";
-import { sanitizeText } from "../_lib/security.js";
+import { sanitizeText, isValidEmail, isValidName, normalizePhone, VALIDATION_MESSAGES } from "../_lib/security.js";
 import { checkRateLimit } from "../_lib/rateLimit.js";
 import { queuePush } from "../_lib/push.js";
 
@@ -83,8 +83,13 @@ export async function onRequestPost(context) {
     const event_id = Number(body.event_id);
     const name = sanitizeText(body.name || "", 200);
     const email = sanitizeText(body.email || "", 200);
-    const phone = sanitizeText(body.phone || "", 40);
+    const phoneInput = sanitizeText(body.phone || "", 40);
+    const phone = normalizePhone(phoneInput) || "";
     const seats = Math.max(1, Math.min(20, Number(body.seats) || 1));
+
+    if (name && !isValidName(name)) return jsonResponse({ error: VALIDATION_MESSAGES.name }, 400);
+    if (email && !isValidEmail(email)) return jsonResponse({ error: VALIDATION_MESSAGES.email }, 400);
+    if (phoneInput && !phone) return jsonResponse({ error: VALIDATION_MESSAGES.phone }, 400);
 
     const missing = [];
     if (!event_id) missing.push("event");
