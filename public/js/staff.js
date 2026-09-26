@@ -146,6 +146,7 @@ async function loadOrders() {
   try {
     const res = await staffFetch("/api/staff/orders");
     const data = await res.json();
+    kdsScheduleNextRelease(data, loadOrders);
     renderBoard(data.orders || []);
 
     // Detect newly arrived PAID orders (status New && payment_status === 'paid')

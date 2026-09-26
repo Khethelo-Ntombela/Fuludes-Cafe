@@ -547,6 +547,7 @@ async function loadOrders() {
   try {
     const res = await adminFetch("/api/admin/pending-orders");
     const data = await res.json();
+    kdsScheduleNextRelease(data, loadOrders);
     const orders = data.orders || [];
 
     document.getElementById("orderCountBadge").textContent = orders.length;

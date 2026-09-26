@@ -66,8 +66,33 @@ function kdsFmt(n) {
   return `R${Number(n).toFixed(2)}`;
 }
 
+/**
+ * When the order reached the admin/staff boards: paid orders wait out the
+ * customer's 2-minute cancel window first (kitchen_release_at), so all
+ * timers - card timer, column average, Avg Ticket Age, Longest Waiting -
+ * count from then, not from when the customer placed it.
+ */
+function kdsStartTime(order) {
+  return new Date(order.kitchen_release_at || order.created_at).getTime();
+}
+
 function kdsMinutes(order) {
-  return Math.max(0, Math.round((Date.now() - new Date(order.created_at).getTime()) / 60000));
+  return Math.max(0, Math.round((Date.now() - kdsStartTime(order)) / 60000));
+}
+
+/**
+ * The boards poll every 5s; the API also says when the next paid order
+ * leaves its 2-minute window, so fetch again at exactly that moment and the
+ * new-order sound rings as soon as it reaches the kitchen.
+ */
+let kdsReleaseTimer = null;
+function kdsScheduleNextRelease(data, refresh) {
+  clearTimeout(kdsReleaseTimer);
+  if (!data || !data.next_release_at) return;
+  // Server clock for both ends - a wrong clock on this device doesn't matter.
+  const serverNow = data.server_now ? new Date(data.server_now).getTime() : Date.now();
+  const wait = new Date(data.next_release_at).getTime() - serverNow + 250;
+  if (wait > 0 && wait < 10 * 60 * 1000) kdsReleaseTimer = setTimeout(refresh, wait);
 }
 
 /* Urgency tiers: 0-10 green, 10-20 amber, 20-30 orange, 30+ red (pulse). */
@@ -385,9 +410,10 @@ function kdsOpenDetails(order, onAction) {
   overlay.querySelector("#kdsDetailBody").innerHTML = `
     <div class="kds-detail-rows">
       ${section("Order")}
-      ${row("Status", `${esc(order.status)} · ${mins} min ago`)}
+      ${row("Status", `${esc(order.status)} · ${mins} min in kitchen`)}
       ${row("Type", order.order_type === "dine_in" && order.table_number ? `Dine in · Table ${esc(order.table_number)}` : typeLabel)}
       ${row("Placed", when(order.created_at))}
+      ${order.kitchen_release_at ? row("Reached kitchen", when(order.kitchen_release_at)) : ""}
       ${row("Timing", esc(order.pickup_time || ""))}
       ${section("Customer")}
       ${row("Name", esc(order.customer_name || "—"))}

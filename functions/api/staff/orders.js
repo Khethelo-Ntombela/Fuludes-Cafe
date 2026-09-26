@@ -37,7 +37,7 @@ export async function onRequestGet(context) {
       `
             SELECT id, customer_name, customer_phone, order_type, delivery_address, table_number,
                pickup_time, special_instructions, total_amount, payment_status,
-               delivery_fee, delivery_distance_km, delivery_lat, delivery_lng, payment_confirmed_at,
+               delivery_fee, delivery_distance_km, delivery_lat, delivery_lng, payment_confirmed_at, kitchen_release_at,
                CASE WHEN status = 'Out for Delivery' THEN 'Delivery' ELSE status END AS status,
                created_at
       FROM orders
@@ -72,7 +72,20 @@ export async function onRequestGet(context) {
       items: itemsByOrder[order.id] || [],
     }));
 
-    return jsonResponse({ orders });
+    // When the next paid order leaves its 2-minute cancel window, so the board
+    // can fetch at that exact moment and ring straight away (not on the next 5s poll).
+    const next = await runQuery(
+      env,
+      `SELECT MIN(kitchen_release_at) AS next_release_at, NOW() AS server_now
+         FROM orders
+        WHERE payment_status = 'paid' AND status = 'New' AND kitchen_release_at > NOW();`,
+    );
+
+    return jsonResponse({
+      orders,
+      next_release_at: next.rows[0]?.next_release_at || null,
+      server_now: next.rows[0]?.server_now || null,
+    });
   } catch (err) {
     return jsonResponse(
       { error: "Failed to load kitchen board.", message: err.message },

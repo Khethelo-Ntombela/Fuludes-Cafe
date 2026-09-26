@@ -28,7 +28,7 @@ export async function onRequestGet(context) {
              pickup_time, special_instructions, total_amount,
              CASE WHEN status = 'Out for Delivery' THEN 'Delivery' ELSE status END AS status,
              payment_method, payment_status, payment_ref, created_at,
-             delivery_fee, delivery_distance_km, delivery_lat, delivery_lng, payment_confirmed_at
+             delivery_fee, delivery_distance_km, delivery_lat, delivery_lng, payment_confirmed_at, kitchen_release_at
       FROM orders
       WHERE status IN ('New', 'Preparing', 'Ready', 'Collection', 'Delivery', 'Out for Delivery')
         AND payment_status = 'paid'
@@ -61,7 +61,20 @@ export async function onRequestGet(context) {
       items: itemsByOrder[order.id] || [],
     }));
 
-    return jsonResponse({ orders });
+    // When the next paid order leaves its 2-minute cancel window, so the board
+    // can fetch at that exact moment and ring straight away (not on the next 5s poll).
+    const next = await runQuery(
+      env,
+      `SELECT MIN(kitchen_release_at) AS next_release_at, NOW() AS server_now
+         FROM orders
+        WHERE payment_status = 'paid' AND status = 'New' AND kitchen_release_at > NOW();`,
+    );
+
+    return jsonResponse({
+      orders,
+      next_release_at: next.rows[0]?.next_release_at || null,
+      server_now: next.rows[0]?.server_now || null,
+    });
   } catch (err) {
     return jsonResponse(
       { error: "Failed to load pending orders.", message: err.message },
