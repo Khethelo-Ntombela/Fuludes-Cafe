@@ -3252,3 +3252,74 @@ textarea:focus-visible {
     font-size: 0.78rem;
   }
 }
+
+/* =====================================================================
+   Phones: keep the page rigid - exactly the screen's width, no sideways
+   drift, no zoom-in when a form field is tapped.
+   ===================================================================== */
+html {
+  -webkit-text-size-adjust: 100%; /* iPhone: don't enlarge text on rotate */
+  text-size-adjust: 100%;
+}
+@media (max-width: 900px) {
+  html,
+  body {
+    overflow-x: clip; /* nothing can make the page wider than the screen (header stays sticky) */
+    overscroll-behavior-x: none; /* no sideways bounce */
+  }
+  /* iPhones zoom into any field under 16px and the page then "floats" */
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+  /* Header on one line: logo, Orders, account, menu button */
+  .nav-container {
+    gap: 10px;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .logo {
+    min-width: 0;
+    gap: 8px;
+    flex-shrink: 1;
+  }
+  .logo img {
+    height: 42px;
+  }
+  .logo h4 {
+    margin: 0;
+    font-size: 0.98rem;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .header-actions {
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  .nav-account-btn {
+    min-width: 0;
+    font-size: 0.75rem;
+    gap: 6px;
+  }
+  .nav-account-btn span {
+    max-width: 70px;
+  }
+  .nav-orders-link {
+    font-size: 0.75rem;
+  }
+  .nav .nav-link {
+    white-space: nowrap;
+  }
+}
+/* Very small phones: logo picture only */
+@media (max-width: 380px) {
+  .logo h4 {
+    display: none;
+  }
+  .header-actions {
+    gap: 10px;
+  }
+}
