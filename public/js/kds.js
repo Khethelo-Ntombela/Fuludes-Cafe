@@ -151,7 +151,7 @@ function kdsCardHtml(order) {
         }
         <button type="button" class="kds-menu-btn" data-menu-toggle aria-label="More actions">⋮</button>
         <div class="kds-menu">
-          <button type="button" data-open-details="${order.id}">View details</button>
+          <button type="button" data-open-details="${order.id}"><i class="fas fa-circle-info"></i> Order info</button>
           ${kdsStatusMenuHtml(order)}
           <button type="button" class="danger" data-status="Cancelled" data-id="${order.id}">Cancel order</button>
         </div>
@@ -169,6 +169,14 @@ function kdsRowHtml(order) {
       <span class="kds-row-meta">${type}</span>
       ${order.total_amount !== undefined ? `<span class="kds-row-total">${kdsFmt(order.total_amount)}</span>` : ""}
       <span class="kds-row-age">${mins} min</span>
+      <div class="kds-card-actions kds-row-actions">
+        <button type="button" class="kds-menu-btn" data-menu-toggle aria-label="More actions">⋮</button>
+        <div class="kds-menu">
+          <button type="button" data-open-details="${order.id}"><i class="fas fa-circle-info"></i> Order info</button>
+          <button type="button" data-status="Completed" data-id="${order.id}">Mark as Completed</button>
+          <button type="button" class="danger" data-status="Cancelled" data-id="${order.id}">Cancel order</button>
+        </div>
+      </div>
     </div>`;
 }
 
@@ -227,7 +235,9 @@ function kdsBindBoard(container, orders, { onAction, confirmAction, onError }) {
       const actions = btn.closest(".kds-card-actions");
       const wasOpen = actions.classList.contains("menu-open");
       closeMenus();
-      if (!wasOpen) actions.classList.add("menu-open");
+      if (wasOpen) return;
+      actions.classList.add("menu-open");
+      if (actions.classList.contains("kds-row-actions")) kdsPlaceFloatingMenu(btn, actions.querySelector(".kds-menu"));
     });
   });
 
@@ -290,6 +300,37 @@ function kdsBindBoard(container, orders, { onAction, confirmAction, onError }) {
 document.addEventListener("click", () => {
   document.querySelectorAll(".kds-card-actions.menu-open").forEach((a) => a.classList.remove("menu-open"));
 });
+// Floating row menus follow their ⋮ button when the page or a column scrolls.
+document.addEventListener(
+  "scroll",
+  () => {
+    document.querySelectorAll(".kds-row-actions.menu-open").forEach((actions) => {
+      kdsPlaceFloatingMenu(actions.querySelector("[data-menu-toggle]"), actions.querySelector(".kds-menu"));
+    });
+  },
+  true,
+);
+
+/** Escapes customer-typed text (names, addresses, notes) before it goes into HTML. */
+function kdsEsc(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+/** Row menus sit in a scrolling column - float them next to the ⋮ button, above or below, whichever fits. */
+function kdsPlaceFloatingMenu(btn, menu) {
+  if (!menu) return;
+  const r = btn.getBoundingClientRect();
+  menu.style.position = "fixed";
+  menu.style.right = `${Math.max(8, window.innerWidth - r.right)}px`;
+  menu.style.left = "auto";
+  const h = menu.offsetHeight;
+  if (r.top - h - 6 > 8) {
+    menu.style.top = `${r.top - h - 6}px`;
+  } else {
+    menu.style.top = `${Math.min(r.bottom + 6, window.innerHeight - h - 8)}px`;
+  }
+  menu.style.bottom = "auto";
+}
 
 /* ---------------- Details overlay ---------------- */
 function kdsOpenDetails(order, onAction) {
@@ -307,31 +348,60 @@ function kdsOpenDetails(order, onAction) {
   }
 
   const fmt = kdsFmt;
+  const esc = kdsEsc;
   const mins = kdsMinutes(order);
-  const placed = new Date(order.created_at).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" });
-  const typeLabel =
-    order.order_type === "delivery"
-      ? `Delivery${order.delivery_address ? ` · ${order.delivery_address}` : ""}`
-      : order.order_type === "dine_in"
-      ? `Dine In${order.table_number ? ` (Table ${order.table_number})` : ""}`
-      : "Collection";
+  const when = (d) => (d ? new Date(d).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" }) : "");
+  const row = (label, value) => (value ? `<div class="row"><span>${label}</span><span>${value}</span></div>` : "");
+  const section = (title) => `<div class="kds-detail-section">${title}</div>`;
+  const typeLabel = order.order_type === "delivery" ? "Delivery" : order.order_type === "dine_in" ? "Dine in" : "Collection";
 
-  const itemsHtml = (order.items || [])
-    .map((i) => `<li>${kdsItemLine(i)}${i.subtotal !== undefined ? ` — ${fmt(i.subtotal)}` : ""}</li>`)
+  const items = order.items || [];
+  const itemsTotal = items.reduce((sum, i) => sum + Number(i.subtotal || 0), 0);
+  const itemsHtml = items
+    .map((i) => `<li><span>${kdsItemLine(i)}</span>${i.subtotal !== undefined ? `<span>${fmt(i.subtotal)}</span>` : ""}</li>`)
     .join("");
+
+  let deliveryHtml = "";
+  if (order.order_type === "delivery") {
+    const hasPin = order.delivery_lat && order.delivery_lng;
+    const mapQuery = hasPin ? `${order.delivery_lat},${order.delivery_lng}` : order.delivery_address || "";
+    const mapLink = mapQuery
+      ? `<a class="kds-map-link" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapQuery)}" target="_blank" rel="noopener"><i class="fas fa-map-location-dot"></i> Open in Google Maps</a>`
+      : "";
+    deliveryHtml = `
+      ${section("Delivery")}
+      <div class="kds-address">${order.delivery_address ? esc(order.delivery_address) : "No address given"}${mapLink}</div>
+      ${row("Distance", order.delivery_distance_km ? `${Number(order.delivery_distance_km).toFixed(1)} km` : "")}
+      ${row("Delivery fee", order.delivery_fee !== undefined && order.delivery_fee !== null ? fmt(order.delivery_fee) : "")}`;
+  }
+
+  const phone = order.customer_phone ? `<a href="tel:${esc(order.customer_phone.replace(/s+/g, ""))}">${esc(order.customer_phone)}</a>` : "";
+  const payment =
+    order.payment_status === "paid"
+      ? `Paid online${order.payment_confirmed_at ? ` · ${when(order.payment_confirmed_at)}` : ""}`
+      : esc(order.payment_status || "");
 
   overlay.querySelector("#kdsDetailTitle").textContent = `Order #${order.id}`;
   overlay.querySelector("#kdsDetailBody").innerHTML = `
     <div class="kds-detail-rows">
-      <div class="row"><span>Status</span><span>${order.status} · ${mins} min ago</span></div>
-      <div class="row"><span>Placed</span><span>${placed}</span></div>
-      <div class="row"><span>Type</span><span>${typeLabel}</span></div>
-      <div class="row"><span>Timing</span><span>${order.pickup_time || "—"}</span></div>
-      <div class="row"><span>Customer</span><span>${order.customer_name}${order.customer_phone ? ` · ${order.customer_phone}` : ""}</span></div>
-      ${order.payment_status ? `<div class="row"><span>Payment</span><span>${order.payment_status === "paid" ? "Paid online" : order.payment_status}</span></div>` : ""}
-      ${order.total_amount !== undefined ? `<div class="row"><span>Total</span><span><strong>${fmt(order.total_amount)}</strong></span></div>` : ""}
-      ${order.special_instructions ? `<div class="row"><span>Note</span><span>${order.special_instructions}</span></div>` : ""}
-      <ul>${itemsHtml}</ul>
+      ${section("Order")}
+      ${row("Status", `${esc(order.status)} · ${mins} min ago`)}
+      ${row("Type", order.order_type === "dine_in" && order.table_number ? `Dine in · Table ${esc(order.table_number)}` : typeLabel)}
+      ${row("Placed", when(order.created_at))}
+      ${row("Timing", esc(order.pickup_time || ""))}
+      ${section("Customer")}
+      ${row("Name", esc(order.customer_name || "—"))}
+      ${row("Phone", phone)}
+      ${deliveryHtml}
+      ${section(`Items (${items.reduce((n, i) => n + Number(i.quantity || 0), 0)})`)}
+      <ul class="kds-detail-items">${itemsHtml}</ul>
+      ${order.special_instructions ? `<div class="kds-detail-note"><i class="fas fa-circle-exclamation"></i> ${esc(order.special_instructions)}</div>` : ""}
+      ${section("Payment")}
+      ${order.order_type === "delivery" && order.delivery_fee ? row("Items", fmt(itemsTotal)) : ""}
+      ${order.order_type === "delivery" && order.delivery_fee ? row("Delivery fee", fmt(order.delivery_fee)) : ""}
+      ${order.total_amount !== undefined ? row("Total", `<strong>${fmt(order.total_amount)}</strong>`) : ""}
+      ${row("Payment", payment)}
+      ${row("Reference", esc(order.payment_ref || ""))}
     </div>
     ${
       onAction && ["Collection", "Delivery", "Out for Delivery"].includes(order.status)

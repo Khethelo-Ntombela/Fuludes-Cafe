@@ -3414,3 +3414,83 @@ button.kpi-card {
     box-shadow: 0 8px 32px rgba(201, 169, 110, 0.8);
   }
 }
+
+/* ---------------- Order info (⋮ > Order info) ---------------- */
+.kds-row-actions {
+  margin-left: 2px;
+}
+.kds-row-actions .kds-menu-btn {
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  font-size: 0.9rem;
+}
+.kds-row-actions .kds-menu {
+  z-index: 250;
+  min-width: 180px;
+}
+.kds-menu button i {
+  width: 16px;
+  margin-right: 6px;
+  color: var(--sa-muted);
+}
+.kds-detail-section {
+  margin-top: 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sa-gold);
+}
+.kds-detail-rows .row span:last-child {
+  overflow-wrap: anywhere;
+}
+.kds-detail-rows .row a {
+  color: inherit;
+  font-weight: 600;
+}
+.kds-address {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--sa-border);
+  border-radius: 10px;
+  background: var(--sa-bg);
+  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.kds-map-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--sa-text);
+  text-decoration: underline;
+}
+.kds-detail-rows ul.kds-detail-items {
+  padding: 0;
+  margin: 0;
+}
+.kds-detail-items li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--sa-border);
+}
+.kds-detail-items li span:last-child {
+  white-space: nowrap;
+  font-weight: 600;
+}
+.kds-detail-note {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff7e6;
+  color: #7a4b00;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}

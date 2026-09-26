@@ -37,6 +37,7 @@ export async function onRequestGet(context) {
       `
             SELECT id, customer_name, customer_phone, order_type, delivery_address, table_number,
                pickup_time, special_instructions, total_amount, payment_status,
+               delivery_fee, delivery_distance_km, delivery_lat, delivery_lng, payment_confirmed_at,
                CASE WHEN status = 'Out for Delivery' THEN 'Delivery' ELSE status END AS status,
                created_at
       FROM orders
