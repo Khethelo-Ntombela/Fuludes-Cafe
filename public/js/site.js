@@ -671,6 +671,13 @@ async function loadPublicBuffet() {
   }
 }
 
+/** "Sat, 3 Oct 2026 · 21:58" */
+function buffetWhen(value) {
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return "";
+  return `${d.toLocaleDateString("en-ZA", { weekday: "short", day: "numeric", month: "short", year: "numeric" })} · ${d.toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" })}`;
+}
+
 /** Events the customer already holds a live booking for get "Check My Booking" instead of "Book". */
 function renderPublicBuffet() {
   const el = document.getElementById("buffetContent");
@@ -690,11 +697,15 @@ function renderPublicBuffet() {
       return `
       <div class="sa-card buffet-card" data-event-id="${evt.id}">
         ${(evt.photos || []).length ? `<div class="buffet-card-photos">${evt.photos.map((ph) => `<img src="${escapeHtml(ph)}" alt="${escapeHtml(evt.title)}" loading="lazy" style="height:180px;max-width:100%;object-fit:cover;border-radius:6px;flex:0 0 auto" onerror="this.style.display='none'" />`).join("")}</div>` : ""}
-        <div class="sa-card-title">${escapeHtml(evt.title)} <span class="admin-hint">${new Date(evt.event_date).toLocaleString()}</span></div>
-        <p>${escapeHtml(evt.description || "")}</p>
-        <div><strong>Seats:</strong> ${evt.seats_remaining} remaining of ${evt.capacity} &nbsp; <strong>Price:</strong> R${(Number(evt.price_cents) / 100).toFixed(2)}</div>
+        <div class="sa-card-title">${escapeHtml(evt.title)}</div>
+        <div class="buffet-when"><i class="far fa-calendar"></i> ${buffetWhen(evt.event_date)}</div>
+        ${evt.description ? `<p class="buffet-desc">${escapeHtml(evt.description)}</p>` : ""}
+        <ul class="buffet-details">
+          <li><strong>Seats:</strong> ${evt.seats_remaining} of ${evt.capacity} left</li>
+          <li><strong>Price:</strong> R${(Number(evt.price_cents) / 100).toFixed(2)} per seat</li>
+        </ul>
         <div class="buffet-actions">${action}</div>
-        ${evt.booking_closes_at ? `<div class="admin-hint">Booking closes: ${new Date(evt.booking_closes_at).toLocaleString()}</div>` : ""}
+        ${evt.booking_closes_at ? `<div class="admin-hint">Booking closes ${buffetWhen(evt.booking_closes_at)}</div>` : ""}
       </div>`;
     })
     .join("");

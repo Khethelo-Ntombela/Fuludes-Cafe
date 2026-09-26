@@ -257,6 +257,7 @@ function updateStatusCard() {
 // Dashboard home
 // ---------------------------------------------------------------------
 async function loadDashboardData() {
+  if (window.adminCan && !window.adminCan("orders")) return; // dashboard figures need the Orders permission
   const [history, statsRes, reviewsRes] = await Promise.all([
     fetchHistoryAll(),
     adminFetch("/api/admin/stats").then((r) => r.json()).catch(() => null),

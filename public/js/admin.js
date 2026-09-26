@@ -132,11 +132,63 @@ async function adminFetch(url, options = {}) {
       Authorization: `Bearer ${adminToken}`,
     },
   });
+  // 401 = the session really ended. (A section this admin isn't allowed to
+  // use answers 403 instead, which never logs anyone out.)
   if (res.status === 401) {
     logout();
     throw new Error("Session expired. Please log in again.");
   }
   return res;
+}
+
+// ---------------------------------------------------------------------
+// Permissions: admins created by the main admin only see (and load) the
+// sections they were given. Main admin = { all: true }.
+// ---------------------------------------------------------------------
+let adminPermissions = { all: true }; // replaced with the real ones right after sign-in
+const adminCan = (perm) => Boolean(adminPermissions.all || adminPermissions[perm]);
+window.adminCan = adminCan;
+
+const TAB_PERMISSIONS = {
+  dashboard: ["orders"], orders: ["orders"], placeorder: ["orders"], history: ["orders"], sales: ["orders"],
+  reservations: ["orders"], menu: ["menu"], specials: ["menu"], addons: ["menu"], reviews: ["reviews"],
+  buffet: ["buffet"], customers: ["customers"], audit: ["audit"],
+  settings: ["settings", "admin_accounts", "marketing", "menu"],
+};
+const SETTINGS_TAB_PERMISSIONS = {
+  general: ["settings"], staff: ["settings"], "admin-accounts": ["admin_accounts"], categories: ["menu"],
+  delivery: ["settings"], payments: ["settings"], security: ["settings"], marketing: ["marketing"],
+};
+const allowed = (needs) => !needs || needs.some(adminCan);
+
+async function loadAdminPermissions() {
+  try {
+    const res = await adminFetch("/api/admin/me");
+    if (res.ok) adminPermissions = (await res.json()).permissions || {};
+  } catch {
+    /* logged out by adminFetch if the session is gone */
+  }
+}
+
+/** Hides sidebar tabs, settings tabs and shortcut buttons this admin can't use; opens the first allowed tab. */
+function applyAdminPermissions() {
+  document.querySelectorAll(".admin-tab-btn").forEach((btn) => {
+    btn.style.display = allowed(TAB_PERMISSIONS[btn.dataset.tab]) ? "" : "none";
+  });
+  document.querySelectorAll("[data-goto-tab]").forEach((btn) => {
+    btn.style.display = allowed(TAB_PERMISSIONS[btn.dataset.gotoTab]) ? "" : "none";
+  });
+  document.querySelectorAll(".settings-tab-btn").forEach((btn) => {
+    btn.style.display = allowed(SETTINGS_TAB_PERMISSIONS[btn.dataset.settingsTab]) ? "" : "none";
+  });
+  const activeTab = document.querySelector(".admin-tab-btn.active");
+  if (!activeTab || activeTab.style.display === "none") {
+    [...document.querySelectorAll(".admin-tab-btn")].find((b) => b.style.display !== "none")?.click();
+  }
+  const activeSettings = document.querySelector(".settings-tab-btn.active");
+  if (activeSettings && activeSettings.style.display === "none") {
+    [...document.querySelectorAll(".settings-tab-btn")].find((b) => b.style.display !== "none")?.click();
+  }
 }
 
 document.getElementById("logoutBtn").addEventListener("click", logout);
@@ -177,9 +229,12 @@ function logout() {
   document.getElementById("adminResetForm").style.display = "none";
 }
 
-function showDashboard() {
+async function showDashboard() {
   document.getElementById("loginScreen").style.display = "none";
   document.getElementById("dashboard").style.display = "grid";
+  await loadAdminPermissions();
+  if (!adminToken) return; // the session ended while checking
+  applyAdminPermissions();
   loadEverything();
   clearInterval(pollIntervalId);
   pollIntervalId = setInterval(adminLivePoll, ADMIN_POLL_MS);
@@ -215,6 +270,7 @@ document.getElementById("loginForm").addEventListener("submit", async (e) => {
       throw new Error(data.error || "Couldn't log in.");
 
     adminToken = data.token;
+    adminPermissions = data.permissions || {};
     localStorage.setItem(TOKEN_KEY, adminToken);
     document.getElementById("loginForm").reset();
     showDashboard();
@@ -307,19 +363,26 @@ document.querySelectorAll(".admin-tab-btn").forEach((btn) => {
   });
 });
 
+/** Loads only the sections this admin is allowed to use. */
 function loadEverything() {
-  loadOrders();
-  loadCategories();
-  loadMenuItems();
-  loadAddonsAndSpice();
-  loadAdminReviews();
-  loadBuffetSetting();
+  if (adminCan("orders")) {
+    loadOrders();
+    loadReservations();
+  }
+  if (adminCan("menu")) {
+    loadCategories();
+    loadMenuItems();
+    loadAddonsAndSpice();
+  }
+  if (adminCan("reviews")) loadAdminReviews();
+  if (adminCan("settings")) {
+    loadBuffetSetting();
+    loadStaffAccounts();
+  }
+  if (adminCan("admin_accounts")) loadAdminAccounts();
   initBuffetAdminHandlers();
   initStoreStatusHandlers();
   initAuditHandlers();
-  loadStaffAccounts();
-  loadReservations();
-  loadAdminAccounts();
 }
 
 async function loadCustomerRecords() {
@@ -503,6 +566,7 @@ const ADMIN_POLL_MS = 5000;
 let adminPollTick = 0;
 function adminLivePoll() {
   adminPollTick++;
+  if (!adminCan("orders")) return; // nothing live to refresh for this admin
   loadOrders();
   if (document.hidden) return;
   const tab = document.querySelector(".admin-tab-btn.active")?.dataset.tab;

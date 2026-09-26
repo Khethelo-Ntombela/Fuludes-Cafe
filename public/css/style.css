@@ -3138,3 +3138,34 @@ textarea:focus-visible {
   background: #fef3f2;
   color: #7a271a;
 }
+
+/* Buffet event card: text wraps inside the card, one detail per line */
+.buffet .buffet-card {
+  width: 100%;
+  overflow: hidden;
+}
+.buffet .buffet-card,
+.buffet .buffet-card * {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.buffet .buffet-card .sa-card-title {
+  font-size: 1.3rem;
+}
+.buffet-when {
+  color: var(--gray);
+  font-size: 0.9rem;
+  margin-bottom: 10px;
+}
+.buffet-desc {
+  margin: 0 auto 12px;
+  max-width: 520px;
+  line-height: 1.6;
+  color: var(--charcoal);
+}
+.buffet-details {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+  line-height: 1.8;
+}

@@ -18,6 +18,7 @@ function requiredPermission(pathname, role) {
     return "orders";
   }
 
+  if (pathname.endsWith("/admin/me")) return null; // any signed-in admin may read their own permissions
   if (pathname.includes("/admin/accounts")) return "admin_accounts";
   if (pathname.includes("/admin/customers")) return "customers";
   if (pathname.includes("/admin/marketing")) return "marketing";
@@ -62,8 +63,9 @@ async function requireRole(request, env, { tokenEnvVar, label }) {
   if (permissions.error) return permissions.error;
 
   const required = requiredPermission(new URL(request.url).pathname, role);
-  if (!(permissions.value.all || permissions.value[required])) {
-    return jsonResponse({ error: "Unauthorized. Please log in again." }, 401);
+  if (required && !(permissions.value.all || permissions.value[required])) {
+    // Signed in, just not allowed here - 403, so the page doesn't treat it as an expired session.
+    return jsonResponse({ error: "You don't have access to this section.", forbidden: true }, 403);
   }
 
   env.__actorId = permissions.value.__actorId;
