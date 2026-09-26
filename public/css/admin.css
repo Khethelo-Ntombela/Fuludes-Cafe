@@ -3325,3 +3325,56 @@ button.kpi-card {
   height: 100dvh;
   overscroll-behavior: contain;
 }
+
+/* Place Order - Order panel rows: each part of a row (name + price, the
+   choices list, quantity + item total) takes the full width instead of
+   squeezing side by side; the remove button stays at the top right. */
+.admin-cart-item {
+  align-items: flex-start;
+}
+.admin-cart-item-info > * {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+.admin-cart-item-info .po-line-head strong {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.po-line-head > span {
+  white-space: nowrap;
+}
+.po-line-foot {
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.po-line-foot .admin-cart-item-price {
+  white-space: nowrap;
+}
+.remove-from-cart-btn {
+  flex-shrink: 0;
+  min-width: 32px;
+  min-height: 32px;
+}
+@media (max-width: 900px) {
+  /* The whole order is visible - the page scrolls, not a small box */
+  .admin-cart-list {
+    max-height: none;
+    overflow: visible;
+  }
+  /* Room at the bottom so the floating "Order" button never covers the last fields */
+  #tab-placeorder {
+    padding-bottom: 90px;
+  }
+  /* Payment link: the link on its own line, Copy underneath - nothing squeezed */
+  .payment-link-url-wrap {
+    flex-wrap: wrap;
+  }
+  .payment-link-url-wrap input,
+  .payment-link-url-wrap .btn {
+    flex: 1 1 100%;
+  }
+  .payment-link-url-wrap input {
+    font-size: 0.8rem;
+  }
+}

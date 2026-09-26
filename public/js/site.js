@@ -620,23 +620,7 @@ function initGoogleSignIn() {
 // Google's script calls this when it finishes loading, whichever script loads first.
 window.onGoogleLibraryLoad = initGoogleSignIn;
 
-// A tap only reaches this invisible layer when Google's real button didn't
-// appear (e.g. the site's address isn't allowed for this Client ID, or
-// Google's script didn't load). Never let the button do nothing: try
-// Google's prompt, and say what's wrong if that can't open either.
-document.getElementById("googleSignInContainer")?.addEventListener("click", () => {
-  const showError = (text) => {
-    const signupOpen = document.getElementById("signUpForm")?.style.display !== "none";
-    const el = document.getElementById(signupOpen ? "signUpError" : "signInError");
-    if (!el) return alert(text);
-    el.textContent = text;
-    el.style.display = "block";
-  };
-  // Getting here means Google's button itself couldn't appear, so say so
-  // straight away, and still try Google's prompt in case that can open.
-  showError("Google sign-in isn't available right now. Please use your email and password, or try again later.");
-  if (googleSignInReady && typeof google !== "undefined") google.accounts.id.prompt();
-});
+
 
 /**
  * The real Google button is rendered into #googleSignInContainer, which is
