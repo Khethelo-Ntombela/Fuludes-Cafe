@@ -1,51 +1,41 @@
 /**
  * functions/api/review.js
  * -----------------------------------------------------------------------
- * GET  /api/review  -> all reviews (with any owner_reply) for the public
- *                      review wall, newest first.
- * POST /api/review  -> a customer submits a new rating + comment.
- *                      Reviews post immediately (no approval queue), per
- *                      the cafe's requirements.
+ * GET  /api/review  -> approved reviews (with any owner_reply) for the
+ *                      public review wall, newest first, each with the food
+ *                      that order contained (drinks left out).
+ * POST /api/review  -> a customer submits a rating + comment, optionally
+ *                      for one specific paid order (one review per order).
+ *                      New reviews wait for admin approval
+ *                      (admin > Reviews, via /api/admin/reviews).
  * -----------------------------------------------------------------------
  */
 import { runQuery, jsonResponse } from "../_lib/db.js";
 import { sanitizeText } from "../_lib/security.js";
 import { requireCustomer } from "../_lib/customerAuth.js";
+import { reviewItemsByOrder } from "../_lib/reviewItems.js";
 
 export async function onRequest(context) {
   const { request, env } = context;
 
   if (request.method === "GET") {
     try {
-      // If this is an admin request, return all reviews (including pending),
-      // otherwise return only approved reviews for the public wall.
-      const { Authorization } = request.headers;
-      let isAdmin = false;
-      try {
-        // lightweight admin check: requireAdmin throws a Response when unauthorized
-        const { requireAdmin } = await import("../_lib/auth.js");
-        const err = await requireAdmin(request, env);
-        if (!err) isAdmin = true;
-      } catch (e) {
-        /* ignore - not admin */
-      }
-
-      const q = isAdmin
-        ? `
-        SELECT id, customer_name, rating, comment, owner_reply, created_at, status
-        FROM reviews
-        ORDER BY created_at DESC
-        LIMIT 200;
-      `
-        : `
-        SELECT id, customer_name, rating, comment, owner_reply, created_at
+      // Public wall: approved reviews only. (Admins see every review,
+      // including pending ones, through /api/admin/reviews.)
+      const result = await runQuery(
+        env,
+        `
+        SELECT id, customer_name, rating, comment, owner_reply, created_at, order_id
         FROM reviews
         WHERE status = 'approved'
         ORDER BY created_at DESC
         LIMIT 100;
-      `;
-      const result = await runQuery(env, q);
-      return jsonResponse({ reviews: result.rows });
+      `,
+      );
+      const items = await reviewItemsByOrder(env, result.rows.map((r) => r.order_id)).catch(() => ({}));
+      return jsonResponse({
+        reviews: result.rows.map(({ order_id, ...r }) => ({ ...r, items: items[order_id] || [] })),
+      });
     } catch (err) {
       return jsonResponse(
         { error: "Failed to load reviews.", message: err.message },
@@ -109,6 +99,9 @@ export async function onRequest(context) {
             { error: "You can only review your own paid orders." },
             400,
           );
+        const already = await runQuery(env, "SELECT 1 FROM reviews WHERE order_id = $1 LIMIT 1;", [orderId]);
+        if (already.rows.length)
+          return jsonResponse({ error: "You've already reviewed this order - thank you!", code: "already_reviewed" }, 409);
       }
 
       const result = await runQuery(

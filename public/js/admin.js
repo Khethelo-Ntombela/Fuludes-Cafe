@@ -2200,8 +2200,10 @@ function renderReviewSummary(reviews) {
 }
 
 async function loadAdminReviews() {
-  const res = await fetch("/api/review");
-  const data = await res.json();
+  // Admin endpoint: every review including pending ones (the public
+  // /api/review only returns approved reviews, so pending never showed here).
+  const res = await adminFetch("/api/admin/reviews");
+  const data = await res.json().catch(() => ({}));
   const reviews = data.reviews || [];
   const list = document.getElementById("adminReviewsList");
   renderReviewSummary(reviews);
@@ -2213,27 +2215,41 @@ async function loadAdminReviews() {
 
   list.innerHTML = reviews
     .map((r) => {
+      const statusColors = { pending: "var(--sa-gold)", approved: "var(--sa-green-deep, #1a7f37)", rejected: "var(--sa-red)" };
       const statusBadge = r.status
-        ? `<div class="admin-item-meta">Status: <strong>${r.status}</strong></div>`
+        ? `<div class="admin-item-meta">Status: <strong style="color:${statusColors[r.status] || "inherit"}">${r.status === "pending" ? "Waiting for approval" : escapeHtml(r.status)}</strong></div>`
         : "";
-      const actions =
-        r.status === "pending"
-          ? `<div class="admin-item-actions" style="margin-top:8px;"><button class="admin-mini-btn" data-action="approve" data-id="${r.id}">Approve</button> <button class="admin-mini-btn danger" data-action="reject" data-id="${r.id}">Reject</button></div>`
-          : `<div class="admin-item-actions" style="margin-top:8px;"><button class="admin-mini-btn danger" data-action="delete" data-id="${r.id}">Delete</button></div>`;
+      const buttons = [
+        r.status !== "approved" ? `<button class="admin-mini-btn" data-action="approve" data-id="${r.id}">Approve</button>` : "",
+        r.status === "pending" ? `<button class="admin-mini-btn danger" data-action="reject" data-id="${r.id}">Reject</button>` : "",
+        `<button class="admin-mini-btn" data-edit-review="${r.id}"><i class="fas fa-pen"></i> Edit</button>`,
+        `<button class="admin-mini-btn danger" data-action="delete" data-id="${r.id}">Delete</button>`,
+      ].join(" ");
 
       return `
     <div class="admin-item-card" style="flex-direction: column; align-items: stretch;">
       <div class="admin-item-info">
-        <strong>${r.customer_name} - ${"★".repeat(r.rating)}${"☆".repeat(5 - r.rating)}</strong>
-        <div class="admin-item-meta">${r.comment}</div>
-        ${r.owner_reply ? `<div class="admin-item-meta"><strong>Your reply:</strong> ${r.owner_reply}</div>` : ""}
+        <strong>${escapeHtml(r.customer_name)} - ${"★".repeat(r.rating)}${"☆".repeat(5 - r.rating)}</strong>
+        <div class="admin-item-meta">${escapeHtml(r.comment)}</div>
+        ${r.items && r.items.length ? `<div class="admin-item-meta"><i class="fas fa-utensils"></i> Ordered: ${escapeHtml(r.items.join(", "))}${r.order_id ? ` (order #${r.order_id})` : ""}</div>` : ""}
+        ${r.owner_reply ? `<div class="admin-item-meta"><strong>Your reply:</strong> ${escapeHtml(r.owner_reply)}</div>` : ""}
         ${statusBadge}
+        <div class="admin-item-meta">${new Date(r.created_at).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" })}</div>
       </div>
+      <form class="review-edit-form" data-edit-form="${r.id}" style="display:none">
+        <div class="form-row">
+          <div class="form-group"><label>Name</label><input type="text" name="customer_name" maxlength="100" value="${escapeHtml(r.customer_name)}" required /></div>
+          <div class="form-group"><label>Rating</label><select name="rating">${[5, 4, 3, 2, 1].map((n) => `<option value="${n}" ${n === r.rating ? "selected" : ""}>${"★".repeat(n)}</option>`).join("")}</select></div>
+        </div>
+        <div class="form-group"><label>Review</label><textarea name="comment" rows="3" maxlength="1000" required>${escapeHtml(r.comment)}</textarea></div>
+        <button type="submit" class="btn btn-primary admin-mini-btn">Save changes</button>
+        <button type="button" class="admin-mini-btn" data-cancel-edit="${r.id}">Cancel</button>
+      </form>
       <form class="admin-form-inline" data-review-id="${r.id}" style="padding: 0; margin-top: 10px;">
-        <input type="text" placeholder="Write a reply…" value="${r.owner_reply || ""}" required />
+        <input type="text" placeholder="Write a reply…" value="${escapeHtml(r.owner_reply || "")}" required />
         <button type="submit" class="btn btn-primary admin-mini-btn">Reply</button>
       </form>
-      ${actions}
+      <div class="admin-item-actions" style="margin-top:8px;">${buttons}</div>
     </div>
   `;
     })
@@ -2254,6 +2270,38 @@ async function loadAdminReviews() {
       loadAdminReviews();
     });
   });
+
+  // Edit: show the inline form, save through review-moderate (action "edit")
+  list.querySelectorAll("[data-edit-review]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const form = list.querySelector(`[data-edit-form="${btn.dataset.editReview}"]`);
+      if (form) form.style.display = form.style.display === "none" ? "" : "none";
+    }),
+  );
+  list.querySelectorAll("[data-cancel-edit]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      list.querySelector(`[data-edit-form="${btn.dataset.cancelEdit}"]`).style.display = "none";
+    }),
+  );
+  list.querySelectorAll("form[data-edit-form]").forEach((form) =>
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const res = await adminFetch("/api/admin/review-moderate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          review_id: Number(form.dataset.editForm),
+          action: "edit",
+          customer_name: form.customer_name.value.trim(),
+          rating: Number(form.rating.value),
+          comment: form.comment.value.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) return alert(data.error || "Couldn't save the review.");
+      loadAdminReviews();
+    }),
+  );
 
   // moderation action handlers
   list.querySelectorAll("[data-action]").forEach((btn) => {

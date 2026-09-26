@@ -25,6 +25,7 @@ async function loadReviews() {
           <span class="review-card-stars">${"★".repeat(r.rating)}${"☆".repeat(5 - r.rating)}</span>
         </div>
         <p class="review-card-comment">${r.comment}</p>
+        ${r.items && r.items.length ? `<div class="review-card-ordered"><i class="fas fa-utensils"></i> Ordered: ${escapeHtml(r.items.join(", "))}</div>` : ""}
         ${r.owner_reply ? `<div class="review-card-reply"><strong>Fulude's Cafe:</strong> ${r.owner_reply}</div>` : ""}
       </div>
     `,

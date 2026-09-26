@@ -1321,6 +1321,102 @@ function stopCancelCountdownTicker() {
   cancelCountdownTimer = null;
 }
 
+/**
+ * "Leave a review" for one completed order: a pop-up with the thank-you
+ * message, star rating and comment. The review is tied to that order
+ * (one per order) and appears on the Reviews page once the admin approves it.
+ */
+function openOrderReviewModal(orderId) {
+  let overlay = document.getElementById("orderReviewModal");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.id = "orderReviewModal";
+    overlay.innerHTML = `
+      <div class="modal order-review-modal">
+        <button class="modal-close" type="button" id="orderReviewClose">&times;</button>
+        <h3>Thank you for dining with us, enjoy your meal!</h3>
+        <p class="auth-hint" id="orderReviewIntro"></p>
+        <form id="orderReviewForm">
+          <div class="order-review-stars" role="radiogroup" aria-label="Your rating">
+            ${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="order-review-star" data-star="${n}" aria-label="${n} star${n > 1 ? "s" : ""}">★</button>`).join("")}
+          </div>
+          <div class="form-group">
+            <label for="orderReviewName">Your name</label>
+            <input id="orderReviewName" maxlength="100" required />
+          </div>
+          <div class="form-group">
+            <label for="orderReviewComment">Your review</label>
+            <textarea id="orderReviewComment" rows="4" maxlength="1000" required placeholder="What did you enjoy? Anything we can do better?"></textarea>
+          </div>
+          <p class="form-error" id="orderReviewError" style="display:none"></p>
+          <p class="form-success" id="orderReviewSuccess" style="display:none"></p>
+          <button type="submit" class="btn btn-primary btn-block" id="orderReviewSubmit">Submit review</button>
+        </form>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) overlay.classList.remove("active");
+    });
+    overlay.querySelector("#orderReviewClose").addEventListener("click", () => overlay.classList.remove("active"));
+    overlay.querySelectorAll("[data-star]").forEach((star) =>
+      star.addEventListener("click", () => {
+        overlay.dataset.rating = star.dataset.star;
+        overlay.querySelectorAll("[data-star]").forEach((s) => s.classList.toggle("on", Number(s.dataset.star) <= Number(star.dataset.star)));
+      }),
+    );
+    overlay.querySelector("#orderReviewForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const err = overlay.querySelector("#orderReviewError");
+      const ok = overlay.querySelector("#orderReviewSuccess");
+      const submit = overlay.querySelector("#orderReviewSubmit");
+      err.style.display = "none";
+      const rating = Number(overlay.dataset.rating || 0);
+      if (!rating) {
+        err.textContent = "Please tap the stars to rate your meal.";
+        err.style.display = "block";
+        return;
+      }
+      submit.disabled = true;
+      try {
+        const res = await fetch("/api/review", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${customerToken}` },
+          body: JSON.stringify({
+            order_id: Number(overlay.dataset.orderId),
+            rating,
+            customer_name: overlay.querySelector("#orderReviewName").value.trim(),
+            comment: overlay.querySelector("#orderReviewComment").value.trim(),
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) throw new Error(data.error || "Couldn't send your review.");
+        ok.textContent = "Thank you! Your review will appear on our Reviews page once it's approved.";
+        ok.style.display = "block";
+        overlay.querySelector("#orderReviewForm").querySelectorAll("input, textarea, button").forEach((el) => (el.disabled = true));
+        refreshMyOrders();
+        setTimeout(() => overlay.classList.remove("active"), 2500);
+      } catch (e2) {
+        err.textContent = e2.message;
+        err.style.display = "block";
+        submit.disabled = false;
+      }
+    });
+  }
+  // Fresh form for this order
+  overlay.dataset.orderId = orderId;
+  overlay.dataset.rating = "";
+  overlay.querySelectorAll("[data-star]").forEach((s) => s.classList.remove("on"));
+  const form = overlay.querySelector("#orderReviewForm");
+  form.reset();
+  form.querySelectorAll("input, textarea, button").forEach((el) => (el.disabled = false));
+  overlay.querySelector("#orderReviewName").value = currentCustomer?.name || "";
+  overlay.querySelector("#orderReviewIntro").textContent = `How was order #${orderId}? Tell us about it.`;
+  overlay.querySelector("#orderReviewError").style.display = "none";
+  overlay.querySelector("#orderReviewSuccess").style.display = "none";
+  overlay.classList.add("active");
+}
+
 async function refreshMyOrders() {
   if (!currentCustomer) {
     myOrdersList.innerHTML = `<p class="menu-empty">Please sign in to view your orders.</p>`;
@@ -1408,6 +1504,10 @@ async function refreshMyOrders() {
       }
     });
   });
+
+  myOrdersList.querySelectorAll("[data-review-order]").forEach((btn) =>
+    btn.addEventListener("click", () => openOrderReviewModal(Number(btn.dataset.reviewOrder))),
+  );
 
   myOrdersList.querySelectorAll("[data-retry-payment]").forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -1649,6 +1749,18 @@ function renderReceiptCard(order) {
       ${renderStatusTracker(order)}
       ${retryPayment && order.status !== "Cancelled" ? `<div class="receipt-cancel-row"><button type="button" class="receipt-cancel-btn" data-retry-payment="${order.id}">Pay Now</button></div>` : ""}
       ${renderCancelSection(order)}
+      ${
+        order.status === "Completed"
+          ? `<div class="order-thanks">
+              <p><strong>Thank you for dining with us, enjoy your meal!</strong></p>
+              ${
+                order.reviewed
+                  ? `<p class="order-thanks-done"><i class="fas fa-star"></i> Thanks for your review!</p>`
+                  : `<button type="button" class="order-review-btn" data-review-order="${order.id}"><i class="fas fa-star"></i> Leave a review</button>`
+              }
+            </div>`
+          : ""
+      }
 
       <button type="button" class="receipt-toggle-btn" data-toggle-receipt="${order.id}">${isOpen ? "Hide Receipt" : "View Receipt"}</button>
 

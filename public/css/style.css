@@ -3168,3 +3168,67 @@ textarea:focus-visible {
   padding: 0;
   line-height: 1.8;
 }
+
+/* My Orders: completed order thank-you + review button */
+.order-thanks {
+  margin: 10px 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #ecfdf3;
+  color: #14532d;
+  text-align: center;
+}
+.order-thanks p {
+  margin: 0 0 8px;
+}
+.order-thanks-done {
+  font-size: 0.88rem;
+  margin: 0 !important;
+}
+.order-review-btn {
+  background: var(--gold-dark);
+  color: var(--white);
+  border: none;
+  border-radius: 999px;
+  padding: 9px 18px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.order-review-btn:hover {
+  background: var(--black);
+}
+
+/* Review pop-up */
+.order-review-modal h3 {
+  text-align: center;
+}
+.order-review-stars {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin: 12px 0 16px;
+}
+.order-review-star {
+  background: none;
+  border: none;
+  font-size: 2rem;
+  line-height: 1;
+  color: var(--light-gray);
+  cursor: pointer;
+  padding: 0 2px;
+}
+.order-review-star.on,
+.order-review-star:hover {
+  color: var(--gold);
+}
+
+/* Reviews page: what the reviewer ordered */
+.review-card-ordered {
+  margin-top: 8px;
+  font-size: 0.82rem;
+  color: var(--gray);
+}
+.review-card-ordered i {
+  color: var(--gold-dark);
+  margin-right: 4px;
+}

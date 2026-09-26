@@ -27,7 +27,8 @@ export async function onRequestGet(context) {
              pickup_time, special_instructions, total_amount, delivery_fee, delivery_distance_km,
              CASE WHEN status = 'Out for Delivery' THEN 'Delivery' ELSE status END AS status,
              payment_method, payment_status, refund_needed, refund_processed_at,
-             payment_confirmed_at, kitchen_release_at, created_at
+             payment_confirmed_at, kitchen_release_at, created_at,
+             EXISTS (SELECT 1 FROM reviews rv WHERE rv.order_id = orders.id) AS reviewed
       FROM orders
       WHERE customer_id = $1
         AND created_at > NOW() - INTERVAL '24 hours'
