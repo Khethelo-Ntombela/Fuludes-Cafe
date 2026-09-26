@@ -345,6 +345,9 @@ async function loadCustomerRecords() {
   }
 }
 
+let adminAccountsById = {};
+let adminAccountsMeta = { me: null, can_manage: false };
+
 async function loadAdminAccounts() {
   const list = document.getElementById("adminAccountsList");
   if (!list) return;
@@ -353,24 +356,100 @@ async function loadAdminAccounts() {
     const data = await response.json();
     if (!response.ok)
       throw new Error(data.error || "Failed to load admin accounts.");
+    adminAccountsMeta = { me: data.me, can_manage: Boolean(data.can_manage) };
+    adminAccountsById = Object.fromEntries((data.accounts || []).map((a) => [a.id, a]));
+    // Only the main admin may hand out full access.
+    document.getElementById("adminFullAccessOption").style.display = adminAccountsMeta.can_manage ? "" : "none";
     list.innerHTML =
       (data.accounts || [])
-        .map(
-          (account) =>
-            `<div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">${account.email}</div><div class="sa-list-sub">Permissions: ${
-              account.permissions?.all
-                ? "All"
-                : Object.keys(account.permissions || {})
-                    .filter((key) => account.permissions[key])
-                    .join(", ") || "None"
-            }</div></div></div>`,
-        )
+        .map((account) => {
+          const isMe = Number(account.id) === Number(data.me);
+          const perms = account.permissions?.all
+            ? "Main admin (full access)"
+            : Object.keys(account.permissions || {})
+                .filter((key) => account.permissions[key])
+                .join(", ") || "None";
+          const actions = data.can_manage
+            ? `<div style="display:flex;gap:6px;margin-top:8px">
+                <button type="button" class="admin-mini-btn" data-edit-admin="${account.id}"><i class="fas fa-pen"></i> Edit</button>
+                ${isMe ? "" : `<button type="button" class="admin-mini-btn danger" data-delete-admin="${account.id}"><i class="fas fa-trash"></i> Delete</button>`}
+              </div>`
+            : "";
+          return `<div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">${escapeHtml(account.email)}${isMe ? " <small>(you)</small>" : ""}${account.is_active === false ? ' <span class="badge badge-refund">Disabled</span>' : ""}</div><div class="sa-list-sub">Permissions: ${escapeHtml(perms)}</div>${actions}</div></div>`;
+        })
         .join("") ||
       '<p class="menu-empty">No database admin accounts yet.</p>';
   } catch (error) {
     list.innerHTML = `<p class="form-error">${error.message}</p>`;
   }
 }
+
+/** Back to "Create Admin Account". */
+function resetAdminAccountForm() {
+  const form = document.getElementById("adminAccountForm");
+  form.reset();
+  document.getElementById("adminAccountId").value = "";
+  document.getElementById("adminAccountFormTitle").textContent = "Create Admin Account";
+  document.getElementById("adminAccountSubmitBtn").textContent = "Create Admin Account";
+  document.getElementById("adminAccountPasswordLabel").textContent = "Temporary Password";
+  document.getElementById("adminAccountPassword").required = true;
+  document.getElementById("adminAccountCancelBtn").style.display = "none";
+  document.getElementById("adminActiveOption").style.display = "none";
+  document.getElementById("adminPermissionOptions").style.display = "";
+}
+
+function startEditAdminAccount(account) {
+  const form = document.getElementById("adminAccountForm");
+  document.getElementById("adminAccountId").value = account.id;
+  document.getElementById("adminAccountEmail").value = account.email;
+  document.getElementById("adminAccountPassword").value = "";
+  document.getElementById("adminAccountPassword").required = false;
+  document.getElementById("adminAccountPasswordLabel").textContent = "New Password (leave blank to keep)";
+  document.getElementById("adminAccountFormTitle").textContent = `Edit: ${account.email}`;
+  document.getElementById("adminAccountSubmitBtn").textContent = "Save Changes";
+  document.getElementById("adminAccountCancelBtn").style.display = "";
+  document.getElementById("adminActiveOption").style.display = "";
+  document.getElementById("adminAccountActive").checked = account.is_active !== false;
+  const full = Boolean(account.permissions?.all);
+  document.getElementById("adminFullAccess").checked = full;
+  document.getElementById("adminPermissionOptions").style.display = full ? "none" : "";
+  document.querySelectorAll("#adminPermissionOptions input").forEach((input) => {
+    input.checked = full || Boolean(account.permissions?.[input.value]);
+  });
+  document.getElementById("adminAccountStatus").textContent = "";
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+document.getElementById("adminFullAccess")?.addEventListener("change", (e) => {
+  document.getElementById("adminPermissionOptions").style.display = e.target.checked ? "none" : "";
+});
+document.getElementById("adminAccountCancelBtn")?.addEventListener("click", resetAdminAccountForm);
+
+document.getElementById("adminAccountsList")?.addEventListener("click", async (e) => {
+  const editBtn = e.target.closest("[data-edit-admin]");
+  if (editBtn) {
+    const account = adminAccountsById[editBtn.dataset.editAdmin];
+    if (account) startEditAdminAccount(account);
+    return;
+  }
+  const delBtn = e.target.closest("[data-delete-admin]");
+  if (!delBtn) return;
+  const account = adminAccountsById[delBtn.dataset.deleteAdmin];
+  if (!account) return;
+  if (!confirm(`Delete the admin account ${account.email}?\n\nThey'll be signed out and won't be able to log in again. This can't be undone.`)) return;
+  const response = await adminFetch("/api/admin/accounts", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: account.id }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success) {
+    alert(data.error || "Couldn't delete the account.");
+    return;
+  }
+  if (String(document.getElementById("adminAccountId").value) === String(account.id)) resetAdminAccountForm();
+  loadAdminAccounts();
+});
 
 document
   .getElementById("customerSearchBtn")
@@ -379,27 +458,33 @@ document
   .getElementById("adminAccountForm")
   ?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const permissions = Object.fromEntries(
-      [...document.querySelectorAll("#adminPermissionOptions input")].map(
-        (input) => [input.value, input.checked],
-      ),
-    );
+    const fullAccess = document.getElementById("adminFullAccess").checked;
+    const permissions = fullAccess
+      ? { all: true }
+      : Object.fromEntries(
+          [...document.querySelectorAll("#adminPermissionOptions input")].map(
+            (input) => [input.value, input.checked],
+          ),
+        );
     const status = document.getElementById("adminAccountStatus");
+    const editingId = document.getElementById("adminAccountId").value;
     try {
       const response = await adminFetch("/api/admin/accounts", {
-        method: "POST",
+        method: editingId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          id: editingId ? Number(editingId) : undefined,
           email: document.getElementById("adminAccountEmail").value.trim(),
           password: document.getElementById("adminAccountPassword").value,
           permissions,
+          is_active: editingId ? document.getElementById("adminAccountActive").checked : undefined,
         }),
       });
       const data = await response.json();
       if (!response.ok || !data.success)
-        throw new Error(data.error || "Failed to create admin account.");
-      status.textContent = "Admin account created.";
-      event.currentTarget.reset();
+        throw new Error(data.error || (editingId ? "Failed to save the admin account." : "Failed to create admin account."));
+      resetAdminAccountForm();
+      status.textContent = editingId ? "Admin account updated." : "Admin account created.";
       loadAdminAccounts();
     } catch (error) {
       status.textContent = error.message;
@@ -1231,9 +1316,30 @@ function setupIngredientsVisibility() {
 function renderCategoriesList() {
   const list = document.getElementById("categoriesList");
   list.innerHTML = categories
-    .map((c) => `<span class="admin-chip">${c.name}</span>`)
+    .map(
+      (c) =>
+        `<span class="admin-chip">${escapeHtml(c.name)}<button type="button" class="chip-remove" data-delete-category="${c.id}" title="Delete ${escapeHtml(c.name)}" aria-label="Delete ${escapeHtml(c.name)}">&times;</button></span>`,
+    )
     .join("");
 }
+
+document.getElementById("categoriesList")?.addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-delete-category]");
+  if (!btn) return;
+  const cat = categories.find((c) => String(c.id) === btn.dataset.deleteCategory);
+  if (!cat || !confirm(`Delete the category "${cat.name}"?`)) return;
+  const res = await adminFetch("/api/admin/categories", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: cat.id }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    alert(data.error || "Couldn't delete the category.");
+    return;
+  }
+  loadCategories();
+});
 
 document
   .getElementById("categoryForm")
@@ -1805,7 +1911,7 @@ document.getElementById("itemImage").addEventListener("change", async (e) => {
  * an oversized upload - keeping R2 usage and Worker CPU time inside the
  * free tier.
  */
-function compressImageToWebP(file, maxBytes = 300 * 1024) {
+function compressImageToWebP(file, maxBytes = 300 * 1024, type = "image/webp") {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("Could not read the file."));
@@ -1850,7 +1956,7 @@ function compressImageToWebP(file, maxBytes = 300 * 1024) {
               }
               tryExport();
             },
-            "image/webp",
+            type, // "image/jpeg" for email images - every email app can show JPEG
             quality,
           );
         };
@@ -2196,8 +2302,14 @@ document
   .getElementById("marketingEmailForm")
   ?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    const form = event.currentTarget;
     const status = document.getElementById("marketingEmailStatus");
-    const button = event.currentTarget.querySelector("button[type=submit]");
+    const button = form.querySelector("button[type=submit]");
+    const picked = [...document.getElementById("marketingImages").files];
+    if (picked.length > 5) {
+      status.textContent = "Please pick no more than 5 images.";
+      return;
+    }
     const formData = new FormData();
     formData.append(
       "subject",
@@ -2207,11 +2319,24 @@ document
       "body",
       document.getElementById("marketingBody").value.trim(),
     );
-    for (const file of document.getElementById("marketingImages").files)
-      formData.append("images", file);
     button.disabled = true;
-    status.textContent = "Sending…";
     try {
+      // Images are optional: each one is shrunk here, uploaded once, and shown inside the email.
+      const imageUrls = [];
+      for (let i = 0; i < picked.length; i++) {
+        status.textContent = `Preparing image ${i + 1} of ${picked.length}…`;
+        const blob = await compressImageToWebP(picked[i], 300 * 1024, "image/jpeg");
+        const up = await adminFetch("/api/admin/marketing/upload?filename=email.jpeg", {
+          method: "POST",
+          headers: { "Content-Type": "image/jpeg" },
+          body: blob,
+        });
+        const upData = await up.json().catch(() => ({}));
+        if (!up.ok || !upData.url) throw new Error(upData.error || `Couldn't upload image ${i + 1}.`);
+        imageUrls.push(upData.url);
+      }
+      formData.append("image_urls", JSON.stringify(imageUrls));
+      status.textContent = "Sending…";
       const response = await adminFetch("/api/admin/marketing/send", {
         method: "POST",
         body: formData,
@@ -2222,8 +2347,8 @@ document
           data.error ||
             `Sent ${data.sent || 0} email(s); ${data.failed || 0} failed.`,
         );
-      status.textContent = `Sent to ${data.sent} subscriber${data.sent === 1 ? "" : "s"}.`;
-      event.currentTarget.reset();
+      status.textContent = `Sent to ${data.sent} subscriber${data.sent === 1 ? "" : "s"}${data.images ? ` with ${data.images} image${data.images === 1 ? "" : "s"}` : ""}.`;
+      form.reset();
     } catch (error) {
       status.textContent = error.message;
     } finally {

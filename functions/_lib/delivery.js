@@ -7,6 +7,8 @@
 import { runQuery } from "./db.js";
 
 const ROAD_BUFFER = 1.3;
+/** Furthest we deliver (road km). Beyond this every lookup answers "too far", whatever fee bands exist. */
+export const MAX_DELIVERY_KM = 36;
 const toRad = (deg) => (deg * Math.PI) / 180;
 
 function haversineKm(lat1, lng1, lat2, lng2) {
@@ -28,7 +30,8 @@ export async function calculateDeliveryFee(env, deliveryLat, deliveryLng) {
   const roadKm =
     haversineKm(parseFloat(cfg.cafe_latitude), parseFloat(cfg.cafe_longitude), deliveryLat, deliveryLng) *
     ROAD_BUFFER;
-  const bands = (await runQuery(env, "SELECT up_to_km, fee FROM delivery_fee_bands ORDER BY sort_order;")).rows || [];
+  const bands = ((await runQuery(env, "SELECT up_to_km, fee FROM delivery_fee_bands ORDER BY sort_order;")).rows || [])
+    .filter((b) => Number(b.up_to_km) <= MAX_DELIVERY_KM);
   const band = bands.find((b) => roadKm <= Number(b.up_to_km));
   const distance_km = Math.round(roadKm * 100) / 100;
   if (!band) return { fee: 0, distance_km, too_far: true };

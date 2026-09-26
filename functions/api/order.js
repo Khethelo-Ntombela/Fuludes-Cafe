@@ -57,6 +57,7 @@ import { sanitizeText, getRequestIp } from "../_lib/security.js";
 import { logAudit } from "../_lib/audit.js";
 import { isOpenNow, CLOSED_MESSAGE } from "../_lib/hours.js";
 import { ensureCancelledByColumn } from "../_lib/orderCancel.js";
+import { MAX_DELIVERY_KM } from "../_lib/delivery.js";
 
 const CUSTOMER_CANCEL_WINDOW_MS = 2 * 60 * 1000; // keep in sync with CUSTOMER_CANCEL_WINDOW_MS in public/js/main.js
 const ROAD_BUFFER = 1.3; // straight-line * 1.3 ≈ road distance
@@ -95,7 +96,7 @@ async function calculateDeliveryFee(env, deliveryLat, deliveryLng) {
     env,
     `SELECT up_to_km, fee FROM delivery_fee_bands ORDER BY sort_order;`
   );
-  const bands = bandsRes.rows || [];
+  const bands = (bandsRes.rows || []).filter((b) => Number(b.up_to_km) <= MAX_DELIVERY_KM);
   const matchedBand = bands.find((b) => roadKm <= Number(b.up_to_km));
 
   if (!matchedBand) {

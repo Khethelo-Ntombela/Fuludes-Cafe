@@ -7,6 +7,7 @@
  */
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
+import { MAX_DELIVERY_KM } from "../../_lib/delivery.js";
 import { sanitizeText } from "../../_lib/security.js";
 import { logAudit, money } from "../../_lib/audit.js";
 import { getRequestIp } from "../../_lib/security.js";
@@ -18,7 +19,8 @@ export async function onRequestGet(context) {
 
   try {
     const [bandsRes, configRes] = await Promise.all([
-      runQuery(env, `SELECT id, up_to_km, fee, sort_order FROM delivery_fee_bands ORDER BY sort_order;`),
+      // Bands beyond the delivery limit (36 km) are no longer used, so they aren't shown.
+      runQuery(env, `SELECT id, up_to_km, fee, sort_order FROM delivery_fee_bands WHERE up_to_km <= $1 ORDER BY sort_order;`, [MAX_DELIVERY_KM]),
       runQuery(env, `SELECT cafe_latitude, cafe_longitude, cafe_phone, cafe_email FROM app_config WHERE id = 1;`),
     ]);
 

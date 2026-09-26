@@ -8,6 +8,7 @@
  * -----------------------------------------------------------------------
  */
 import { runQuery, jsonResponse } from "../../_lib/db.js";
+import { MAX_DELIVERY_KM } from "../../_lib/delivery.js";
 
 const ROAD_BUFFER = 1.3; // straight-line * 1.3 ≈ road distance
 
@@ -73,8 +74,10 @@ async function handlePost(context) {
     const roadKm = straightKm * ROAD_BUFFER;
 
     // Find matching band (first where roadKm <= up_to_km)
-    const bands = bandsRes.rows || [];
-    if (bands.length === 0) {
+    const allBands = bandsRes.rows || [];
+    // Only bands inside the delivery limit count - anything further is "too far".
+    const bands = allBands.filter((b) => Number(b.up_to_km) <= MAX_DELIVERY_KM);
+    if (allBands.length === 0) {
       // Not "too far" - the fee table simply hasn't been set up. Say so
       // instead of turning every customer away.
       return jsonResponse(

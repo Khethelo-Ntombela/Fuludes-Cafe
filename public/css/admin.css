@@ -3135,3 +3135,17 @@ button.kpi-card {
   color: var(--sa-red);
   font-size: 0.8rem;
 }
+
+/* Category chips: small delete (x) button */
+.chip-remove {
+  border: none;
+  background: transparent;
+  color: var(--sa-faint, #888);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+}
+.chip-remove:hover {
+  color: var(--sa-red);
+}

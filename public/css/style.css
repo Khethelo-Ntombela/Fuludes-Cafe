@@ -294,19 +294,40 @@ body {
 }
 
 /* Buffet teaser */
+/* White section with black text, so it stands apart from the dark "Our Menu" band after it */
 .buffet {
-  background: var(--black);
-  color: var(--white);
+  background: var(--white);
+  color: var(--black);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 
-.buffet .section-title,
-.buffet .section-text {
-  color: var(--white);
+.buffet .section-title {
+  color: var(--black);
 }
 
 .buffet .section-text {
-  color: rgba(255, 255, 255, 0.75);
-  margin-bottom: 0;
+  color: var(--charcoal);
+  margin-bottom: 24px;
+}
+
+.buffet .buffet-card {
+  background: var(--white);
+  color: var(--black);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+.buffet .buffet-card .admin-hint {
+  color: var(--gray);
+  font-size: 0.85rem;
+}
+
+.buffet #buffetContent > p {
+  color: var(--charcoal);
+  text-align: center;
 }
 
 /* Buffet event cards: everything centred, every action button the same size */

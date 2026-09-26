@@ -6,8 +6,8 @@
     <meta name="robots" content="noindex, nofollow" />
     <title>Fulude's Cafe | Admin</title>
   
-    <link rel="stylesheet" href="css/style.css?v=6" />
-    <link rel="stylesheet" href="css/admin.css?v=6" />
+    <link rel="stylesheet" href="css/style.css?v=7" />
+    <link rel="stylesheet" href="css/admin.css?v=7" />
     <link
       href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&display=swap"
       rel="stylesheet"
@@ -1190,13 +1190,15 @@
 
             <div class="settings-panel" id="settings-admin-accounts">
               <form id="adminAccountForm" class="admin-form">
+                <h3 id="adminAccountFormTitle" style="margin: 0 0 12px">Create Admin Account</h3>
+                <input type="hidden" id="adminAccountId" />
                 <div class="form-row">
                   <div class="form-group">
                     <label for="adminAccountEmail">Email</label>
                     <input type="email" id="adminAccountEmail" required />
                   </div>
                   <div class="form-group">
-                    <label for="adminAccountPassword">Temporary Password</label>
+                    <label for="adminAccountPassword" id="adminAccountPasswordLabel">Temporary Password</label>
                     <input
                       type="password"
                       id="adminAccountPassword"
@@ -1207,6 +1209,10 @@
                 </div>
                 <div class="form-group">
                   <label>Permissions</label>
+                  <label class="checkbox-option" id="adminFullAccessOption" style="display: none; margin-bottom: 8px"
+                    ><input type="checkbox" id="adminFullAccess" /> <strong>Main admin (full access)</strong> - can also
+                    edit and delete admin accounts</label
+                  >
                   <div class="checkbox-options" id="adminPermissionOptions">
                     <label
                       ><input type="checkbox" value="customers" checked />
@@ -1237,9 +1243,17 @@
                     >
                   </div>
                 </div>
-                <button type="submit" class="btn btn-primary">
-                  Create Admin Account
-                </button>
+                <label class="checkbox-option" id="adminActiveOption" style="display: none; margin-bottom: 12px"
+                  ><input type="checkbox" id="adminAccountActive" checked /> Account active (untick to block sign-in)</label
+                >
+                <div class="admin-form-actions">
+                  <button type="submit" class="btn btn-primary" id="adminAccountSubmitBtn">
+                    Create Admin Account
+                  </button>
+                  <button type="button" class="admin-mini-btn" id="adminAccountCancelBtn" style="display: none">
+                    Cancel editing
+                  </button>
+                </div>
                 <p id="adminAccountStatus" class="admin-hint"></p>
               </form>
               <div id="adminAccountsList" class="admin-items-list"></div>
@@ -1414,7 +1428,7 @@
                   ></textarea>
                 </div>
                 <div class="form-group">
-                  <label for="marketingImages">Attach Images</label>
+                  <label for="marketingImages">Images <small>(optional)</small></label>
                   <input
                     type="file"
                     id="marketingImages"
@@ -1422,7 +1436,7 @@
                     multiple
                   />
                   <span class="admin-hint"
-                    >Up to 5 images, maximum 5 MB each.</span
+                    >Optional - up to 5. They're resized automatically and shown under your message.</span
                   >
                 </div>
                 <div class="admin-form-actions">
@@ -1552,10 +1566,10 @@
       </div>
     </div>
 
-    <script src="js/pwa.js?v=8"></script>
-    <script src="js/kds.js?v=8"></script>
-    <script src="js/admin.js?v=8"></script>
-    <script src="js/admin-app.js?v=8"></script>
+    <script src="js/pwa.js?v=9"></script>
+    <script src="js/kds.js?v=9"></script>
+    <script src="js/admin.js?v=9"></script>
+    <script src="js/admin-app.js?v=9"></script>
   <script>
   if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 </script>
