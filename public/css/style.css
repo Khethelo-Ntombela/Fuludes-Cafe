@@ -2955,6 +2955,16 @@ textarea:focus-visible {
   margin-bottom: 2px;
 }
 
+/* Out-of-service box: red background, white text. Scoped to these two
+   specific out-of-service elements only, so the shared .site-notice look
+   (sign-in prompt, account errors, etc.) is untouched. */
+#heroServiceNotice,
+.service-banner {
+  background: #d92d20;
+  border-color: #d92d20;
+  color: #fff;
+}
+
 /* Out-of-service message in the hero, above the buttons */
 .hero .site-notice {
   max-width: 520px;
@@ -3202,6 +3212,7 @@ textarea:focus-visible {
   max-width: 520px;
   line-height: 1.6;
   color: var(--charcoal);
+  font-family: "Times New Roman", Times, serif;
 }
 .buffet-details {
   list-style: none;
