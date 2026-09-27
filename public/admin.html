@@ -6,7 +6,7 @@
     <meta name="robots" content="noindex, nofollow" />
     <title>Fulude's Cafe | Admin</title>
   
-    <link rel="stylesheet" href="css/style.css?v=21" />
+    <link rel="stylesheet" href="css/style.css?v=22" />
     <link rel="stylesheet" href="css/admin.css?v=16" />
     <link
       rel="preload"
@@ -1599,8 +1599,8 @@
                       />
                     </div>
                     <div class="form-group">
-                      <label for="buffetEventPrice">Price (cents)</label
-                      ><input id="buffetEventPrice" type="number" min="0" value="0" />
+                      <label for="buffetEventPrice">Price per seat (R)</label
+                      ><input id="buffetEventPrice" type="number" min="0" step="0.01" value="0" />
                     </div>
                     <div class="form-row">
                       <div class="form-group">
@@ -1674,7 +1674,7 @@
     <script src="js/order-alert.js?v=1"></script>
     <script src="js/kds.js?v=20"></script>
     <script src="js/form-validation.js?v=1"></script>
-    <script src="js/admin.js?v=21"></script>
+    <script src="js/admin.js?v=22"></script>
     <script src="js/admin-app.js?v=18"></script>
   <script>
   if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));

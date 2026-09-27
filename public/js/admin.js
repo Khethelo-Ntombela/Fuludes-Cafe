@@ -2826,8 +2826,9 @@ function initBuffetAdminHandlers() {
       const event_date = document.getElementById("buffetEventDate").value;
       const capacity =
         Number(document.getElementById("buffetEventCapacity").value) || 30;
-      const price_cents =
-        Number(document.getElementById("buffetEventPrice").value) || 0;
+      const price_cents = Math.round(
+        (Number(document.getElementById("buffetEventPrice").value) || 0) * 100,
+      );
       const description = document
         .getElementById("buffetEventDescription")
         .value.trim();
@@ -3171,7 +3172,9 @@ async function loadBuffetEventsAdmin() {
           .slice(0, 16);
         document.getElementById("buffetEventDate").value = isoLocal;
         document.getElementById("buffetEventCapacity").value = evt.capacity;
-        document.getElementById("buffetEventPrice").value = evt.price_cents;
+        document.getElementById("buffetEventPrice").value = (
+          Number(evt.price_cents || 0) / 100
+        ).toFixed(2);
         document.getElementById("buffetEventDescription").value =
           evt.description || "";
         const eventPhotos = Array.isArray(evt.photos) ? evt.photos : [];

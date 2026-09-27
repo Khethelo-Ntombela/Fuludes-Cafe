@@ -2972,6 +2972,15 @@ textarea:focus-visible {
   text-align: center;
 }
 
+/* Give the hero note text room to breathe above the out-of-service box on
+   wider (desktop) screens, where it can otherwise look cramped; phone view
+   already looks fine so this is scoped to desktop widths only. */
+@media (min-width: 901px) {
+  .hero .site-notice {
+    margin-top: 28px;
+  }
+}
+
 /* Out-of-service message on the menu page */
 .service-banner {
   max-width: 1100px;

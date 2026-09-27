@@ -109,6 +109,7 @@ document.getElementById("lightboxNext").addEventListener("click", () => {
 // reset (which signs every session for that account out server-side).
 // ---------------------------------------------------------------------
 const CUSTOMER_TOKEN_KEY = "fulude_customer_token";
+const CUSTOMER_NAME_KEY = "fulude_customer_name"; // cached first name, so the nav can show it instantly on page load
 let customerToken = localStorage.getItem(CUSTOMER_TOKEN_KEY);
 let currentCustomer = null; // {id, name, email} once confirmed signed in
 let pendingCheckoutAfterAuth = false; // true if "Checkout" was clicked before being signed in (menu page)
@@ -233,6 +234,17 @@ function updateAccountNav() {
   accountNavLabel.textContent = currentCustomer
     ? currentCustomer.name.split(" ")[0]
     : "Sign In";
+  // Cache the display name locally so the next page load can show it
+  // immediately instead of flashing "Sign In" while we re-confirm the token.
+  try {
+    if (currentCustomer) {
+      localStorage.setItem(CUSTOMER_NAME_KEY, currentCustomer.name.split(" ")[0]);
+    } else {
+      localStorage.removeItem(CUSTOMER_NAME_KEY);
+    }
+  } catch (e) {
+    /* localStorage unavailable (private browsing etc.) - not critical */
+  }
 }
 
 // ----------------- Customer buffet bookings (My Bookings) -----------------
@@ -2007,7 +2019,18 @@ function renderOutOfServiceNotice(el, config) {
 async function loadConfig() {
   const config = await fetchStoreConfig();
   if (!config) return; // non-critical - everything just stays hidden
+  applyConfig(config);
+  try {
+    localStorage.setItem(STORE_CONFIG_CACHE_KEY, JSON.stringify(config));
+  } catch (e) {
+    /* localStorage unavailable - not critical, just means no instant render next visit */
+  }
+}
 
+/** Renders the buffet section, out-of-service notice and announcement bar
+ * from a config object. Shared by the cached instant-render on page load
+ * and the fresh server response in loadConfig(), so both draw the same way. */
+function applyConfig(config) {
   // Buffet section (home page)
   const buffetSection = document.getElementById("buffetSection");
   if (buffetSection && config.is_buffet_visible) {
@@ -2017,6 +2040,8 @@ async function loadConfig() {
     } catch (e) {
       /* ignore */
     }
+  } else if (buffetSection && !config.is_buffet_visible) {
+    buffetSection.style.display = "none";
   }
 
   // Out of service: hero notice on the home page, banner on the menu page
@@ -2025,11 +2050,16 @@ async function loadConfig() {
     if (config.is_out_of_service) renderOutOfServiceNotice(heroNotice, config);
     else heroNotice.style.display = "none";
   } else if (config.is_out_of_service && document.getElementById("checkoutBtn")) {
-    const banner = document.createElement("div");
-    banner.className = "site-notice service-banner";
+    let banner = document.querySelector(".service-banner");
+    if (!banner) {
+      banner = document.createElement("div");
+      banner.className = "site-notice service-banner";
+      const anchor = document.getElementById("paymentBanner");
+      if (anchor) anchor.insertAdjacentElement("afterend", banner);
+    }
     renderOutOfServiceNotice(banner, config);
-    const anchor = document.getElementById("paymentBanner");
-    if (anchor) anchor.insertAdjacentElement("afterend", banner);
+  } else {
+    document.querySelector(".service-banner")?.remove();
   }
 
   // Admin announcement: white rounded bar under the hero buttons
@@ -2043,6 +2073,19 @@ async function loadConfig() {
       annWrap.style.display = "none";
     }
   }
+}
+
+// Instant render from the last known config (cached locally), so the
+// buffet section / out-of-service notice / announcement don't disappear
+// and reappear on every page navigation while we re-confirm with the
+// server. loadConfig() above still runs and corrects anything that's
+// changed since this was cached (e.g. admin just flipped a switch).
+const STORE_CONFIG_CACHE_KEY = "fulude_store_config_cache";
+try {
+  const cachedConfig = JSON.parse(localStorage.getItem(STORE_CONFIG_CACHE_KEY) || "null");
+  if (cachedConfig) applyConfig(cachedConfig);
+} catch (e) {
+  /* ignore a corrupted cache entry */
 }
 
 // ---------------------------------------------------------------------
