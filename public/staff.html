@@ -117,6 +117,11 @@
         <span></span><span></span><span></span>
       </div>
     </div>
+    <script>
+      if (sessionStorage.getItem("fuludesSplashSeen_staff")) {
+        document.getElementById("appSplash").style.display = "none";
+      }
+    </script>
     <!-- ===================== Login screen ===================== -->
     <div id="staffLoginScreen" class="admin-login-screen">
       <form id="staffLoginForm" class="admin-login-card">
@@ -217,6 +222,7 @@
       var shownAt = Date.now();
       var minVisible = 500;
       function hideSplash() {
+        sessionStorage.setItem("fuludesSplashSeen_staff", "1");
         var wait = Math.max(0, minVisible - (Date.now() - shownAt));
         setTimeout(function () {
           splash.classList.add("is-hidden");

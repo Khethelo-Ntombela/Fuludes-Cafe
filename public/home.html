@@ -153,6 +153,13 @@
         <span></span><span></span><span></span>
       </div>
     </div>
+    <script>
+      // Only the first time this browser session enters the app - skip the
+      // splash on later visits (e.g. clicking Home in the navbar).
+      if (sessionStorage.getItem("fuludesSplashSeen_home")) {
+        document.getElementById("appSplash").style.display = "none";
+      }
+    </script>
 
     <header class="header">
       <div class="container nav-container">
@@ -675,6 +682,7 @@
       var shownAt = Date.now();
       var minVisible = 500; // keep the bubbles on screen briefly so they don't just flash
       function hideSplash() {
+        sessionStorage.setItem("fuludesSplashSeen_home", "1");
         var wait = Math.max(0, minVisible - (Date.now() - shownAt));
         setTimeout(function () {
           splash.classList.add("is-hidden");
