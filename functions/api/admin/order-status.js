@@ -185,25 +185,29 @@ export async function onRequestPost(context) {
     const updatedOrder = updateResult.rows[0];
     // A cancelled order's items go back into stock.
     if (nextStatus === "Cancelled") await restoreOrderStock(env, orderId);
-    await logAudit(env, {
-      actor_type: "admin",
-      actor_role: "admin",
-      actor_ip: requestIp,
-      action: "order_status_changed",
-      target_type: "order",
-      target_id: orderId,
-      details: {
-        previousStatus: currentStatus,
-        status: nextStatus,
-        orderType: updatedOrder.order_type,
-        fulfillmentMode:
-          nextStatus === "Collection"
-            ? "collection"
-            : nextStatus === "Delivery"
-              ? "delivery"
-              : null,
-      },
-    });
+    // Only the two outcomes that matter for an audit trail get logged -
+    // the in-between moves (Preparing/Ready/Collection/Delivery) don't.
+    if (nextStatus === "Completed") {
+      await logAudit(env, {
+        actor_type: "admin",
+        actor_role: "admin",
+        actor_ip: requestIp,
+        action: "order_completed",
+        target_type: "order",
+        target_id: orderId,
+        details: {},
+      });
+    } else if (nextStatus === "Cancelled") {
+      await logAudit(env, {
+        actor_type: "admin",
+        actor_role: "admin",
+        actor_ip: requestIp,
+        action: "order_cancelled",
+        target_type: "order",
+        target_id: orderId,
+        details: { previousStatus: currentStatus },
+      });
+    }
 
     queueOrderStatusPush(context, updatedOrder.customer_id, updatedOrder.id, updatedOrder.status);
 

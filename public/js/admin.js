@@ -3328,6 +3328,8 @@ const AUDIT_LABELS = {
   out_of_service_reason_updated: "Out-of-service reason changed",
   announcement_updated: "Announcement updated",
   buffet_visibility_updated: "Buffet visibility changed",
+  order_completed: "Order completed",
+  order_cancelled: "Order cancelled",
 };
 
 function auditLabel(action) {
@@ -3337,8 +3339,8 @@ function auditLabel(action) {
 }
 
 function auditTone(action) {
-  if (/deleted|removed|enabled$|refund/.test(action || "")) return "danger";
-  if (/disabled$|created|added/.test(action || "")) return "good";
+  if (/deleted|removed|enabled$|refund|cancelled/.test(action || "")) return "danger";
+  if (/disabled$|created|added|completed/.test(action || "")) return "good";
   return "";
 }
 
