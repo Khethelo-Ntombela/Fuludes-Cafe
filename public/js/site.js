@@ -2044,22 +2044,13 @@ function applyConfig(config) {
     buffetSection.style.display = "none";
   }
 
-  // Out of service: hero notice on the home page, banner on the menu page
+  // Out of service: hero notice on the home page only. The menu page no
+  // longer shows a persistent banner - checkout itself still blocks and
+  // shows a pop-up notice if the store is out of service (see menu.js).
   const heroNotice = document.getElementById("heroServiceNotice");
   if (heroNotice) {
     if (config.is_out_of_service) renderOutOfServiceNotice(heroNotice, config);
     else heroNotice.style.display = "none";
-  } else if (config.is_out_of_service && document.getElementById("checkoutBtn")) {
-    let banner = document.querySelector(".service-banner");
-    if (!banner) {
-      banner = document.createElement("div");
-      banner.className = "site-notice service-banner";
-      const anchor = document.getElementById("paymentBanner");
-      if (anchor) anchor.insertAdjacentElement("afterend", banner);
-    }
-    renderOutOfServiceNotice(banner, config);
-  } else {
-    document.querySelector(".service-banner")?.remove();
   }
 
   // Admin announcement: white rounded bar under the hero buttons
