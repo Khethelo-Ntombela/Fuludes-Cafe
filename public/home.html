@@ -39,7 +39,7 @@
     <meta name="twitter:card" content="summary_large_image" />
     <!-- ================================================================ -->
 
-    <link rel="stylesheet" href="css/style.css?v=18" />
+    <link rel="stylesheet" href="css/style.css?v=19" />
     <link
       href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap"
       rel="stylesheet"
@@ -53,8 +53,87 @@
       href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css"
     />
     <meta name="google-client-id" content="633808599246-vluj9dv2qigabk9cpn1sb7qflnaucie0.apps.googleusercontent.com" />
+    <style>
+      /* First-load splash - shown only while home.html's real assets/CSS
+         finish loading, so visitors see the brand instead of a blank
+         black screen. Purely additive; removes itself once ready. */
+      #appSplash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background: #000;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        transition: opacity 0.4s ease;
+      }
+      #appSplash.is-hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #appSplash .app-splash-logo {
+        width: 84px;
+        height: 84px;
+        border-radius: 50%;
+        object-fit: cover;
+        box-shadow: 0 0 0 2px rgba(201, 169, 110, 0.55);
+      }
+      #appSplash .app-splash-name {
+        font-family: "Playfair Display", serif;
+        font-size: 1.35rem;
+        font-weight: 600;
+        color: #fff;
+        letter-spacing: 0.4px;
+      }
+      #appSplash .app-splash-dots {
+        display: flex;
+        gap: 8px;
+      }
+      #appSplash .app-splash-dots span {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #c9a96e;
+        animation: appSplashBounce 1.1s infinite ease-in-out both;
+      }
+      #appSplash .app-splash-dots span:nth-child(1) {
+        animation-delay: -0.28s;
+      }
+      #appSplash .app-splash-dots span:nth-child(2) {
+        animation-delay: -0.14s;
+      }
+      #appSplash .app-splash-dots span:nth-child(3) {
+        animation-delay: 0s;
+      }
+      @keyframes appSplashBounce {
+        0%,
+        80%,
+        100% {
+          transform: scale(0.6);
+          opacity: 0.5;
+        }
+        40% {
+          transform: scale(1);
+          opacity: 1;
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="appSplash" aria-hidden="true">
+      <img
+        src="images/logo.jpeg"
+        alt="Fulude's Cafe"
+        class="app-splash-logo"
+      />
+      <p class="app-splash-name">Fulude's Cafe</p>
+      <div class="app-splash-dots">
+        <span></span><span></span><span></span>
+      </div>
+    </div>
+
     <header class="header">
       <div class="container nav-container">
         <a href="home.html" class="logo">
@@ -569,5 +648,27 @@
   <script>
   if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 </script>
+  <script>
+    (function () {
+      var splash = document.getElementById("appSplash");
+      if (!splash) return;
+      var shownAt = Date.now();
+      var minVisible = 500; // keep the bubbles on screen briefly so they don't just flash
+      function hideSplash() {
+        var wait = Math.max(0, minVisible - (Date.now() - shownAt));
+        setTimeout(function () {
+          splash.classList.add("is-hidden");
+          setTimeout(function () {
+            splash.remove();
+          }, 450);
+        }, wait);
+      }
+      if (document.readyState === "complete") {
+        hideSplash();
+      } else {
+        window.addEventListener("load", hideSplash);
+      }
+    })();
+  </script>
 </body>
 </html>
