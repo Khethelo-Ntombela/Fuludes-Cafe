@@ -1869,12 +1869,33 @@ body {
 
 .faq-item.active .faq-answer {
   max-height: 300px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--gold-dark) var(--cream);
 }
 
 .faq-answer p {
   padding: 0 24px 20px;
   color: var(--gray);
   line-height: 1.7;
+}
+
+/* Scrollable sliding bar for long FAQ / Policy answers (e.g. Refund Policy) */
+.faq-answer::-webkit-scrollbar {
+  width: 6px;
+}
+
+.faq-answer::-webkit-scrollbar-track {
+  background: var(--cream);
+}
+
+.faq-answer::-webkit-scrollbar-thumb {
+  background: var(--gold-dark);
+  border-radius: 3px;
+}
+
+.faq-answer::-webkit-scrollbar-thumb:hover {
+  background: var(--gold);
 }
 
 /* Contact */
