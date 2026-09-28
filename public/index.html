@@ -263,29 +263,8 @@
     </style>
   </head>
   <body>
-    <div class="portal-brand">
-      <h1 class="logo">Fulude's Cafe</h1>
-      <span class="sub">Restaurant Platform</span>
-    </div>
-
-    <main class="portal-login">
-      <span class="login-emblem"><i class="bi bi-shield-lock" aria-hidden="true"></i></span>
-      <h2>Sign in</h2>
-      <p>Use your account email and password.</p>
-      <form id="portalLoginForm" autocomplete="on">
-        <label for="portalEmail">Email</label>
-        <input id="portalEmail" type="email" autocomplete="username" required />
-        <label for="portalPassword">Password</label>
-        <input id="portalPassword" type="password" autocomplete="current-password" required />
-        <p id="portalLoginError" class="portal-login-error" role="alert"></p>
-        <button type="submit">Sign in</button>
-      </form>
-      <a class="portal-login-link" href="home.html?recover=1">Forgot customer password?</a>
-      <a class="portal-login-link" href="home.html?create_account=1">Create a customer account</a>
-    </main>
-  <script>
-  if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
-</script>
+    <script>window.location.replace("/home");</script>
+    <noscript><a href="/home">Continue to Fulude's Cafe</a></noscript>
 </body>
 </html>
 

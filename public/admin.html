@@ -43,8 +43,11 @@
 <meta name="theme-color" content="#000000">
     <script>
       const adminLoginParams = new URLSearchParams(location.search);
-      if (!localStorage.getItem("fulude_admin_token") && !adminLoginParams.has("reset_token") && !adminLoginParams.has("admin_email_verified")) {
-        location.replace("/home.html?auth=signin");
+      if (!localStorage.getItem("fulude_admin_token") && !adminLoginParams.has("reset_token")) {
+        const homeParams = new URLSearchParams({ auth: "signin" });
+        const verificationResult = adminLoginParams.get("admin_email_verified");
+        if (verificationResult) homeParams.set("admin_email_verified", verificationResult);
+        location.replace(`/home.html?${homeParams}`);
       }
     </script>
     <style>
@@ -132,34 +135,8 @@
         document.getElementById("appSplash").style.display = "none";
       }
     </script>
-    <!-- ===================== Login screen ===================== -->
-    <div id="loginScreen" class="admin-login-screen">
-      <form autocomplete="off" id="loginForm" class="admin-login-card">
-        <a href="home.html" class="logo"> </a>
-
-        <p class="admin-login-sub">Admin Dashboard</p>
-        <div class="form-group">
-          <label for="adminEmail">Email</label>
-          <input
-            type="email"
-            id="adminEmail"
-            required
-            autocomplete="off"
-          />
-        </div>
-        <div class="form-group">
-          <label for="adminPassword">Password</label>
-          <input
-            type="password"
-            id="adminPassword"
-            required
-            autocomplete="new-password"
-          />
-        </div>
-        <p id="loginError" class="form-error" style="display: none"></p>
-        <button type="submit" class="btn btn-primary btn-block">Log In</button>
-      </form>
-
+    <!-- ===================== Admin password reset ===================== -->
+    <div id="adminResetScreen" class="admin-login-screen" style="display: none">
       <form autocomplete="off"
         id="adminResetForm"
         class="admin-login-card"
@@ -1669,7 +1646,7 @@
     <script src="js/order-alert.js?v=1"></script>
     <script src="js/kds.js?v=20"></script>
     <script src="js/form-validation.js?v=1"></script>
-    <script src="js/admin.js?v=27"></script>
+    <script src="js/admin.js?v=28"></script>
     <script src="js/admin-app.js?v=18"></script>
   <script>
   if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));

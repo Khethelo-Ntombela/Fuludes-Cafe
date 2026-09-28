@@ -51,7 +51,6 @@ function addAdminPasswordVisibilityToggle(inputId) {
   wrapper.appendChild(toggle);
 }
 
-addAdminPasswordVisibilityToggle("adminPassword");
 addAdminPasswordVisibilityToggle("adminResetPassword");
 
 /** "Delivery: 12 Main Rd" / "Dine In (Table 5)" / "Collection" */
@@ -204,7 +203,6 @@ function logout() {
 }
 
 async function showDashboard() {
-  document.getElementById("loginScreen").style.display = "none";
   document.getElementById("dashboard").style.display = "grid";
   await loadAdminPermissions();
   if (!adminToken) return; // the session ended while checking
@@ -224,41 +222,6 @@ async function showDashboard() {
 }
 let adminPushBound = false;
 FuludePWA.setupInstallButton("Install admin app");
-
-document.getElementById("loginForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const errorEl = document.getElementById("loginError");
-  errorEl.style.display = "none";
-  errorEl.classList.remove("is-locked");
-
-  try {
-    const res = await fetch("/api/admin/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: document.getElementById("adminEmail").value.trim(),
-        password: document.getElementById("adminPassword").value,
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok || !data.success) {
-      const failure = new Error(data.error || "Couldn't log in.");
-      failure.locked = Boolean(data.locked);
-      throw failure;
-    }
-
-    adminToken = data.token;
-    adminPermissions = data.permissions || {};
-    localStorage.setItem(TOKEN_KEY, adminToken);
-    document.getElementById("loginForm").reset();
-    showDashboard();
-  } catch (err) {
-    errorEl.textContent = err.message || "Couldn't log in.";
-    // A locked account gets a more prominent message.
-    errorEl.classList.toggle("is-locked", Boolean(err.locked));
-    errorEl.style.display = "block";
-  }
-});
 
 function initAdminAudio() {
   FuludeOrderAlert.init();
@@ -3259,11 +3222,10 @@ function getResetTokenFromUrl() {
 }
 
 function showAdminResetForm(token) {
-  const loginForm = document.getElementById("loginForm");
   const resetForm = document.getElementById("adminResetForm");
   const resetTokenInput = document.getElementById("adminResetToken");
 
-  loginForm.style.display = "none";
+  document.getElementById("adminResetScreen").style.display = "flex";
   resetForm.style.display = "block";
   resetTokenInput.value = token;
 }
@@ -3289,13 +3251,7 @@ document
         "Password reset successfully. You can now log in with your new password.";
       document.getElementById("adminResetForm").reset();
       setTimeout(() => {
-        window.history.replaceState(
-          {},
-          document.title,
-          window.location.pathname,
-        );
-        document.getElementById("loginForm").style.display = "flex";
-        document.getElementById("adminResetForm").style.display = "none";
+        window.location.assign("/home.html?auth=signin");
       }, 1500);
     } catch (err) {
       statusEl.textContent = err.message;
@@ -3532,6 +3488,8 @@ function initAuditHandlers() {
 // ---------------------------------------------------------------------
 if (adminToken) {
   showDashboard();
+} else if (!initialResetToken) {
+  window.location.replace("/home.html?auth=signin");
 }
 
 // ---------------------------------------------------------------------
@@ -3583,21 +3541,3 @@ if (typeof FuludeValidation !== "undefined") {
   });
 }
 
-// Landing after clicking the verification link in the new-account email
-// (/api/admin/verify-email redirects here with ?admin_email_verified=...).
-(function showAdminVerifyResult() {
-  const params = new URLSearchParams(location.search);
-  const result = params.get("admin_email_verified");
-  if (!result) return;
-  const errorEl = document.getElementById("loginError");
-  const messages = {
-    yes: "Email verified. You can now sign in.",
-    invalid: "That verification link is invalid or has expired. Ask the main admin to send a new one.",
-    error: "We couldn't verify your email right now. Please try the link again.",
-  };
-  if (errorEl) {
-    errorEl.textContent = messages[result] || messages.error;
-    errorEl.style.display = "block";
-  }
-  history.replaceState(null, "", location.pathname);
-})();

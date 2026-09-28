@@ -1,8 +1,7 @@
 /**
  * public/js/staff.js
  * -----------------------------------------------------------------------
- * Kitchen Staff Portal: separate login (own token, own storage key -
- * entirely independent from the owner's admin session), then a live
+ * Kitchen Staff Portal: uses its own token and storage key, then a live
  * live Kanban board polled every 15s. The board itself is rendered by the
  * shared KDS engine (js/kds.js) so it stays identical to the admin's
  * Live Orders view: fixed-height cards, urgency timers, one primary
@@ -17,34 +16,6 @@ let staffToken = localStorage.getItem(STAFF_TOKEN_KEY);
 let pollIntervalId = null;
 let knownPaidNewOrderIds = new Set();
 const STAFF_ALERTS_MUTED_KEY = "fulude_staff_alerts_muted";
-
-function addStaffPasswordVisibilityToggle() {
-  const input = document.getElementById("staffPassword");
-  if (!input || input.parentElement.classList.contains("password-input-wrapper"))
-    return;
-
-  const wrapper = document.createElement("div");
-  wrapper.className = "password-input-wrapper";
-  input.parentNode.insertBefore(wrapper, input);
-  wrapper.appendChild(input);
-
-  const toggle = document.createElement("button");
-  toggle.type = "button";
-  toggle.className = "password-visibility-toggle";
-  toggle.innerHTML = '<i class="fas fa-eye" aria-hidden="true"></i>'; // eye icon only
-  toggle.setAttribute("aria-label", "Show password");
-  toggle.title = "Show password";
-  toggle.addEventListener("click", () => {
-    const isVisible = input.type === "text";
-    input.type = isVisible ? "password" : "text";
-    toggle.innerHTML = `<i class="fas ${isVisible ? "fa-eye" : "fa-eye-slash"}" aria-hidden="true"></i>`;
-    toggle.setAttribute("aria-label", `${isVisible ? "Show" : "Hide"} password`);
-    toggle.title = `${isVisible ? "Show" : "Hide"} password`;
-  });
-  wrapper.appendChild(toggle);
-}
-
-addStaffPasswordVisibilityToggle();
 
 // ---------------------------------------------------------------------
 // Auth
@@ -74,7 +45,6 @@ function logout() {
 }
 
 function showBoard() {
-  document.getElementById("staffLoginScreen").style.display = "none";
   document.getElementById("staffBoard").style.display = "block";
   loadOrders();
   clearInterval(pollIntervalId);
@@ -91,42 +61,6 @@ function showBoard() {
 }
 let staffPushBound = false;
 FuludePWA.setupInstallButton("Install kitchen app");
-
-document
-  .getElementById("staffLoginForm")
-  .addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const errorEl = document.getElementById("staffLoginError");
-    errorEl.style.display = "none";
-    errorEl.classList.remove("is-locked");
-
-    try {
-      const res = await fetch("/api/staff/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: document.getElementById("staffEmail").value.trim(),
-          password: document.getElementById("staffPassword").value,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        const failure = new Error(data.error || "Couldn't log in.");
-        failure.locked = Boolean(data.locked);
-        throw failure;
-      }
-
-      staffToken = data.token;
-      localStorage.setItem(STAFF_TOKEN_KEY, staffToken);
-      document.getElementById("staffLoginForm").reset();
-      showBoard();
-    } catch (err) {
-      errorEl.textContent = err.message || "Couldn't log in.";
-      // A locked account gets a more prominent message.
-      errorEl.classList.toggle("is-locked", Boolean(err.locked));
-      errorEl.style.display = "block";
-    }
-  });
 
 function initStaffAudio() {
   FuludeOrderAlert.init();
@@ -264,26 +198,7 @@ async function handleAdvance(status, orderId) {
 // ---------------------------------------------------------------------
 if (staffToken) {
   showBoard();
+} else {
+  window.location.replace("/home.html?auth=signin");
 }
 
-// Staff login: email checked with the shared rules (js/form-validation.js).
-if (typeof FuludeValidation !== "undefined") FuludeValidation.apply({});
-
-// Landing after clicking the verification link in the new-account email
-// (/api/staff/verify-email redirects here with ?staff_email_verified=...).
-(function showStaffVerifyResult() {
-  const params = new URLSearchParams(location.search);
-  const result = params.get("staff_email_verified");
-  if (!result) return;
-  const errorEl = document.getElementById("staffLoginError");
-  const messages = {
-    yes: "Email verified. You can now sign in.",
-    invalid: "That verification link is invalid or has expired. Ask the admin to send a new one.",
-    error: "We couldn't verify your email right now. Please try the link again.",
-  };
-  if (errorEl) {
-    errorEl.textContent = messages[result] || messages.error;
-    errorEl.style.display = "block";
-  }
-  history.replaceState(null, "", location.pathname);
-})();

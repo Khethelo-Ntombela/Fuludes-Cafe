@@ -42,8 +42,12 @@
 <meta name="apple-mobile-web-app-title" content="Fulude's Kitchen">
 <meta name="theme-color" content="#000000">
     <script>
+      const staffLoginParams = new URLSearchParams(location.search);
       if (!localStorage.getItem("fulude_staff_token")) {
-        location.replace("/home.html?auth=signin");
+        const homeParams = new URLSearchParams({ auth: "signin" });
+        const verificationResult = staffLoginParams.get("staff_email_verified");
+        if (verificationResult) homeParams.set("staff_email_verified", verificationResult);
+        location.replace(`/home.html?${homeParams}`);
       }
     </script>
     <style>
@@ -131,29 +135,6 @@
         document.getElementById("appSplash").style.display = "none";
       }
     </script>
-    <!-- ===================== Login screen ===================== -->
-    <div id="staffLoginScreen" class="admin-login-screen">
-      <form id="staffLoginForm" class="admin-login-card">
-        <h1 class="logo">Fulude's Cafe</h1>
-        <p class="admin-login-sub">Staff Portal</p>
-        <div class="form-group">
-          <label for="staffEmail">Email</label>
-          <input type="email" id="staffEmail" required autocomplete="email" />
-        </div>
-        <div class="form-group">
-          <label for="staffPassword">Password</label>
-          <input
-            type="password"
-            id="staffPassword"
-            required
-            autocomplete="current-password"
-          />
-        </div>
-        <p id="staffLoginError" class="form-error" style="display: none"></p>
-        <button type="submit" class="btn btn-primary btn-block">Log In</button>
-      </form>
-    </div>
-
     <!-- ===================== Kitchen board ===================== -->
     <div id="staffBoard" class="staff-board-page" style="display: none">
       <header class="staff-header">
@@ -220,7 +201,7 @@
     <script src="js/order-alert.js?v=1"></script>
     <script src="js/kds.js?v=20"></script>
     <script src="js/form-validation.js?v=1"></script>
-    <script src="js/staff.js?v=23"></script>
+    <script src="js/staff.js?v=24"></script>
   <script>
   if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 </script>

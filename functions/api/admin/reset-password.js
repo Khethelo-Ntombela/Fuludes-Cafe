@@ -31,11 +31,24 @@ export async function onRequest(context) {
   }
 
   try {
-    const result = await runQuery(env, "SELECT admin_id, expires_at, used FROM admin_password_resets WHERE token = $1;", [token]);
+    const result = await runQuery(
+      env,
+      `SELECT r.admin_id, r.expires_at, r.used, a.permissions, a.is_active
+       FROM admin_password_resets r
+       JOIN admin_accounts a ON a.id = r.admin_id
+       WHERE r.token = $1;`,
+      [token],
+    );
     const reset = result.rows[0];
 
     if (!reset || reset.used || new Date(reset.expires_at) < new Date()) {
       return jsonResponse({ error: "This reset link is invalid or has expired. Please request a new one." }, 400);
+    }
+    if (!reset.is_active || !reset.permissions || !reset.permissions.all) {
+      return jsonResponse(
+        { error: "Please contact admin for assistance with password changes." },
+        403,
+      );
     }
 
     await ensureLockoutColumns(env, "admin_accounts");

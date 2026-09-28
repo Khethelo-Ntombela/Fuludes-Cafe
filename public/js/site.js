@@ -207,7 +207,7 @@ async function initAuth() {
     }
   } else if (googleResult.error) {
     pendingCheckoutAfterAuth = googleResult.checkout;
-    openAuthModal("signin", null, true);
+    openAuthModal("signin");
     signInError.textContent = googleResult.error;
     signInError.style.display = "block";
   }
@@ -215,7 +215,16 @@ async function initAuth() {
   const params = new URLSearchParams(window.location.search);
   if (params.get("auth") === "signin") {
     window.history.replaceState({}, document.title, window.location.pathname);
-    openAuthModal("signin", "Sign in with your account. Admins and staff will be sent to their dashboard.");
+    const verificationResult = params.get("admin_email_verified") || params.get("staff_email_verified");
+    const verificationMessages = {
+      yes: "Email verified. You can now sign in.",
+      invalid: "That verification link is invalid or has expired. Please ask the admin to send a new one.",
+      error: "We couldn't verify your email right now. Please try the link again.",
+    };
+    openAuthModal(
+      "signin",
+      verificationMessages[verificationResult] || "Sign in with your account. Admins and staff will be sent to their dashboard.",
+    );
   } else if (params.get("create_account") === "1") {
     window.history.replaceState({}, document.title, window.location.pathname);
     openAuthModal("signup");
