@@ -390,8 +390,6 @@ async function loadAdminAccounts() {
     adminAccountsMeta = { me: data.me, can_manage: Boolean(data.can_manage), helper_limit: data.helper_limit ?? 2, helper_count: data.helper_count ?? 0 };
     updateAdminLimitNote();
     adminAccountsById = Object.fromEntries((data.accounts || []).map((a) => [a.id, a]));
-    // Only the main admin may hand out full access.
-    document.getElementById("adminFullAccessOption").style.display = adminAccountsMeta.can_manage ? "" : "none";
     list.innerHTML =
       (data.accounts || [])
         .map((account) => {
@@ -442,7 +440,12 @@ function resetAdminAccountForm() {
   document.getElementById("adminAccountCancelBtn").style.display = "none";
   document.getElementById("adminActiveOption").style.display = "none";
   document.getElementById("adminPermissionOptions").style.display = "";
+  editingFullAccess = false;
 }
+
+// True while a main (full-access) admin is editing their own account, so
+// their full access is kept without needing a checkbox.
+var editingFullAccess = false;
 
 function startEditAdminAccount(account) {
   const form = document.getElementById("adminAccountForm");
@@ -460,7 +463,7 @@ function startEditAdminAccount(account) {
   document.getElementById("adminActiveOption").style.display = "";
   document.getElementById("adminAccountActive").checked = account.is_active !== false;
   const full = Boolean(account.permissions?.all);
-  document.getElementById("adminFullAccess").checked = full;
+  editingFullAccess = full;
   document.getElementById("adminPermissionOptions").style.display = full ? "none" : "";
   document.querySelectorAll("#adminPermissionOptions input").forEach((input) => {
     input.checked = full || Boolean(account.permissions?.[input.value]);
@@ -469,9 +472,6 @@ function startEditAdminAccount(account) {
   form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-document.getElementById("adminFullAccess")?.addEventListener("change", (e) => {
-  document.getElementById("adminPermissionOptions").style.display = e.target.checked ? "none" : "";
-});
 document.getElementById("adminAccountCancelBtn")?.addEventListener("click", resetAdminAccountForm);
 
 document.getElementById("adminAccountsList")?.addEventListener("click", async (e) => {
@@ -519,7 +519,7 @@ document
   .getElementById("adminAccountForm")
   ?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const fullAccess = document.getElementById("adminFullAccess").checked;
+    const fullAccess = editingFullAccess;
     const permissions = fullAccess
       ? { all: true }
       : Object.fromEntries(
