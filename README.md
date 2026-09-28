@@ -63,7 +63,7 @@ functions/
   api/payment/notify.js    POST - payment gateway server-to-server webhook (confirmations)
   api/review.js           GET/POST - review wall
   api/config.js            GET  - public site config (buffet visibility)
-  api/admin/login.js         POST - owner password login, returns admin token
+  api/admin/login.js         POST - owner password login, returns admin token (locks after 4 failed attempts; main admin unlocks it)
   api/admin/menu.js           GET/POST/PUT/DELETE - menu item CRUD
   api/admin/categories.js      GET/POST - category management
   api/admin/addons.js           GET/POST/DELETE - extras & spice-level catalogs
@@ -75,7 +75,7 @@ functions/
   api/admin/order-status.js         POST - advance/cancel an order's status
   api/admin/stats.js                 GET  - Your Sales tab: total orders + per-category counts
   api/admin/review-reply.js          POST - owner reply to a review
-  api/staff/login.js                  POST - kitchen password login, returns staff token
+  api/staff/login.js                  POST - kitchen password login, returns staff token (locks after 4 failed attempts; main admin unlocks it)
   api/staff/orders.js                  GET  - live kitchen board feed (New/Preparing/Ready/Collection/Delivery only,
                                         no prices - kitchen-relevant fields only)
   api/staff/order-status.js             POST - advance/cancel an order's status (kitchen)

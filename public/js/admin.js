@@ -258,6 +258,7 @@ document.getElementById("loginForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const errorEl = document.getElementById("loginError");
   errorEl.style.display = "none";
+  errorEl.classList.remove("is-locked");
 
   try {
     const res = await fetch("/api/admin/login", {
@@ -269,8 +270,11 @@ document.getElementById("loginForm").addEventListener("submit", async (e) => {
       }),
     });
     const data = await res.json();
-    if (!res.ok || !data.success)
-      throw new Error(data.error || "Couldn't log in.");
+    if (!res.ok || !data.success) {
+      const failure = new Error(data.error || "Couldn't log in.");
+      failure.locked = Boolean(data.locked);
+      throw failure;
+    }
 
     adminToken = data.token;
     adminPermissions = data.permissions || {};
@@ -279,6 +283,8 @@ document.getElementById("loginForm").addEventListener("submit", async (e) => {
     showDashboard();
   } catch (err) {
     errorEl.textContent = err.message || "Couldn't log in.";
+    // A locked account gets a more prominent message.
+    errorEl.classList.toggle("is-locked", Boolean(err.locked));
     errorEl.style.display = "block";
   }
 });
@@ -404,7 +410,7 @@ async function loadAdminAccounts() {
           const actions = data.can_manage && !protectedMain
             ? `<div style="display:flex;gap:6px;margin-top:8px">
                 <button type="button" class="admin-mini-btn" data-edit-admin="${account.id}"><i class="fas fa-pen"></i> Edit</button>
-                ${account.is_locked ? `<button type="button" class="admin-mini-btn" data-unlock-admin="${account.id}"><i class="fas fa-lock-open"></i> Unlock</button>` : ""}
+                ${account.is_locked ? `<button type="button" class="admin-mini-btn unlock" data-unlock-admin="${account.id}" title="Let this admin try signing in again"><i class="fas fa-lock-open"></i> Unlock</button>` : ""}
                 ${isMe ? "" : `<button type="button" class="admin-mini-btn danger" data-delete-admin="${account.id}"><i class="fas fa-trash"></i> Delete</button>`}
               </div>`
             : "";
@@ -2391,7 +2397,7 @@ function renderStaffAccountsList() {
         </div>
         <div class="admin-item-actions">
           <button class="admin-mini-btn" data-staff-action="edit" data-id="${account.id}">Edit</button>
-          ${account.is_locked ? `<button class="admin-mini-btn" data-staff-action="unlock" data-id="${account.id}">Unlock</button>` : ""}
+          ${account.is_locked ? `<button class="admin-mini-btn unlock" data-staff-action="unlock" data-id="${account.id}" title="Let this staff member try signing in again"><i class="fas fa-lock-open"></i> Unlock</button>` : ""}
           <button class="admin-mini-btn danger" data-staff-action="delete" data-id="${account.id}">Delete</button>
         </div>
       </div>

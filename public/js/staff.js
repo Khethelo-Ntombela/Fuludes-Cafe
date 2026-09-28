@@ -99,6 +99,7 @@ document
     e.preventDefault();
     const errorEl = document.getElementById("staffLoginError");
     errorEl.style.display = "none";
+    errorEl.classList.remove("is-locked");
 
     try {
       const res = await fetch("/api/staff/login", {
@@ -110,8 +111,11 @@ document
         }),
       });
       const data = await res.json();
-      if (!res.ok || !data.success)
-        throw new Error(data.error || "Couldn't log in.");
+      if (!res.ok || !data.success) {
+        const failure = new Error(data.error || "Couldn't log in.");
+        failure.locked = Boolean(data.locked);
+        throw failure;
+      }
 
       staffToken = data.token;
       localStorage.setItem(STAFF_TOKEN_KEY, staffToken);
@@ -119,6 +123,8 @@ document
       showBoard();
     } catch (err) {
       errorEl.textContent = err.message || "Couldn't log in.";
+      // A locked account gets a more prominent message.
+      errorEl.classList.toggle("is-locked", Boolean(err.locked));
       errorEl.style.display = "block";
     }
   });

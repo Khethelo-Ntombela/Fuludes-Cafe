@@ -6,10 +6,13 @@
  * already used for customers in functions/api/auth/login.js).
  *
  * Lockout: after MAX_FAILED_ATTEMPTS wrong passwords in a row, the
- * account is locked (is_locked = TRUE). Unlike customers, admin/staff
- * accounts have NO self-service way to unlock - only the main admin can
- * re-enable a locked account from the Admin/Staff Accounts settings
- * panel (see the `unlock` handling in accounts.js / staff.js).
+ * account is locked (is_locked = TRUE) and the login screen shows
+ * LOCKED_MESSAGE ("Please contact admin, your account has been locked.").
+ * Unlike customers, admin/staff accounts have NO self-service way to
+ * unlock - the main admin clicks the "Unlock" button next to Edit/Delete
+ * on that account in the Admin/Staff Accounts settings panel (see the
+ * `unlock` handling in accounts.js / staff.js), which resets the counter
+ * so they can try signing in again.
  *
  * Email verification: a new admin or staff account created by the main
  * admin starts with email_verified = FALSE and can't log in until they
@@ -21,6 +24,9 @@
 import { runQuery } from "./db.js";
 
 export const MAX_FAILED_ATTEMPTS = 4;
+
+/** Shown on the admin/staff login screens whenever the account is locked. */
+export const LOCKED_MESSAGE = "Please contact admin, your account has been locked.";
 
 const readyTables = new Set();
 
@@ -39,6 +45,8 @@ export async function ensureLockoutColumns(env, table) {
  * Call after a wrong password. Increments the counter, locks the account
  * once it reaches MAX_FAILED_ATTEMPTS, and returns the response to send
  * back (still a generic "incorrect password" message below the limit).
+ * `contactLabel` is kept for backwards compatibility but is no longer used -
+ * the locked message is the same LOCKED_MESSAGE everywhere.
  */
 export async function recordFailedLogin(env, table, accountId, attemptsSoFar, contactLabel) {
   const attempts = attemptsSoFar + 1;
@@ -49,10 +57,7 @@ export async function recordFailedLogin(env, table, accountId, attemptsSoFar, co
     [attempts, shouldLock, accountId],
   );
   if (shouldLock) {
-    return {
-      error: `This account is now locked after ${MAX_FAILED_ATTEMPTS} failed attempts. Please contact ${contactLabel} to have it re-enabled.`,
-      locked: true,
-    };
+    return { error: LOCKED_MESSAGE, locked: true };
   }
   return { error: "Incorrect email or password." };
 }

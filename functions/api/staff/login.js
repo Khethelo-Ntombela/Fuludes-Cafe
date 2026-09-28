@@ -6,12 +6,19 @@
  * credentials against the env file (STAFF_EMAIL / STAFF_PASSWORD),
  * or against the hashed staff account in Neon, then creates a
  * database-backed session token.
+ *
+ * Lockout: after MAX_FAILED_ATTEMPTS wrong passwords in a row the account
+ * is locked (staff_accounts.is_locked = TRUE) and every further attempt
+ * shows "Please contact admin, your account has been locked." until the
+ * main admin clicks Unlock on that account (Settings > Staff Accounts).
+ * The env-var bootstrap staff login is never locked out.
  * -----------------------------------------------------------------------
  */
 import { jsonResponse, runQuery } from "../../_lib/db.js";
 import { sanitizeText } from "../../_lib/security.js";
 import { verifyPassword, generateToken, hashPassword } from "../../_lib/password.js";
 import { saveSession, isDbAvailable } from "../../_lib/sessionStore.js";
+import { ensureLockoutColumns, recordFailedLogin, clearFailedLogins, LOCKED_MESSAGE } from "../../_lib/accountLockout.js";
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -57,12 +64,17 @@ export async function onRequest(context) {
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '12 hours')
         );`,
         );
+        await ensureLockoutColumns(env, "staff_accounts");
         let accountResult = await runQuery(
           env,
           "SELECT id, permissions FROM staff_accounts WHERE email = $1 AND is_active = TRUE LIMIT 1;",
           [emailText],
         );
         let account = accountResult.rows[0];
+        if (account) {
+          // The bootstrap staff login is always trusted and never locked out.
+          await runQuery(env, "UPDATE staff_accounts SET is_locked = FALSE, failed_login_attempts = 0 WHERE id = $1;", [account.id]);
+        }
         if (!account) {
           const hashed = await hashPassword(passwordText);
           const insertResult = await runQuery(
@@ -113,19 +125,26 @@ export async function onRequest(context) {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '12 hours')
       );`,
       );
+      await ensureLockoutColumns(env, "staff_accounts");
       const result = await runQuery(
         env,
-        "SELECT id, password_hash, password_salt, permissions FROM staff_accounts WHERE email = $1 AND is_active = TRUE LIMIT 1;",
+        "SELECT id, password_hash, password_salt, permissions, failed_login_attempts, is_locked FROM staff_accounts WHERE email = $1 AND is_active = TRUE LIMIT 1;",
         [emailText],
       );
       const account = result.rows[0];
       if (account) {
+        // Locked accounts are refused whether or not the password is right,
+        // until the main admin unlocks them.
+        if (account.is_locked) {
+          return jsonResponse({ error: LOCKED_MESSAGE, locked: true }, 423);
+        }
         const valid = await verifyPassword(
           passwordText,
           account.password_hash,
           account.password_salt,
         );
         if (valid) {
+          await clearFailedLogins(env, "staff_accounts", account.id);
           const token = generateToken();
           await runQuery(
             env,
@@ -138,6 +157,8 @@ export async function onRequest(context) {
             permissions: account.permissions || {},
           });
         }
+        const failed = await recordFailedLogin(env, "staff_accounts", account.id, account.failed_login_attempts, "the admin");
+        return jsonResponse(failed, failed.locked ? 423 : 401);
       }
 
       const legacyResult = await runQuery(

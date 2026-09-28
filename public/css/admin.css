@@ -1715,6 +1715,18 @@
   border-color: transparent;
 }
 
+/* "Unlock" button shown beside Edit/Delete on a locked admin/staff account. */
+.admin-mini-btn.unlock {
+  background: var(--sa-gold-soft);
+  color: var(--sa-gold);
+  border-color: var(--sa-gold);
+}
+
+.admin-mini-btn.unlock:hover {
+  background: var(--sa-gold);
+  color: #fff;
+}
+
 .admin-mini-btn.stock-low {
   background: var(--sa-amber-soft);
   border-color: transparent;

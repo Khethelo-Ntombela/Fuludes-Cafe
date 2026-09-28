@@ -20,7 +20,7 @@ import { jsonResponse, runQuery } from "../../_lib/db.js";
 import { sanitizeText } from "../../_lib/security.js";
 import { generateToken, verifyPassword, hashPassword } from "../../_lib/password.js";
 import { saveSession, isDbAvailable } from "../../_lib/sessionStore.js";
-import { ensureLockoutColumns, recordFailedLogin, clearFailedLogins } from "../../_lib/accountLockout.js";
+import { ensureLockoutColumns, recordFailedLogin, clearFailedLogins, LOCKED_MESSAGE } from "../../_lib/accountLockout.js";
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -136,7 +136,7 @@ export async function onRequest(context) {
       if (account) {
         if (account.is_locked) {
           return jsonResponse(
-            { error: "This account is locked after too many failed attempts. Please contact the main admin to have it re-enabled.", locked: true },
+            { error: LOCKED_MESSAGE, locked: true },
             423,
           );
         }

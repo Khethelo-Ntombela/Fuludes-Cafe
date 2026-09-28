@@ -1391,6 +1391,17 @@ body {
   margin-bottom: 18px;
 }
 
+/* Shown on the admin/staff login screens when the account is locked. */
+.form-error.is-locked {
+  border-left: 4px solid var(--danger);
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-align: center;
+}
+.form-error.is-locked::before {
+  content: "\1F512  ";
+}
+
 .form-success {
   background: #e8f5e9;
   color: #1e7d34;
