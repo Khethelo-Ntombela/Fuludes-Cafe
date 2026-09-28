@@ -377,7 +377,7 @@ async function loadCustomerRecords() {
 }
 
 let adminAccountsById = {};
-let adminAccountsMeta = { me: null, can_manage: false };
+let adminAccountsMeta = { me: null, can_manage: false, helper_limit: 2, helper_count: 0 };
 
 async function loadAdminAccounts() {
   const list = document.getElementById("adminAccountsList");
@@ -387,7 +387,8 @@ async function loadAdminAccounts() {
     const data = await response.json();
     if (!response.ok)
       throw new Error(data.error || "Failed to load admin accounts.");
-    adminAccountsMeta = { me: data.me, can_manage: Boolean(data.can_manage) };
+    adminAccountsMeta = { me: data.me, can_manage: Boolean(data.can_manage), helper_limit: data.helper_limit ?? 2, helper_count: data.helper_count ?? 0 };
+    updateAdminLimitNote();
     adminAccountsById = Object.fromEntries((data.accounts || []).map((a) => [a.id, a]));
     // Only the main admin may hand out full access.
     document.getElementById("adminFullAccessOption").style.display = adminAccountsMeta.can_manage ? "" : "none";
@@ -403,16 +404,27 @@ async function loadAdminAccounts() {
           const actions = data.can_manage
             ? `<div style="display:flex;gap:6px;margin-top:8px">
                 <button type="button" class="admin-mini-btn" data-edit-admin="${account.id}"><i class="fas fa-pen"></i> Edit</button>
+                ${account.is_locked ? `<button type="button" class="admin-mini-btn" data-unlock-admin="${account.id}"><i class="fas fa-lock-open"></i> Unlock</button>` : ""}
                 ${isMe ? "" : `<button type="button" class="admin-mini-btn danger" data-delete-admin="${account.id}"><i class="fas fa-trash"></i> Delete</button>`}
               </div>`
             : "";
-          return `<div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">${escapeHtml(account.email)}${isMe ? " <small>(you)</small>" : ""}${account.is_active === false ? ' <span class="badge badge-refund">Disabled</span>' : ""}</div><div class="sa-list-sub">Permissions: ${escapeHtml(perms)}</div>${actions}</div></div>`;
+          return `<div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">${escapeHtml(account.username || account.email)}${isMe ? " <small>(you)</small>" : ""}${account.is_active === false ? ' <span class="badge badge-refund">Disabled</span>' : ""}${account.is_locked ? ' <span class="badge badge-refund">Locked</span>' : ""}${account.email_verified === false ? ' <span class="badge">Email not verified</span>' : ""}</div><div class="sa-list-sub">${escapeHtml(account.email)}</div><div class="sa-list-sub">Permissions: ${escapeHtml(perms)}</div>${actions}</div></div>`;
         })
         .join("") ||
       '<p class="menu-empty">No database admin accounts yet.</p>';
   } catch (error) {
     list.innerHTML = `<p class="form-error">${error.message}</p>`;
   }
+}
+
+/** "You've reached the 2-admin limit." note under the create form. */
+function updateAdminLimitNote() {
+  const status = document.getElementById("adminAccountStatus");
+  const editing = document.getElementById("adminAccountId")?.value;
+  if (!status || editing) return;
+  const reached = adminAccountsMeta.helper_count >= adminAccountsMeta.helper_limit;
+  if (reached) status.textContent = `You've reached the ${adminAccountsMeta.helper_limit}-admin limit.`;
+  else if (status.textContent.startsWith("You've reached")) status.textContent = "";
 }
 
 /** Back to "Create Admin Account". */
@@ -422,7 +434,8 @@ function resetAdminAccountForm() {
   document.getElementById("adminAccountId").value = "";
   document.getElementById("adminAccountFormTitle").textContent = "Create Admin Account";
   document.getElementById("adminAccountSubmitBtn").textContent = "Create Admin Account";
-  document.getElementById("adminAccountPasswordLabel").textContent = "Temporary Password";
+  document.getElementById("adminAccountPasswordLabel").textContent = "Password";
+  document.getElementById("adminAccountEmail").readOnly = false;
   document.getElementById("adminAccountPassword").required = true;
   document.getElementById("adminAccountCancelBtn").style.display = "none";
   document.getElementById("adminActiveOption").style.display = "none";
@@ -433,6 +446,9 @@ function startEditAdminAccount(account) {
   const form = document.getElementById("adminAccountForm");
   document.getElementById("adminAccountId").value = account.id;
   document.getElementById("adminAccountEmail").value = account.email;
+  // The email address is fixed once the account exists.
+  document.getElementById("adminAccountEmail").readOnly = true;
+  document.getElementById("adminAccountUsername").value = account.username || "";
   document.getElementById("adminAccountPassword").value = "";
   document.getElementById("adminAccountPassword").required = false;
   document.getElementById("adminAccountPasswordLabel").textContent = "New Password (leave blank to keep)";
@@ -461,6 +477,18 @@ document.getElementById("adminAccountsList")?.addEventListener("click", async (e
   if (editBtn) {
     const account = adminAccountsById[editBtn.dataset.editAdmin];
     if (account) startEditAdminAccount(account);
+    return;
+  }
+  const unlockBtn = e.target.closest("[data-unlock-admin]");
+  if (unlockBtn) {
+    const response = await adminFetch("/api/admin/accounts", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: Number(unlockBtn.dataset.unlockAdmin), unlock: true }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) alert(data.error || "Couldn't unlock the account.");
+    loadAdminAccounts();
     return;
   }
   const delBtn = e.target.closest("[data-delete-admin]");
@@ -499,13 +527,19 @@ document
         );
     const status = document.getElementById("adminAccountStatus");
     const editingId = document.getElementById("adminAccountId").value;
+    if (!editingId && !fullAccess && adminAccountsMeta.helper_count >= adminAccountsMeta.helper_limit) {
+      status.textContent = `You've reached the ${adminAccountsMeta.helper_limit}-admin limit.`;
+      return;
+    }
     try {
       const response = await adminFetch("/api/admin/accounts", {
         method: editingId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: editingId ? Number(editingId) : undefined,
-          email: document.getElementById("adminAccountEmail").value.trim(),
+          // Email is only sent when creating - it can't be changed afterwards.
+          email: editingId ? undefined : document.getElementById("adminAccountEmail").value.trim(),
+          username: document.getElementById("adminAccountUsername").value.trim(),
           password: document.getElementById("adminAccountPassword").value,
           permissions,
           is_active: editingId ? document.getElementById("adminAccountActive").checked : undefined,
@@ -515,7 +549,7 @@ document
       if (!response.ok || !data.success)
         throw new Error(data.error || (editingId ? "Failed to save the admin account." : "Failed to create admin account."));
       resetAdminAccountForm();
-      status.textContent = editingId ? "Admin account updated." : "Admin account created.";
+      status.textContent = editingId ? "Admin account updated." : "Admin account created. A verification link was emailed to them - they can't sign in until they click it.";
       loadAdminAccounts();
     } catch (error) {
       status.textContent = error.message;
@@ -2351,10 +2385,11 @@ function renderStaffAccountsList() {
       <div class="admin-item-card">
         <div class="admin-item-info">
           <strong>${account.name}</strong>
-          <div class="admin-item-meta">${account.email} · ${account.is_active ? "Active" : "Inactive"}</div>
+          <div class="admin-item-meta">${account.email} · ${account.is_active ? "Active" : "Inactive"}${account.is_locked ? " · Locked" : ""}${account.email_verified === false ? " · Email not verified" : ""}</div>
         </div>
         <div class="admin-item-actions">
           <button class="admin-mini-btn" data-staff-action="edit" data-id="${account.id}">Edit</button>
+          ${account.is_locked ? `<button class="admin-mini-btn" data-staff-action="unlock" data-id="${account.id}">Unlock</button>` : ""}
           <button class="admin-mini-btn danger" data-staff-action="delete" data-id="${account.id}">Delete</button>
         </div>
       </div>
@@ -2376,6 +2411,7 @@ function resetStaffAccountForm() {
   document.getElementById("staffAccountForm").reset();
   document.getElementById("staffAccountId").value = "";
   document.getElementById("staffAccountPassword").required = false;
+  document.getElementById("staffAccountEmail").readOnly = false;
   document.getElementById("cancelStaffEditBtn").style.display = "none";
   document.getElementById("staffAccountStatus").textContent = "";
 }
@@ -2458,8 +2494,10 @@ document
       password: document.getElementById("staffAccountPassword").value,
       permissions: { orders: true },
     };
+    // The email address can't be changed once the account exists.
+    if (id) delete payload.email;
 
-    if (!payload.name || !payload.email) {
+    if (!payload.name || (!id && !payload.email)) {
       statusEl.textContent = "Name and email are required.";
       return;
     }
@@ -2482,8 +2520,10 @@ document
         throw new Error(data.error || "Couldn't save the staff account.");
       statusEl.textContent = id
         ? "Staff account updated."
-        : "Staff account created.";
+        : "Staff account created. A verification link was emailed to them - they can't sign in until they click it.";
+      const doneMessage = statusEl.textContent;
       resetStaffAccountForm();
+      statusEl.textContent = doneMessage;
       loadStaffAccounts();
     } catch (err) {
       statusEl.textContent = err.message;
@@ -2491,6 +2531,21 @@ document
   });
 
 async function handleStaffAccountAction(action, id) {
+  if (action === "unlock") {
+    try {
+      const res = await adminFetch("/api/admin/staff", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, unlock: true }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Couldn't unlock that account.");
+      loadStaffAccounts();
+    } catch (err) {
+      alert(err.message);
+    }
+    return;
+  }
   if (action === "delete") {
     const account = staffAccounts.find((item) => item.id === id);
     if (!account) return;
@@ -2514,6 +2569,7 @@ async function handleStaffAccountAction(action, id) {
   document.getElementById("staffAccountId").value = account.id;
   document.getElementById("staffAccountName").value = account.name;
   document.getElementById("staffAccountEmail").value = account.email;
+  document.getElementById("staffAccountEmail").readOnly = true;
   document.getElementById("staffAccountPassword").value = "";
   document.getElementById("staffAccountPassword").required = false;
   document.getElementById("cancelStaffEditBtn").style.display = "inline-block";
@@ -3332,6 +3388,13 @@ const AUDIT_LABELS = {
   order_cancelled: "Order cancelled",
 };
 
+/** Username/name recorded at the time of the action; older entries (before
+ * this was stored) fall back to "admin #N" / "staff #N". */
+function auditActor(r) {
+  if (r.actor_name) return r.actor_name;
+  return `${r.actor_type || ""}${r.actor_id ? " #" + r.actor_id : ""}`;
+}
+
 function auditLabel(action) {
   if (AUDIT_LABELS[action]) return AUDIT_LABELS[action];
   const t = String(action || "").replace(/_/g, " ").trim();
@@ -3390,7 +3453,7 @@ function renderAuditTable(rows) {
       <td>${new Date(r.created_at).toLocaleString()}</td>
       <td><span class="audit-action-tag ${tone}">${escapeHtml(auditLabel(r.action))}</span>${summary ? `<span class="audit-summary">${escapeHtml(summary)}</span>` : ""}</td>
       <td>${escapeHtml(r.actor_role || "")}</td>
-      <td>${escapeHtml(r.actor_type || "")}${r.actor_id ? " #" + r.actor_id : ""}</td>
+      <td>${escapeHtml(auditActor(r))}</td>
       <td>${escapeHtml(r.target_type || "")}${r.target_id ? " #" + r.target_id : ""}</td>
       <td class="audit-details audit-changes" data-raw="${escapeHtml(raw)}" title="Click to copy the raw details">${auditChangesHtml(details)}</td>
     `;
@@ -3446,7 +3509,7 @@ function initAuditHandlers() {
             `"${new Date(r.created_at).toISOString()}"`,
             `"${r.action || ""}"`,
             `"${r.actor_role || ""}"`,
-            `"${r.actor_type || ""}${r.actor_id ? " #" + r.actor_id : ""}"`,
+            `"${auditActor(r)}"`,
             `"${r.target_type || ""}${r.target_id ? " #" + r.target_id : ""}"`,
             `"${details.replace(/"/g, '""')}"`,
           ].join(",");
@@ -3540,3 +3603,22 @@ if (typeof FuludeValidation !== "undefined") {
     ],
   });
 }
+
+// Landing after clicking the verification link in the new-account email
+// (/api/admin/verify-email redirects here with ?admin_email_verified=...).
+(function showAdminVerifyResult() {
+  const params = new URLSearchParams(location.search);
+  const result = params.get("admin_email_verified");
+  if (!result) return;
+  const errorEl = document.getElementById("loginError");
+  const messages = {
+    yes: "Email verified. You can now sign in.",
+    invalid: "That verification link is invalid or has expired. Ask the main admin to send a new one.",
+    error: "We couldn't verify your email right now. Please try the link again.",
+  };
+  if (errorEl) {
+    errorEl.textContent = messages[result] || messages.error;
+    errorEl.style.display = "block";
+  }
+  history.replaceState(null, "", location.pathname);
+})();

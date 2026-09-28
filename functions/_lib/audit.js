@@ -6,12 +6,20 @@
  */
 import { runQuery } from "./db.js";
 
+let auditTableReady = false;
+async function ensureActorNameColumn(env) {
+  if (auditTableReady) return;
+  await runQuery(env, "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS actor_name TEXT;");
+  auditTableReady = true;
+}
+
 export async function logAudit(
   env,
   {
     actor_type = null,
     actor_id = null,
     actor_role = null,
+    actor_name = null,
     actor_ip = null,
     action,
     target_type = null,
@@ -22,17 +30,23 @@ export async function logAudit(
   actor_id = actor_id ?? env.__actorId ?? null;
   actor_role = actor_role ?? env.__actorRole ?? null;
   actor_type = actor_type ?? env.__actorRole ?? null;
+  // The username/name at the time of the action, so it's preserved even
+  // if the account is later renamed or deleted (see auditLabel() in
+  // admin.js for how "actor #N" is used as a fallback for older entries).
+  actor_name = actor_name ?? env.__actorName ?? null;
+  await ensureActorNameColumn(env);
   await runQuery(
     env,
     `
     INSERT INTO audit_logs
-      (actor_type, actor_id, actor_role, actor_ip, action, target_type, target_id, details, created_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now());
+      (actor_type, actor_id, actor_role, actor_name, actor_ip, action, target_type, target_id, details, created_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now());
   `,
     [
       actor_type,
       actor_id,
       actor_role,
+      actor_name,
       actor_ip,
       action,
       target_type,

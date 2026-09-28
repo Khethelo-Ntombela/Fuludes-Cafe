@@ -7,7 +7,7 @@
     <title>Fulude's Cafe | Admin</title>
   
     <link rel="stylesheet" href="css/style.css?v=22" />
-    <link rel="stylesheet" href="css/admin.css?v=16" />
+    <link rel="stylesheet" href="css/admin.css?v=17" />
     <link
       rel="preload"
       as="style"
@@ -1297,11 +1297,16 @@
                 <input type="hidden" id="adminAccountId" />
                 <div class="form-row">
                   <div class="form-group">
+                    <label for="adminAccountUsername">Username</label>
+                    <input type="text" id="adminAccountUsername" maxlength="100" />
+                    <span class="admin-hint">Shown in the audit log instead of "admin #N".</span>
+                  </div>
+                  <div class="form-group">
                     <label for="adminAccountEmail">Email</label>
                     <input type="email" id="adminAccountEmail" required />
                   </div>
                   <div class="form-group">
-                    <label for="adminAccountPassword" id="adminAccountPasswordLabel">Temporary Password</label>
+                    <label for="adminAccountPassword" id="adminAccountPasswordLabel">Password</label>
                     <input
                       type="password"
                       id="adminAccountPassword"
@@ -1331,19 +1336,7 @@
                     <label
                       ><input type="checkbox" value="reviews" /> Reviews</label
                     >
-                    <label
-                      ><input type="checkbox" value="settings" />
-                      Settings</label
-                    >
-                    <label
-                      ><input type="checkbox" value="marketing" />
-                      Marketing</label
-                    >
                     <label><input type="checkbox" value="audit" /> Audit</label>
-                    <label
-                      ><input type="checkbox" value="admin_accounts" /> Admin
-                      Accounts</label
-                    >
                   </div>
                 </div>
                 <label class="checkbox-option" id="adminActiveOption" style="display: none; margin-bottom: 12px"
@@ -1674,7 +1667,7 @@
     <script src="js/order-alert.js?v=1"></script>
     <script src="js/kds.js?v=20"></script>
     <script src="js/form-validation.js?v=1"></script>
-    <script src="js/admin.js?v=23"></script>
+    <script src="js/admin.js?v=25"></script>
     <script src="js/admin-app.js?v=18"></script>
   <script>
   if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));

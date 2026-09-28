@@ -3494,3 +3494,10 @@ button.kpi-card {
   font-weight: 600;
   overflow-wrap: anywhere;
 }
+
+/* Fixed fields (e.g. an account's email once it exists) */
+input[readonly] {
+  background: #f1f1f1;
+  color: #666;
+  cursor: not-allowed;
+}

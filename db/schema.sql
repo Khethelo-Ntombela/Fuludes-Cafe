@@ -194,6 +194,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   actor_type   TEXT,
   actor_id     INTEGER,
   actor_role   TEXT,
+  actor_name   TEXT, -- username/name at the time of the action, kept even if the account is later renamed or deleted
   actor_ip     TEXT,
   action       TEXT NOT NULL,
   target_type  TEXT,
@@ -265,6 +266,7 @@ CREATE INDEX IF NOT EXISTS idx_customer_reservations_customer ON customer_reserv
 CREATE TABLE IF NOT EXISTS admin_accounts (
   id            SERIAL PRIMARY KEY,
   email         TEXT NOT NULL UNIQUE,
+  username      TEXT,
   password_hash TEXT NOT NULL,
   password_salt TEXT NOT NULL,
   permissions JSONB NOT NULL DEFAULT '{"all": true}',
@@ -274,6 +276,10 @@ CREATE TABLE IF NOT EXISTS admin_accounts (
 );
 
 ALTER TABLE admin_accounts ADD COLUMN IF NOT EXISTS permissions JSONB NOT NULL DEFAULT '{"all": true}';
+ALTER TABLE admin_accounts ADD COLUMN IF NOT EXISTS username TEXT;
+-- Two admins may not share a username (NULLs are exempt, so older accounts
+-- that haven't set one yet don't conflict with each other).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_accounts_username ON admin_accounts(username) WHERE username IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS admin_sessions (
   token TEXT PRIMARY KEY,
@@ -521,3 +527,28 @@ CREATE TABLE IF NOT EXISTS push_config (
 );
 
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancelled_by TEXT; -- customer | staff | admin (migration 010)
+
+-- Failed-login lockout + email verification for admin/staff accounts (migration 014).
+-- Existing accounts default to verified; only newly created ones start unverified.
+ALTER TABLE admin_accounts ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE admin_accounts ADD COLUMN IF NOT EXISTS is_locked BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE admin_accounts ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE staff_accounts ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE staff_accounts ADD COLUMN IF NOT EXISTS is_locked BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE staff_accounts ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT TRUE;
+
+CREATE TABLE IF NOT EXISTS admin_email_verifications (
+  token       TEXT PRIMARY KEY,
+  admin_id    INTEGER NOT NULL REFERENCES admin_accounts(id) ON DELETE CASCADE,
+  expires_at  TIMESTAMPTZ NOT NULL,
+  used        BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS staff_email_verifications (
+  token       TEXT PRIMARY KEY,
+  staff_id    INTEGER NOT NULL REFERENCES staff_accounts(id) ON DELETE CASCADE,
+  expires_at  TIMESTAMPTZ NOT NULL,
+  used        BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

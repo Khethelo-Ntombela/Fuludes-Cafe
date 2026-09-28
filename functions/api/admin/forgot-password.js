@@ -64,8 +64,16 @@ export async function onRequest(context) {
   const genericSuccess = () => jsonResponse({ success: true, message: "If that email has an admin account, a reset link is on its way." });
 
   try {
-    const result = await runQuery(env, "SELECT id, email FROM admin_accounts WHERE email = $1 AND is_active = TRUE LIMIT 1;", [email]);
+    const result = await runQuery(env, "SELECT id, email, permissions FROM admin_accounts WHERE email = $1 AND is_active = TRUE LIMIT 1;", [email]);
     const account = result.rows[0];
+    // Only the main admin (full access) can reset their own password by
+    // email. Helper admins have to ask the main admin instead.
+    if (account && !(account.permissions && account.permissions.all)) {
+      return jsonResponse(
+        { error: "Password reset by email isn't available for this account. Please contact the main admin to reset your password.", contact_admin: true },
+        403,
+      );
+    }
     if (!account) {
       return genericSuccess();
     }

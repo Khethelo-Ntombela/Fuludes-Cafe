@@ -263,3 +263,22 @@ if (staffToken) {
 
 // Staff login: email checked with the shared rules (js/form-validation.js).
 if (typeof FuludeValidation !== "undefined") FuludeValidation.apply({});
+
+// Landing after clicking the verification link in the new-account email
+// (/api/staff/verify-email redirects here with ?staff_email_verified=...).
+(function showStaffVerifyResult() {
+  const params = new URLSearchParams(location.search);
+  const result = params.get("staff_email_verified");
+  if (!result) return;
+  const errorEl = document.getElementById("staffLoginError");
+  const messages = {
+    yes: "Email verified. You can now sign in.",
+    invalid: "That verification link is invalid or has expired. Ask the admin to send a new one.",
+    error: "We couldn't verify your email right now. Please try the link again.",
+  };
+  if (errorEl) {
+    errorEl.textContent = messages[result] || messages.error;
+    errorEl.style.display = "block";
+  }
+  history.replaceState(null, "", location.pathname);
+})();

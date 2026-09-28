@@ -5,12 +5,22 @@
  * Checks the submitted email/password against the admin credentials in
  * the env file (ADMIN_EMAIL / ADMIN_PASSWORD), or against the hashed
  * admin account in Neon, then creates a database-backed session token.
+ *
+ * Lockout: after MAX_FAILED_ATTEMPTS wrong passwords in a row the account
+ * is locked (admin_accounts.is_locked = TRUE). Unlike customers there's
+ * no self-service unlock here - only the main admin can re-enable a
+ * locked account from Settings > Admin Accounts.
+ *
+ * Email verification: an admin account created by the main admin can't
+ * log in until they click the link emailed to them (verify-email.js).
+ * The env-var bootstrap admin below is always considered verified.
  * -----------------------------------------------------------------------
  */
 import { jsonResponse, runQuery } from "../../_lib/db.js";
 import { sanitizeText } from "../../_lib/security.js";
 import { generateToken, verifyPassword, hashPassword } from "../../_lib/password.js";
 import { saveSession, isDbAvailable } from "../../_lib/sessionStore.js";
+import { ensureLockoutColumns, recordFailedLogin, clearFailedLogins } from "../../_lib/accountLockout.js";
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -55,6 +65,7 @@ export async function onRequest(context) {
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '12 hours')
         );`,
         );
+        await ensureLockoutColumns(env, "admin_accounts");
         let accountResult = await runQuery(
           env,
           "SELECT id, permissions FROM admin_accounts WHERE email = $1 AND is_active = TRUE LIMIT 1;",
@@ -65,10 +76,13 @@ export async function onRequest(context) {
           const hashed = await hashPassword(passwordText);
           const insertResult = await runQuery(
             env,
-            "INSERT INTO admin_accounts (email, password_hash, password_salt, permissions) VALUES ($1, $2, $3, '{\"all\": true}') RETURNING id, permissions;",
+            "INSERT INTO admin_accounts (email, password_hash, password_salt, permissions, email_verified) VALUES ($1, $2, $3, '{\"all\": true}', TRUE) RETURNING id, permissions;",
             [emailText, hashed.hash, hashed.salt],
           );
           account = insertResult.rows[0];
+        } else {
+          // The bootstrap admin is always trusted/verified and never locked out.
+          await runQuery(env, "UPDATE admin_accounts SET email_verified = TRUE, is_locked = FALSE, failed_login_attempts = 0 WHERE id = $1;", [account.id]);
         }
         await runQuery(
           env,
@@ -110,32 +124,47 @@ export async function onRequest(context) {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '12 hours')
       );`,
       );
+      await ensureLockoutColumns(env, "admin_accounts");
+
       const accountResult = await runQuery(
         env,
-        "SELECT id, password_hash, password_salt, permissions FROM admin_accounts WHERE email = $1 AND is_active = TRUE LIMIT 1;",
+        "SELECT id, password_hash, password_salt, permissions, failed_login_attempts, is_locked, email_verified FROM admin_accounts WHERE email = $1 AND is_active = TRUE LIMIT 1;",
         [emailText],
       );
       const account = accountResult.rows[0];
-      const valid = Boolean(
-        account &&
-        (await verifyPassword(
-          passwordText,
-          account.password_hash,
-          account.password_salt,
-        )),
-      );
-      if (valid) {
-        const token = generateToken();
-        await runQuery(
-          env,
-          "INSERT INTO admin_sessions (token, admin_id) VALUES ($1, $2);",
-          [token, account.id],
-        );
-        return jsonResponse({
-          success: true,
-          token,
-          permissions: account.permissions || {},
-        });
+
+      if (account) {
+        if (account.is_locked) {
+          return jsonResponse(
+            { error: "This account is locked after too many failed attempts. Please contact the main admin to have it re-enabled.", locked: true },
+            423,
+          );
+        }
+        if (!account.email_verified) {
+          return jsonResponse(
+            { error: "Please verify your email address before signing in. Check your inbox for the verification link.", needs_verification: true },
+            403,
+          );
+        }
+
+        const valid = await verifyPassword(passwordText, account.password_hash, account.password_salt);
+        if (valid) {
+          await clearFailedLogins(env, "admin_accounts", account.id);
+          const token = generateToken();
+          await runQuery(
+            env,
+            "INSERT INTO admin_sessions (token, admin_id) VALUES ($1, $2);",
+            [token, account.id],
+          );
+          return jsonResponse({
+            success: true,
+            token,
+            permissions: account.permissions || {},
+          });
+        }
+
+        const result = await recordFailedLogin(env, "admin_accounts", account.id, account.failed_login_attempts, "the main admin");
+        return jsonResponse(result, result.locked ? 423 : 401);
       }
 
       try {
@@ -149,13 +178,14 @@ export async function onRequest(context) {
           const migrated = await hashPassword(passwordText);
           const migratedResult = await runQuery(
             env,
-            `INSERT INTO admin_accounts (email, password_hash, password_salt, permissions)
-             VALUES ($1, $2, $3, '{"all": true}')
+            `INSERT INTO admin_accounts (email, password_hash, password_salt, permissions, email_verified)
+             VALUES ($1, $2, $3, '{"all": true}', TRUE)
              ON CONFLICT (email) DO UPDATE SET
                password_hash = EXCLUDED.password_hash,
                password_salt = EXCLUDED.password_salt,
                permissions = '{"all": true}',
                is_active = TRUE,
+               email_verified = TRUE,
                updated_at = NOW()
              RETURNING id, permissions;`,
             [emailText, migrated.hash, migrated.salt],
