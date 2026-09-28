@@ -22,6 +22,7 @@ function getCustomerDestination() {
     const destination = new URL(requested, location.origin);
     if (destination.origin !== location.origin) return "/home.html";
     if (/\/(admin|staff)\.html$/i.test(destination.pathname)) return "/home.html";
+    if (/\/(signin|index\.html)$/i.test(destination.pathname)) return "/home.html";
     return `${destination.pathname}${destination.search}${destination.hash}`;
   } catch {
     return "/home.html";

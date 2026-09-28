@@ -388,8 +388,10 @@ accountNavBtn.addEventListener("click", openAccountMenu);
 
 function openAuthModal(tab, introText, stayOnPage = false) {
   if ((tab || "signin") === "signin" && !stayOnPage) {
-    const next = `${location.pathname}${location.search}${location.hash}`;
-    location.assign(`/index.html?next=${encodeURIComponent(next)}`);
+    const returnUrl = new URL(location.href);
+    returnUrl.searchParams.delete("next");
+    const next = `${returnUrl.pathname}${returnUrl.search}${returnUrl.hash}`;
+    location.assign(`/signin?next=${encodeURIComponent(next)}`);
     return;
   }
   switchAuthTab(tab || "signin");
