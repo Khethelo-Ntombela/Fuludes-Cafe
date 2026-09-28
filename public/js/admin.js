@@ -401,7 +401,9 @@ async function loadAdminAccounts() {
             : Object.keys(account.permissions || {})
                 .filter((key) => account.permissions[key])
                 .join(", ") || "None";
-          const actions = data.can_manage
+          // Another admin's main (full-access) account can't be changed by anyone else.
+          const protectedMain = Boolean(account.permissions?.all) && !isMe;
+          const actions = data.can_manage && !protectedMain
             ? `<div style="display:flex;gap:6px;margin-top:8px">
                 <button type="button" class="admin-mini-btn" data-edit-admin="${account.id}"><i class="fas fa-pen"></i> Edit</button>
                 ${account.is_locked ? `<button type="button" class="admin-mini-btn" data-unlock-admin="${account.id}"><i class="fas fa-lock-open"></i> Unlock</button>` : ""}

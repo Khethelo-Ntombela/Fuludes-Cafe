@@ -68,6 +68,12 @@ async function manageAccount(request, env, actor) {
   const targetIsMain = isMainAdmin(target.permissions) && target.is_active;
   const isSelf = Number(actor.id) === id;
 
+  // A main admin account can never be edited, unlocked, disabled or
+  // deleted by any other admin - only its own owner can change it.
+  if (isMainAdmin(target.permissions) && !isSelf) {
+    return jsonResponse({ error: "A main admin account can't be changed by any other admin." }, 403);
+  }
+
   if (request.method === "DELETE") {
     if (isSelf) return jsonResponse({ error: "You can't delete your own account." }, 400);
     if (targetIsMain && (await countMainAdmins(env)) <= 1) {
