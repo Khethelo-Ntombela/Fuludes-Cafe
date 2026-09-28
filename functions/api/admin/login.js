@@ -22,8 +22,6 @@ import { generateToken, verifyPassword, hashPassword } from "../../_lib/password
 import { saveSession, isDbAvailable } from "../../_lib/sessionStore.js";
 import { ensureLockoutColumns, recordFailedLogin, clearFailedLogins, LOCKED_MESSAGE } from "../../_lib/accountLockout.js";
 
-const ADMIN_LOCKED_MESSAGE = `${LOCKED_MESSAGE} If you are not the main admin, avoid using the password reset link.`;
-
 export async function onRequest(context) {
   const { request, env } = context;
   if (request.method !== "POST") {
@@ -70,7 +68,7 @@ export async function onRequest(context) {
         await ensureLockoutColumns(env, "admin_accounts");
         let accountResult = await runQuery(
           env,
-          "SELECT id, permissions FROM admin_accounts WHERE email = $1 AND is_active = TRUE LIMIT 1;",
+          "SELECT id, permissions, password_hash, password_salt FROM admin_accounts WHERE email = $1 AND is_active = TRUE LIMIT 1;",
           [emailText],
         );
         let account = accountResult.rows[0];
@@ -83,6 +81,9 @@ export async function onRequest(context) {
           );
           account = insertResult.rows[0];
         } else {
+          if (!(await verifyPassword(passwordText, account.password_hash, account.password_salt))) {
+            return jsonResponse({ error: "Incorrect email or password." }, 401);
+          }
           // The bootstrap admin is always trusted/verified and never locked out.
           await runQuery(env, "UPDATE admin_accounts SET email_verified = TRUE, is_locked = FALSE, failed_login_attempts = 0 WHERE id = $1;", [account.id]);
         }
@@ -138,7 +139,7 @@ export async function onRequest(context) {
       if (account) {
         if (account.is_locked) {
           return jsonResponse(
-            { error: ADMIN_LOCKED_MESSAGE, locked: true },
+            { error: LOCKED_MESSAGE, locked: true },
             423,
           );
         }
@@ -166,7 +167,6 @@ export async function onRequest(context) {
         }
 
         const result = await recordFailedLogin(env, "admin_accounts", account.id, account.failed_login_attempts, "the main admin");
-        if (result.locked) result.error = ADMIN_LOCKED_MESSAGE;
         return jsonResponse(result, result.locked ? 423 : 401);
       }
 

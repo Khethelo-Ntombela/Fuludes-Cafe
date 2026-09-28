@@ -196,40 +196,11 @@ function applyAdminPermissions() {
 
 document.getElementById("logoutBtn").addEventListener("click", logout);
 
-document
-  .getElementById("forgotAdminPasswordBtn")
-  .addEventListener("click", async () => {
-    const email = prompt(
-      "Enter the admin email address for the password reset link:",
-    );
-    if (!email) return;
-
-    try {
-      const res = await fetch("/api/admin/forgot-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success)
-        throw new Error(data.error || "Couldn't send reset email.");
-      alert(
-        data.message ||
-          "If that email has an admin account, a reset link is on its way.",
-      );
-    } catch (err) {
-      alert(err.message || "Couldn't process that request.");
-    }
-  });
-
 function logout() {
   adminToken = null;
   localStorage.removeItem(TOKEN_KEY);
   clearInterval(pollIntervalId);
-  document.getElementById("dashboard").style.display = "none";
-  document.getElementById("loginScreen").style.display = "flex";
-  document.getElementById("loginForm").style.display = "block";
-  document.getElementById("adminResetForm").style.display = "none";
+  window.location.assign("/home");
 }
 
 async function showDashboard() {

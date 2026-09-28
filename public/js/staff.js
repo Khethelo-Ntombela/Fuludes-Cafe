@@ -70,8 +70,7 @@ function logout() {
   staffToken = null;
   localStorage.removeItem(STAFF_TOKEN_KEY);
   clearInterval(pollIntervalId);
-  document.getElementById("staffBoard").style.display = "none";
-  document.getElementById("staffLoginScreen").style.display = "flex";
+  window.location.assign("/home");
 }
 
 function showBoard() {

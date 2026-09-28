@@ -542,24 +542,6 @@ signInForm.addEventListener("submit", async (e) => {
   }
 });
 
-const forgotAdminPasswordLink = document.getElementById("forgotAdminPasswordLink");
-if (forgotAdminPasswordLink) forgotAdminPasswordLink.addEventListener("click", async () => {
-  const email = prompt("Enter the main admin email address for the password reset link:");
-  if (!email) return;
-  try {
-    const response = await fetch("/api/admin/forgot-password", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: email.trim() }),
-    });
-    const data = await readApiResponse(response);
-    if (!response.ok || !data.success) throw new Error(data.error || "Couldn't process the reset request.");
-    alert(data.message || "If that email has an admin account, a reset link is on its way.");
-  } catch (error) {
-    alert(userFriendlyError(error, "Couldn't process the reset request."));
-  }
-});
-
 signUpForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   signUpError.style.display = "none";
@@ -610,8 +592,9 @@ forgotPasswordForm.addEventListener("submit", async (e) => {
       body: JSON.stringify({ email }),
     });
     const data = await res.json();
-    if (!res.ok || !data.success)
+    if (!res.ok || !data.success) {
       throw new Error(data.error || "Couldn't process that request.");
+    }
 
     forgotPasswordSuccess.textContent =
       data.message ||
@@ -965,6 +948,7 @@ document.getElementById("logoutBtn").addEventListener("click", async () => {
   updateAccountNav();
   accountModal.classList.remove("active");
   loadCustomerBuffetBookings();
+  window.location.assign("/home");
 });
 
 // ---------------------------------------------------------------------
