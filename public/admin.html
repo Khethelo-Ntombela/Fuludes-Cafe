@@ -124,7 +124,7 @@
     </script>
     <!-- ===================== Login screen ===================== -->
     <div id="loginScreen" class="admin-login-screen">
-      <form id="loginForm" class="admin-login-card">
+      <form autocomplete="off" id="loginForm" class="admin-login-card">
         <a href="home.html" class="logo"> </a>
 
         <p class="admin-login-sub">Admin Dashboard</p>
@@ -134,7 +134,7 @@
             type="email"
             id="adminEmail"
             required
-            autocomplete="username"
+            autocomplete="off"
           />
         </div>
         <div class="form-group">
@@ -143,7 +143,7 @@
             type="password"
             id="adminPassword"
             required
-            autocomplete="current-password"
+            autocomplete="new-password"
           />
         </div>
         <p id="loginError" class="form-error" style="display: none"></p>
@@ -153,7 +153,7 @@
         </button>
       </form>
 
-      <form
+      <form autocomplete="off"
         id="adminResetForm"
         class="admin-login-card"
         style="display: none; margin-top: 16px"
@@ -729,7 +729,7 @@
             </div>
 
             <div class="collapse-card" id="menuFormCard">
-              <form id="menuItemForm" class="admin-form">
+              <form autocomplete="off" id="menuItemForm" class="admin-form">
                 <h3
                   id="menuFormTitle"
                   style="
@@ -890,7 +890,7 @@
             <div class="admin-panel-header">
               <h2>Specials &amp; Promotions</h2>
             </div>
-            <form id="specialForm" class="admin-form sa-section">
+            <form autocomplete="off" id="specialForm" class="admin-form sa-section">
               <div class="form-row">
                 <div class="form-group">
                   <label for="specialItemSelect">Dish</label>
@@ -936,7 +936,7 @@
           <!-- ---------------- Addons / spice levels ---------------- -->
           <section id="tab-addons" class="admin-tab-panel">
             <div class="admin-panel-header"><h2>Extras (paid add-ons)</h2></div>
-            <form id="addonForm" class="admin-form admin-form-inline">
+            <form autocomplete="off" id="addonForm" class="admin-form admin-form-inline">
               <input
                 type="text"
                 id="addonName"
@@ -958,7 +958,7 @@
             <div class="admin-panel-header" style="margin-top: 32px">
               <h2>Spice Levels</h2>
             </div>
-            <form id="spiceForm" class="admin-form admin-form-inline">
+            <form autocomplete="off" id="spiceForm" class="admin-form admin-form-inline">
               <input
                 type="text"
                 id="spiceName"
@@ -973,7 +973,7 @@
               <h2>Choice of Side (free)</h2>
             </div>
             <p class="admin-hint">Sides like Chips, Pap or Rice that come free with a dish. Add them here, then tick them on the dishes that offer a side choice (Menu &amp; Stock &rarr; add/edit item).</p>
-            <form id="sideForm" class="admin-form admin-form-inline">
+            <form autocomplete="off" id="sideForm" class="admin-form admin-form-inline">
               <input type="text" id="sideName" placeholder="e.g. Chips" required />
               <button type="submit" class="btn btn-primary">Add</button>
             </form>
@@ -997,7 +997,7 @@
                 <i class="fas fa-plus"></i> Book for a customer
               </button>
             </div>
-            <form id="resNewForm" class="res-new-form" style="display: none">
+            <form autocomplete="off" id="resNewForm" class="res-new-form" style="display: none">
               <div class="form-group"><label for="resNewName">Customer name</label><input type="text" id="resNewName" required /></div>
               <div class="form-group"><label for="resNewPhone">Phone / WhatsApp</label><input type="tel" id="resNewPhone" required /></div>
               <div class="form-group"><label for="resNewEmail">Email (optional)</label><input type="email" id="resNewEmail" /></div>
@@ -1250,7 +1250,7 @@
             </div>
 
             <div class="settings-panel" id="settings-staff">
-              <form id="staffAccountForm" class="admin-form">
+              <form autocomplete="off" id="staffAccountForm" class="admin-form">
                 <input type="hidden" id="staffAccountId" />
                 <div class="form-row">
                   <div class="form-group">
@@ -1268,7 +1268,7 @@
                     type="password"
                     id="staffAccountPassword"
                     minlength="8"
-                  />
+                  autocomplete="new-password" />
                   <span class="admin-hint"
                     >Leave blank to keep the current password.</span
                   >
@@ -1292,7 +1292,7 @@
             </div>
 
             <div class="settings-panel" id="settings-admin-accounts">
-              <form id="adminAccountForm" class="admin-form">
+              <form autocomplete="off" id="adminAccountForm" class="admin-form">
                 <h3 id="adminAccountFormTitle" style="margin: 0 0 12px">Create Admin Account</h3>
                 <input type="hidden" id="adminAccountId" />
                 <div class="form-row">
@@ -1311,7 +1311,7 @@
                       id="adminAccountPassword"
                       minlength="8"
                       required
-                    />
+                    autocomplete="new-password" />
                   </div>
                 </div>
                 <div class="form-group">
@@ -1355,7 +1355,7 @@
             </div>
 
             <div class="settings-panel" id="settings-categories">
-              <form id="categoryForm" class="admin-form admin-form-inline">
+              <form autocomplete="off" id="categoryForm" class="admin-form admin-form-inline">
                 <input
                   type="text"
                   id="categoryName"
@@ -1372,7 +1372,7 @@
                 <div class="sa-card-title">
                   Cafe Location (for distance calculation)
                 </div>
-                <form id="cafeLocationForm" class="admin-form">
+                <form autocomplete="off" id="cafeLocationForm" class="admin-form">
                   <div class="form-row">
                     <div class="form-group">
                       <label for="cafeLatitude">Latitude</label>
@@ -1471,14 +1471,14 @@
             </div>
 
             <div class="settings-panel" id="settings-security">
-              <form
+              <form autocomplete="off"
                 id="adminPasswordForm"
                 class="admin-form"
                 style="max-width: 480px"
               >
                 <div class="form-group">
                   <label for="currentAdminPassword">Current Password</label>
-                  <input type="password" id="currentAdminPassword" required />
+                  <input type="password" id="currentAdminPassword" required autocomplete="new-password" />
                 </div>
                 <div class="form-group">
                   <label for="newAdminPassword">New Password</label>
@@ -1487,7 +1487,7 @@
                     id="newAdminPassword"
                     required
                     minlength="8"
-                  />
+                  autocomplete="new-password" />
                 </div>
                 <div class="admin-form-actions">
                   <button type="submit" class="btn btn-primary">
@@ -1499,7 +1499,7 @@
             </div>
 
             <div class="settings-panel" id="settings-marketing">
-              <form
+              <form autocomplete="off"
                 id="marketingEmailForm"
                 class="admin-form"
                 enctype="multipart/form-data"
@@ -1568,7 +1568,7 @@
             <div class="buffet-admin-layout">
               <div class="sa-card buffet-admin-form-card">
                 <h3 id="buffetFormTitle">Add Buffet Event</h3>
-                <form id="buffetEventForm" class="admin-form">
+                <form autocomplete="off" id="buffetEventForm" class="admin-form">
                     <input type="hidden" id="buffetEventId" />
                     <div class="form-row">
                       <div class="form-group">
