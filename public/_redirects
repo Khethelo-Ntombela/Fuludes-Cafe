@@ -2,5 +2,4 @@
 # staff use /admin and /staff directly.) 301 = permanent, so Google moves
 # the listing to /home.
 /            /home  301
-/index.html  /home  301
 /index       /home  301

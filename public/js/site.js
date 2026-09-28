@@ -207,12 +207,19 @@ async function initAuth() {
     }
   } else if (googleResult.error) {
     pendingCheckoutAfterAuth = googleResult.checkout;
-    openAuthModal("signin");
+    openAuthModal("signin", null, true);
     signInError.textContent = googleResult.error;
     signInError.style.display = "block";
   }
 
   const params = new URLSearchParams(window.location.search);
+  if (params.get("create_account") === "1") {
+    window.history.replaceState({}, document.title, window.location.pathname);
+    openAuthModal("signup");
+  } else if (params.get("recover") === "1") {
+    window.history.replaceState({}, document.title, window.location.pathname);
+    openAuthModal("forgot");
+  }
   const confirmPasswordToken = params.get("confirm_password");
   if (confirmPasswordToken) {
     window.history.replaceState({}, document.title, window.location.pathname);
@@ -379,7 +386,12 @@ function openAccountMenu() {
 
 accountNavBtn.addEventListener("click", openAccountMenu);
 
-function openAuthModal(tab, introText) {
+function openAuthModal(tab, introText, stayOnPage = false) {
+  if ((tab || "signin") === "signin" && !stayOnPage) {
+    const next = `${location.pathname}${location.search}${location.hash}`;
+    location.assign(`/index.html?next=${encodeURIComponent(next)}`);
+    return;
+  }
   switchAuthTab(tab || "signin");
   if (introText) {
     authIntroMessage.textContent = introText;
@@ -401,7 +413,14 @@ authModal.addEventListener("click", (e) => {
 });
 
 document.querySelectorAll("#authTabs .auth-tab").forEach((btn) => {
-  btn.addEventListener("click", () => switchAuthTab(btn.dataset.authTab));
+  btn.addEventListener("click", () => {
+    if (btn.dataset.authTab === "signin") {
+      closeAuthModal();
+      openAuthModal("signin");
+      return;
+    }
+    switchAuthTab(btn.dataset.authTab);
+  });
 });
 
 function switchAuthTab(tab) {

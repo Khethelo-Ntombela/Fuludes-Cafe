@@ -5,9 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex, nofollow" />
     <title>Fulude's Cafe | Staff Portal</title>
-    <link rel="stylesheet" href="css/style.css?v=23" />
+    <link rel="stylesheet" href="css/style.css?v=24" />
     <link rel="stylesheet" href="css/admin.css?v=18" />
     <link rel="stylesheet" href="css/staff.css?v=4" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css"
+    />
     <link
       rel="preload"
       as="style"
@@ -37,6 +41,11 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Fulude's Kitchen">
 <meta name="theme-color" content="#000000">
+    <script>
+      if (!localStorage.getItem("fulude_staff_token")) {
+        location.replace("/index.html?next=%2Fstaff.html");
+      }
+    </script>
     <style>
       /* First-load splash - shown only while staff.html's real assets/CSS
          finish loading, so visitors see the brand instead of a blank

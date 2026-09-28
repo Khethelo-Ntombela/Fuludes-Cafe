@@ -20,10 +20,12 @@
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
     />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css"
+    />
     <style>
-      /* Self-contained portal styles - this page is the role gate and will
-         later carry the real RBAC login; it deliberately shares no CSS
-         with the customer site or the dashboards. */
+      /* Self-contained shared sign-in screen. */
       * {
         margin: 0;
         padding: 0;
@@ -141,6 +143,114 @@
         line-height: 1.6;
       }
 
+      .portal-login {
+        width: min(100%, 420px);
+        padding: 28px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.045);
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.32);
+      }
+
+      .login-emblem {
+        width: 44px;
+        height: 44px;
+        display: grid;
+        place-items: center;
+        margin-bottom: 20px;
+        border-radius: 10px;
+        background: rgba(201, 169, 110, 0.16);
+        color: #c9a96e;
+        font-size: 1.2rem;
+      }
+
+      .portal-login h2 {
+        margin-bottom: 8px;
+        font-size: 1.35rem;
+      }
+
+      .portal-login > p {
+        margin-bottom: 22px;
+        color: rgba(255, 255, 255, 0.58);
+        font-size: 0.88rem;
+      }
+
+      .portal-login label {
+        display: block;
+        margin: 16px 0 7px;
+        font-size: 0.82rem;
+        font-weight: 600;
+      }
+
+      .portal-login input {
+        width: 100%;
+        min-height: 46px;
+        padding: 10px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 6px;
+        outline: none;
+        background: rgba(0, 0, 0, 0.28);
+        color: #fff;
+        font: inherit;
+      }
+
+      .portal-login input:focus {
+        border-color: #c9a96e;
+        box-shadow: 0 0 0 3px rgba(201, 169, 110, 0.14);
+      }
+
+      .portal-login button[type="submit"] {
+        width: 100%;
+        min-height: 46px;
+        margin-top: 22px;
+        border: 0;
+        border-radius: 6px;
+        background: #c9a96e;
+        color: #17130c;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .portal-login button:disabled {
+        cursor: wait;
+        opacity: 0.7;
+      }
+
+      .portal-login-error {
+        display: none;
+        margin-top: 14px;
+        padding: 11px 12px;
+        border-left: 3px solid #e36b64;
+        background: rgba(227, 107, 100, 0.12);
+        color: #ffd5d1;
+        font-size: 0.84rem;
+        line-height: 1.5;
+      }
+
+      .portal-login-error.is-locked::before {
+        content: "\f47a  ";
+        font-family: "bootstrap-icons";
+      }
+
+      .portal-login-link {
+        display: block;
+        margin-top: 16px;
+        border: 0;
+        background: none;
+        color: #d4bd92;
+        font: inherit;
+        font-size: 0.82rem;
+        text-align: center;
+        text-decoration: underline;
+        text-underline-offset: 3px;
+        cursor: pointer;
+      }
+
+      .portal-login-link:hover {
+        color: #fff;
+      }
+
       @media (max-width: 860px) {
         .portal-tiles {
           grid-template-columns: minmax(0, 340px);
@@ -158,33 +268,23 @@
       <span class="sub">Restaurant Platform</span>
     </div>
 
-    <nav class="portal-tiles" aria-label="Choose your portal">
-      <a class="portal-tile" href="home.html">
-        <span class="portal-tile-icon"><i class="fas fa-store"></i></span>
-        <h2>Customer</h2>
-        <p>Browse the menu, order online, book a table, and leave reviews.</p>
-        <span class="go">Enter site <i class="fas fa-arrow-right"></i></span>
-      </a>
-
-      <a class="portal-tile" href="admin.html">
-        <span class="portal-tile-icon"><i class="fas fa-gauge-high"></i></span>
-        <h2>Admin</h2>
-        <p>Dashboard, live orders, sales &amp; reports, menu &amp; stock, settings.</p>
-        <span class="go">Open dashboard <i class="fas fa-arrow-right"></i></span>
-      </a>
-
-      <a class="portal-tile" href="staff.html">
-        <span class="portal-tile-icon"><i class="fas fa-fire-burner"></i></span>
-        <h2>Kitchen</h2>
-        <p>Live kitchen display - tickets, timers, and order stage control.</p>
-        <span class="go">Open board <i class="fas fa-arrow-right"></i></span>
-      </a>
-    </nav>
-
-    <p class="portal-note">
-      Role selection is open for design review - each portal will require its
-      own sign-in once role-based access control is wired up.
-    </p>
+    <main class="portal-login">
+      <span class="login-emblem"><i class="bi bi-shield-lock" aria-hidden="true"></i></span>
+      <h2>Sign in</h2>
+      <p>Use your account email and password.</p>
+      <form id="portalLoginForm" autocomplete="on">
+        <label for="portalEmail">Email</label>
+        <input id="portalEmail" type="email" autocomplete="username" required />
+        <label for="portalPassword">Password</label>
+        <input id="portalPassword" type="password" autocomplete="current-password" required />
+        <p id="portalLoginError" class="portal-login-error" role="alert"></p>
+        <button type="submit">Sign in</button>
+      </form>
+      <button id="forgotAdminPassword" class="portal-login-link" type="button">Forgot admin password?</button>
+      <a class="portal-login-link" href="home.html?recover=1">Forgot customer password?</a>
+      <a class="portal-login-link" href="home.html?create_account=1">Create a customer account</a>
+    </main>
+    <script src="js/portal-login.js" defer></script>
   <script>
   if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 </script>

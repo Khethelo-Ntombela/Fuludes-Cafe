@@ -105,9 +105,15 @@ export async function onRequestPost(context) {
         );
         return jsonResponse({ success: true, token, customer });
       }
+      if (
+        legacyAccount &&
+        !["admin", "staff"].includes(String(legacyAccount.role || "").toLowerCase())
+      ) {
+        return wrongCredentials();
+      }
       // No account with this email (customers or legacy table).
       return jsonResponse(
-        { error: "Account not found. Please check your email or create an account.", code: "account_not_found" },
+        { error: "Incorrect email or password.", code: "account_not_found" },
         404,
       );
     }

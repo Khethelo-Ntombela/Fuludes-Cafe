@@ -1399,7 +1399,8 @@ body {
   text-align: center;
 }
 .form-error.is-locked::before {
-  content: "\1F512  ";
+  content: "\f47a  ";
+  font-family: "bootstrap-icons";
 }
 
 .form-success {

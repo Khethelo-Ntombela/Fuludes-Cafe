@@ -6,8 +6,12 @@
     <meta name="robots" content="noindex, nofollow" />
     <title>Fulude's Cafe | Admin</title>
   
-    <link rel="stylesheet" href="css/style.css?v=23" />
+    <link rel="stylesheet" href="css/style.css?v=24" />
     <link rel="stylesheet" href="css/admin.css?v=18" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css"
+    />
     <link
       rel="preload"
       as="style"
@@ -37,6 +41,12 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Fulude's Admin">
 <meta name="theme-color" content="#000000">
+    <script>
+      const adminLoginParams = new URLSearchParams(location.search);
+      if (!localStorage.getItem("fulude_admin_token") && !adminLoginParams.has("reset_token") && !adminLoginParams.has("admin_email_verified")) {
+        location.replace("/index.html?next=%2Fadmin.html");
+      }
+    </script>
     <style>
       /* First-load splash - shown only while admin.html's real assets/CSS
          finish loading, so visitors see the brand instead of a blank

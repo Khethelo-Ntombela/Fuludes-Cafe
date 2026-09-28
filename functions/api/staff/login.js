@@ -31,8 +31,8 @@ export async function onRequest(context) {
       .trim()
       .toLowerCase();
     const passwordText = sanitizeText(password);
-    if (!passwordText) {
-      return jsonResponse({ error: "Password is required." }, 400);
+    if (!emailText || !passwordText) {
+      return jsonResponse({ error: "Email and password are required." }, 400);
     }
 
     const envValid =
@@ -161,12 +161,17 @@ export async function onRequest(context) {
         return jsonResponse(failed, failed.locked ? 423 : 401);
       }
 
-      const legacyResult = await runQuery(
-        env,
-        "SELECT email, password FROM users WHERE LOWER(email) = $1 AND LOWER(role) = 'staff' LIMIT 1;",
-        [emailText],
-      );
-      const legacyAccount = legacyResult.rows[0];
+      let legacyAccount = null;
+      try {
+        const legacyResult = await runQuery(
+          env,
+          "SELECT email, password FROM users WHERE LOWER(email) = $1 AND LOWER(role) = 'staff' LIMIT 1;",
+          [emailText],
+        );
+        legacyAccount = legacyResult.rows[0];
+      } catch {
+        // Older databases may not have the legacy users table.
+      }
       if (legacyAccount && passwordText === String(legacyAccount.password || "")) {
         const migrated = await hashPassword(passwordText);
         const migratedResult = await runQuery(
@@ -196,10 +201,16 @@ export async function onRequest(context) {
         });
       }
 
-      return jsonResponse({ error: "Incorrect email or password." }, 401);
+      if (legacyAccount || emailText === String(env.STAFF_EMAIL || "").trim().toLowerCase()) {
+        return jsonResponse({ error: "Incorrect email or password." }, 401);
+      }
+      return jsonResponse({ error: "Incorrect email or password.", code: "account_not_found" }, 404);
     }
 
-    return jsonResponse({ error: "Incorrect password." }, 401);
+    if (emailText === String(env.STAFF_EMAIL || "").trim().toLowerCase()) {
+      return jsonResponse({ error: "Incorrect email or password." }, 401);
+    }
+    return jsonResponse({ error: "Incorrect email or password.", code: "account_not_found" }, 404);
   } catch (err) {
     console.error("staff login error:", err);
     return jsonResponse(
