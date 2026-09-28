@@ -44,7 +44,7 @@
     <script>
       const adminLoginParams = new URLSearchParams(location.search);
       if (!localStorage.getItem("fulude_admin_token") && !adminLoginParams.has("reset_token") && !adminLoginParams.has("admin_email_verified")) {
-        location.replace("/signin?next=%2Fadmin.html");
+        location.replace("/home.html?auth=signin");
       }
     </script>
     <style>

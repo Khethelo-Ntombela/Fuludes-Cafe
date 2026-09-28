@@ -1,6 +1,6 @@
 # The domain opens the customer site. (index.html was the testing portal;
 # staff use /admin and /staff directly.) 301 = permanent, so Google moves
 # the listing to /home.
-/signin      /index.html  200
 /            /home  301
+/index.html  /home  301
 /index       /home  301

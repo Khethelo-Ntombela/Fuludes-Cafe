@@ -213,7 +213,10 @@ async function initAuth() {
   }
 
   const params = new URLSearchParams(window.location.search);
-  if (params.get("create_account") === "1") {
+  if (params.get("auth") === "signin") {
+    window.history.replaceState({}, document.title, window.location.pathname);
+    openAuthModal("signin", "Sign in with your account. Admins and staff will be sent to their dashboard.");
+  } else if (params.get("create_account") === "1") {
     window.history.replaceState({}, document.title, window.location.pathname);
     openAuthModal("signup");
   } else if (params.get("recover") === "1") {
@@ -386,14 +389,7 @@ function openAccountMenu() {
 
 accountNavBtn.addEventListener("click", openAccountMenu);
 
-function openAuthModal(tab, introText, stayOnPage = false) {
-  if ((tab || "signin") === "signin" && !stayOnPage) {
-    const returnUrl = new URL(location.href);
-    returnUrl.searchParams.delete("next");
-    const next = `${returnUrl.pathname}${returnUrl.search}${returnUrl.hash}`;
-    location.assign(`/signin?next=${encodeURIComponent(next)}`);
-    return;
-  }
+function openAuthModal(tab, introText) {
   switchAuthTab(tab || "signin");
   if (introText) {
     authIntroMessage.textContent = introText;
@@ -415,14 +411,7 @@ authModal.addEventListener("click", (e) => {
 });
 
 document.querySelectorAll("#authTabs .auth-tab").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    if (btn.dataset.authTab === "signin") {
-      closeAuthModal();
-      openAuthModal("signin");
-      return;
-    }
-    switchAuthTab(btn.dataset.authTab);
-  });
+  btn.addEventListener("click", () => switchAuthTab(btn.dataset.authTab));
 });
 
 function switchAuthTab(tab) {
@@ -507,27 +496,67 @@ document
 signInForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   signInError.style.display = "none";
+  signInError.classList.remove("is-locked");
   const email = document.getElementById("signin-email").value.trim();
   const password = document.getElementById("signin-password").value;
+  const loginRoutes = [
+    { url: "/api/admin/login", tokenKey: "fulude_admin_token", destination: "/admin.html" },
+    { url: "/api/staff/login", tokenKey: "fulude_staff_token", destination: "/staff.html" },
+    { url: "/api/auth/login", tokenKey: CUSTOMER_TOKEN_KEY },
+  ];
 
   try {
-    const res = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
-    const data = await readApiResponse(res);
-    if (!res.ok || !data.success)
-      throw new Error(data.error || "Couldn't sign in.");
+    for (const route of loginRoutes) {
+      const res = await fetch(route.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await readApiResponse(res);
 
-    signInForm.reset();
-    onAuthSuccess(data.token, data.customer);
+      if (res.ok && data.success && data.token) {
+        signInForm.reset();
+        localStorage.setItem(route.tokenKey, data.token);
+        if (route.destination) {
+          location.assign(route.destination);
+        } else {
+          onAuthSuccess(data.token, data.customer);
+        }
+        return;
+      }
+
+      if (data.code === "account_not_found") continue;
+      const error = new Error(data.error || "Couldn't sign in.");
+      error.locked = Boolean(data.locked);
+      throw error;
+    }
+
+    throw new Error("Incorrect email or password.");
   } catch (err) {
     signInError.textContent = userFriendlyError(
       err,
       "Sorry, we couldn't sign you in right now. Please try again.",
     );
+    signInError.classList.toggle("is-locked", Boolean(err.locked));
     signInError.style.display = "block";
+  }
+});
+
+const forgotAdminPasswordLink = document.getElementById("forgotAdminPasswordLink");
+if (forgotAdminPasswordLink) forgotAdminPasswordLink.addEventListener("click", async () => {
+  const email = prompt("Enter the main admin email address for the password reset link:");
+  if (!email) return;
+  try {
+    const response = await fetch("/api/admin/forgot-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: email.trim() }),
+    });
+    const data = await readApiResponse(response);
+    if (!response.ok || !data.success) throw new Error(data.error || "Couldn't process the reset request.");
+    alert(data.message || "If that email has an admin account, a reset link is on its way.");
+  } catch (error) {
+    alert(userFriendlyError(error, "Couldn't process the reset request."));
   }
 });
 
