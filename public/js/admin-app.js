@@ -720,7 +720,7 @@ const PAYMENT_EVENT_TEXT = {
 async function loadPaymentSettings() {
   const box = $id("yocoStatus");
   if (!box) return;
-  box.innerHTML = '<p class="menu-loading">Checking with Yoco&hellip;</p>';
+  box.innerHTML = '<p class="menu-loading">Loading&hellip;</p>';
   try {
     const res = await adminFetch("/api/admin/yoco");
     const data = await res.json();
@@ -732,13 +732,6 @@ async function loadPaymentSettings() {
 }
 
 function renderPaymentSettings(d) {
-  const ok = (good, text) => `<span style="color:${good ? "var(--sa-green-deep, #1a7f37)" : "var(--sa-red)"};font-weight:600">${good ? "✓" : "✗"} ${text}</span>`;
-  const modeText = {
-    test: ok(true, "Test key (sk_test) - use Yoco's test cards"),
-    live: ok(true, "Live key (sk_live) - real payments"),
-    missing: ok(false, "YOCO_SECRET_KEY isn't set in Cloudflare"),
-    unknown: ok(false, "YOCO_SECRET_KEY doesn't look like a Yoco secret key (should start with sk_)"),
-  }[d.key_mode];
   const events = (d.recent_events || []).length
     ? d.recent_events
         .map((e) => {
@@ -749,15 +742,10 @@ function renderPaymentSettings(d) {
     : '<p class="admin-hint">No payment notifications yet this month.</p>';
 
   $id("yocoStatus").innerHTML = `
-    <div class="sa-list">
-      <div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">Secret key</div><div class="sa-list-sub">${modeText}</div></div></div>
-    </div>
     <h4 style="margin:16px 0 2px">Payment notifications this month</h4>
     <p class="admin-hint" style="margin:0 0 6px">Clears automatically on the 1st of each month.</p>
     <div class="sa-list">${events}</div>`;
 }
-
-$id("yocoRefreshBtn")?.addEventListener("click", loadPaymentSettings);
 
 // ---------------------------------------------------------------------
 // Delivery fee settings
