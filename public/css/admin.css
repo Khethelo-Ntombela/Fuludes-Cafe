@@ -3513,3 +3513,36 @@ input[readonly] {
   color: #666;
   cursor: not-allowed;
 }
+
+/* Settings > Payments: wrap long text instead of cutting it off (phones) */
+#settings-payments .sa-card {
+  max-width: 100% !important;
+  box-sizing: border-box;
+}
+#settings-payments .sa-list-item {
+  align-items: flex-start;
+}
+#settings-payments .sa-list-title,
+#settings-payments .sa-list-sub {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+#settings-payments .sa-list-sub + .sa-list-sub {
+  margin-top: 2px;
+}
+#settings-payments .btn,
+#settings-payments .admin-mini-btn {
+  max-width: 100%;
+  white-space: normal;
+}
+@media (max-width: 600px) {
+  #settings-payments .sa-card {
+    padding: 12px;
+  }
+  #settings-payments .sa-card > div[style*="flex"] > * {
+    flex: 1 1 100%;
+  }
+}

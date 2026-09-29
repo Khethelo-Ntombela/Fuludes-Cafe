@@ -6,7 +6,7 @@
  * GET  /api/admin/yoco
  *   Payment setup at a glance: test/live key, whether Yoco has a webhook
  *   pointing at this site, whether we hold its signing secret, and the
- *   latest payment notifications (from the audit log) - so "paid on Yoco
+ *   payment notifications from the current month (from the audit log; the list starts fresh on the 1st, the log itself is kept) - so "paid on Yoco
  *   but the order isn't in the app" can be diagnosed without logs.
  *
  * POST /api/admin/yoco  { action: "connect" }
@@ -58,8 +58,9 @@ async function status(request, env) {
     await runQuery(
       env,
       `SELECT action, target_id, details, created_at FROM audit_logs
-        WHERE action LIKE 'payment_notify%' OR action = 'order_marked_paid'
-        ORDER BY created_at DESC LIMIT 10;`,
+        WHERE (action LIKE 'payment_notify%' OR action = 'order_marked_paid')
+          AND created_at >= date_trunc('month', NOW() AT TIME ZONE 'Africa/Johannesburg') AT TIME ZONE 'Africa/Johannesburg'
+        ORDER BY created_at DESC LIMIT 20;`,
     ).catch(() => ({ rows: [] }))
   ).rows;
 

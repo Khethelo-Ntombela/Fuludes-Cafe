@@ -721,7 +721,7 @@ function renderPaymentSettings(d) {
           return `<div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">${escHtml(PAYMENT_EVENT_TEXT[e.action] || e.action)}${e.target_id ? ` · order #${e.target_id}` : ""}</div><div class="sa-list-sub">${when}</div></div></div>`;
         })
         .join("")
-    : '<p class="admin-hint">No payment notifications received yet. If customers have paid, Yoco isn\'t reaching the app - connect below.</p>';
+    : `<p class="admin-hint">${d.connected ? "No payment notifications yet this month." : "No payment notifications this month. If customers have paid, Yoco isn't reaching the app - connect above."}</p>`;
 
   $id("yocoStatus").innerHTML = `
     <div class="sa-list">
@@ -730,7 +730,8 @@ function renderPaymentSettings(d) {
         <div class="sa-list-sub">${d.connected ? ok(true, "Connected - paid orders go to the kitchen automatically") : ok(false, "Not connected - paid orders will stay \"waiting for payment\"")}</div>
         <div class="sa-list-sub">Address: ${escHtml(d.notify_url)}${d.yoco_error ? ` · Yoco: ${escHtml(d.yoco_error)}` : ""}</div></div></div>
     </div>
-    <h4 style="margin:16px 0 6px">Latest payment notifications</h4>
+    <h4 style="margin:16px 0 2px">Payment notifications this month</h4>
+    <p class="admin-hint" style="margin:0 0 6px">Clears automatically on the 1st of each month.</p>
     <div class="sa-list">${events}</div>`;
 }
 
