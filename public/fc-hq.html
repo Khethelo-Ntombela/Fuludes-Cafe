@@ -1437,13 +1437,7 @@
             <div class="settings-panel" id="settings-payments">
               <div class="sa-card" style="max-width: 720px">
                 <div class="sa-card-title">Yoco payments</div>
-                <p class="admin-hint" style="margin-bottom: 12px">
-                  When a customer pays, Yoco tells the app through a "payment notification". If it isn't connected,
-                  paid orders stay "waiting for payment" and never reach the kitchen. Tap Connect once, and again
-                  whenever you switch between Yoco test and live keys.
-                </p>
                 <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px">
-                  <button type="button" class="btn btn-primary" id="yocoConnectBtn"><i class="fas fa-plug"></i> Connect payment notifications</button>
                   <button type="button" class="admin-mini-btn" id="yocoRefreshBtn"><i class="fas fa-rotate"></i> Refresh</button>
                 </div>
                 <div id="yocoStatus"></div>
@@ -1646,8 +1640,8 @@
     <script src="js/order-alert.js?v=1"></script>
     <script src="js/kds.js?v=20"></script>
     <script src="js/form-validation.js?v=1"></script>
-    <script src="js/admin.js?v=28"></script>
-    <script src="js/admin-app.js?v=19"></script>
+    <script src="js/admin.js?v=29"></script>
+    <script src="js/admin-app.js?v=21"></script>
   <script>
   if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 </script>

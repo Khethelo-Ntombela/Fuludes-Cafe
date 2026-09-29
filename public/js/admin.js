@@ -2687,15 +2687,76 @@ function renderReservations() {
   });
 }
 
+// Last known store settings are cached in localStorage so the dashboard paints
+// the right state instantly on load, then refreshes silently from the server
+// (stale-while-revalidate). Anything wrong with storage is simply ignored.
+const STORE_CACHE_KEY = "fc_admin_store_config_v1";
+const STORE_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000; // same length as an admin session
+
+function readStoreCache() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(STORE_CACHE_KEY) || "null");
+    if (!raw || !raw.data || Date.now() - raw.savedAt > STORE_CACHE_MAX_AGE_MS) return null;
+    return raw.data;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoreCache(data) {
+  try {
+    localStorage.setItem(
+      STORE_CACHE_KEY,
+      JSON.stringify({
+        savedAt: Date.now(),
+        data: {
+          is_out_of_service: !!data.is_out_of_service,
+          out_of_service_reason: data.out_of_service_reason || "",
+          announcement_message: data.announcement_message || "",
+          is_buffet_visible: !!data.is_buffet_visible,
+        },
+      }),
+    );
+  } catch {
+    /* storage full / blocked - the live fetch below still works */
+  }
+}
+
+/** Paint the last known status immediately (no network wait). */
+function showCachedStoreStatus() {
+  const cached = readStoreCache();
+  if (!cached) return;
+  const buffet = document.getElementById("buffetToggle");
+  if (buffet) buffet.checked = !!cached.is_buffet_visible;
+  applyStoreStatus(cached, { fromCache: true });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  if (adminToken) showCachedStoreStatus(); // signed in: show last known status before any request finishes
+});
+
 async function loadBuffetSetting() {
-  const res = await fetch("/api/config", { cache: "no-store" });
-  const data = await res.json();
-  document.getElementById("buffetToggle").checked = !!data.is_buffet_visible;
-  applyStoreStatus(data);
+  showCachedStoreStatus();
+  try {
+    const res = await fetch("/api/config", { cache: "no-store" });
+    if (!res.ok) throw new Error("config " + res.status);
+    const data = await res.json();
+    document.getElementById("buffetToggle").checked = !!data.is_buffet_visible;
+    applyStoreStatus(data);
+  } catch {
+    /* offline / server hiccup: keep showing the last known status */
+  }
 }
 
 // ---------------- Store status: Out of Service + hero announcement ----------------
-function applyStoreStatus(data) {
+function applyStoreStatus(data, opts = {}) {
+  if (!opts.fromCache) {
+    writeStoreCache({
+      ...(readStoreCache() || {}),
+      ...data,
+      is_buffet_visible: data.is_buffet_visible ?? document.getElementById("buffetToggle")?.checked,
+    });
+  }
   const on = !!data.is_out_of_service;
   const reason = data.out_of_service_reason || "";
   const toggle = document.getElementById("oosToggle");

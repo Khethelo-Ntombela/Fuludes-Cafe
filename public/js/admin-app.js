@@ -108,6 +108,7 @@ async function fetchHistoryAll() {
     const res = await adminFetch("/api/admin/orders?limit=200&offset=0");
     const data = await res.json();
     window.adminHistoryAll = data.orders || [];
+    window.adminHistoryLoaded = true;
   } catch {
     window.adminHistoryAll = [];
   }
@@ -237,6 +238,20 @@ function updateBell(orders) {
 // ---------------------------------------------------------------------
 // Restaurant status card (sidebar)
 // ---------------------------------------------------------------------
+const STATUS_CARD_CACHE_KEY = "fc_admin_status_card_v1";
+
+/** Last known Orders/Revenue Today, only reused on the same calendar day. */
+function paintCachedStatusCounts() {
+  try {
+    const c = JSON.parse(localStorage.getItem(STATUS_CARD_CACHE_KEY) || "null");
+    if (!c || c.day !== new Date().toDateString()) return;
+    $id("statusOrdersToday").textContent = c.orders;
+    $id("statusRevenueToday").textContent = c.revenue;
+  } catch {
+    /* ignore */
+  }
+}
+
 function updateStatusCard() {
   // Opening hours: Mon-Thu 09:00-18:00, Fri & Sun 09:00-20:00, Sat 09:00-21:00
   const nowDate = new Date();
@@ -247,10 +262,20 @@ function updateStatusCard() {
   $id("statusOpenLabel").textContent = open ? "Open" : "Closed";
   $id("statusOpenDot").classList.toggle("closed", !open);
 
+  // Orders can't be counted until the history has loaded - keep whatever is showing.
+  if (!window.adminHistoryLoaded) return;
   const todays = window.adminHistoryAll.filter((o) => isToday(o.created_at) && isPaidOrder(o));
-  $id("statusOrdersToday").textContent = todays.length;
   const revenue = todays.reduce((s, o) => s + Number(o.total_amount || 0), 0);
+  $id("statusOrdersToday").textContent = todays.length;
   $id("statusRevenueToday").textContent = `R${revenue.toFixed(0)}`;
+  try {
+    localStorage.setItem(
+      STATUS_CARD_CACHE_KEY,
+      JSON.stringify({ day: new Date().toDateString(), orders: todays.length, revenue: `R${revenue.toFixed(0)}` }),
+    );
+  } catch {
+    /* ignore */
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -721,42 +746,17 @@ function renderPaymentSettings(d) {
           return `<div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">${escHtml(PAYMENT_EVENT_TEXT[e.action] || e.action)}${e.target_id ? ` · order #${e.target_id}` : ""}</div><div class="sa-list-sub">${when}</div></div></div>`;
         })
         .join("")
-    : `<p class="admin-hint">${d.connected ? "No payment notifications yet this month." : "No payment notifications this month. If customers have paid, Yoco isn't reaching the app - connect above."}</p>`;
+    : '<p class="admin-hint">No payment notifications yet this month.</p>';
 
   $id("yocoStatus").innerHTML = `
     <div class="sa-list">
       <div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">Secret key</div><div class="sa-list-sub">${modeText}</div></div></div>
-      <div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">Payment notifications (webhook)</div>
-        <div class="sa-list-sub">${d.connected ? ok(true, "Connected - paid orders go to the kitchen automatically") : ok(false, "Not connected - paid orders will stay \"waiting for payment\"")}</div>
-        <div class="sa-list-sub">Address: ${escHtml(d.notify_url)}${d.yoco_error ? ` · Yoco: ${escHtml(d.yoco_error)}` : ""}</div></div></div>
     </div>
     <h4 style="margin:16px 0 2px">Payment notifications this month</h4>
     <p class="admin-hint" style="margin:0 0 6px">Clears automatically on the 1st of each month.</p>
     <div class="sa-list">${events}</div>`;
 }
 
-async function connectYocoWebhook() {
-  const btn = $id("yocoConnectBtn");
-  btn.disabled = true;
-  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Connecting&hellip;';
-  try {
-    const res = await adminFetch("/api/admin/yoco", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "connect" }),
-    });
-    const data = await res.json();
-    if (!res.ok || !data.success) throw new Error(data.error || "Couldn't connect.");
-    renderPaymentSettings(data);
-    toast("Payment notifications connected.");
-  } catch (err) {
-    alert(err.message);
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fas fa-plug"></i> Connect payment notifications';
-  }
-}
-$id("yocoConnectBtn")?.addEventListener("click", connectYocoWebhook);
 $id("yocoRefreshBtn")?.addEventListener("click", loadPaymentSettings);
 
 // ---------------------------------------------------------------------
@@ -928,6 +928,8 @@ function initShellData() {
   if (shellInitialized) return;
   shellInitialized = true;
   $id("topbarTitle").textContent = TAB_TITLES.dashboard;
+  updateStatusCard(); // Open/Closed comes from the clock, so it needs no network - paint it right away
+  paintCachedStatusCounts(); // last known Orders/Revenue Today until fresh figures arrive
   loadDashboardData();
   setInterval(updateStatusCard, 60000);
 }
