@@ -116,7 +116,7 @@ export async function onRequest(context) {
     });
 
     const origin = new URL(request.url).origin;
-    const resetLink = `${origin}/admin.html?reset_token=${token}`;
+    const resetLink = `${origin}/fc-hq.html?reset_token=${token}`;
     await sendEmail(env, {
       to: email,
       subject: "Reset your Fulude's Cafe admin password",

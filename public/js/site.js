@@ -509,8 +509,8 @@ signInForm.addEventListener("submit", async (e) => {
   const email = document.getElementById("signin-email").value.trim();
   const password = document.getElementById("signin-password").value;
   const loginRoutes = [
-    { url: "/api/admin/login", tokenKey: "fulude_admin_token", destination: "/admin.html" },
-    { url: "/api/staff/login", tokenKey: "fulude_staff_token", destination: "/staff.html" },
+    { url: "/api/admin/login", tokenKey: "fulude_admin_token", destination: "/fc-hq.html" },
+    { url: "/api/staff/login", tokenKey: "fulude_staff_token", destination: "/fc-kitchen.html" },
     { url: "/api/auth/login", tokenKey: CUSTOMER_TOKEN_KEY },
   ];
 

@@ -22,8 +22,8 @@ public/
   reviews.html           review wall + leave-a-review form
   contact.html            Visit Us (address/map), FAQ, and Privacy & Refund policies
   privacy.html            full Privacy Policy (incl. Google user data disclosure) - linked from every footer
-  admin.html           admin dashboard (password-gated, owner only)
-  staff.html            kitchen Staff Portal (separate password, own login)
+  fc-hq.html              admin dashboard (password-gated, owner only)
+  fc-kitchen.html          kitchen Staff Portal (separate password, own login)
   css/style.css         customer site styles (black/gold/cream, Playfair Display + Inter)
   css/admin.css         admin dashboard styles (extends style.css)
   css/staff.css           staff Kanban board layout (extends style.css + admin.css)
@@ -114,7 +114,7 @@ Files/folders starting with `_` (like `functions/_lib`) are ignored by Cloudflar
 
 **Recommended (direct Yoco checkout):** set `YOCO_SECRET_KEY` (Yoco dashboard > Settings > API Keys). Checkout, "Pay Now" retries and the admin's payment links then create a checkout through Yoco's Checkout API and send the customer straight to Yoco's payment page (`functions/_lib/yoco.js`). Register `https://<your-deploy-origin>/api/payment/notify` as a Yoco webhook and put its `whsec_...` secret in `YOCO_WEBHOOK_SECRET` - Yoco's signed `payment.succeeded` events are verified and marked paid automatically. `YOCO_PAYMENT_URL` is only used when `YOCO_SECRET_KEY` is not set.
 
-**Push notifications:** admin and kitchen staff can tap "Phone alerts" (and customers "Notify me about my orders") to get notifications even when the app is closed - new paid orders, reservations and buffet bookings for staff; order/booking updates for customers. Nothing to configure: a VAPID key pair is generated on first use and stored in `push_config` (or set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, optional `VAPID_SUBJECT`). On iPhone/iPad the app must first be added to the Home Screen. Admin (`/admin.html`) and kitchen (`/staff.html`) install as their own apps.
+**Push notifications:** admin and kitchen staff can tap "Phone alerts" (and customers "Notify me about my orders") to get notifications even when the app is closed - new paid orders, reservations and buffet bookings for staff; order/booking updates for customers. Nothing to configure: a VAPID key pair is generated on first use and stored in `push_config` (or set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, optional `VAPID_SUBJECT`). On iPhone/iPad the app must first be added to the Home Screen. Admin (the private admin dashboard (`/fc-hq.html`)) and kitchen (the private kitchen dashboard (`/fc-kitchen.html`)) install as their own apps.
 
 No notify-url whitelisting is usually required — the notify URL only needs to be publicly reachable so the gateway can POST payment confirmations to `/api/payment/notify`.
 
@@ -139,7 +139,7 @@ from the ones above:
   reason, the order still cancels immediately and falls back to the
   existing manual flow: `refund_needed = TRUE`, plus a `refund_error`
   column recording why the automatic attempt failed, so nothing is silently
-  lost - an admin can complete the refund from `/admin.html` the same way
+  lost - an admin can complete the refund from the private admin dashboard (`/fc-hq.html`) the same way
   as before (`functions/api/admin/refund.js`).
 - Every automatic refund attempt (success or failure) is recorded via
   `logAudit` as a `payment_gateway` actor, visible in order/audit history -
@@ -212,7 +212,7 @@ their password at least once before Google Sign-In will link to that account.
 
 For local development, admin and staff credentials are read from `.dev.vars` (Wrangler Pages Functions reads this automatically). Admin uses `ADMIN_EMAIL`/`ADMIN_PASSWORD`; staff uses `STAFF_EMAIL`/`STAFF_PASSWORD`. `.dev.vars` is untracked and ignored by Git. No database is required for local login — sessions are stored in memory when Neon is not configured.
 
-4. Deploy. Visit `/admin.html`, log in with the email/password from `.dev.vars`, and start adding dishes. Give kitchen staff the `/staff.html` link and their separate email/password.
+4. Deploy. Visit the private admin dashboard (`/fc-hq.html`), log in with the email/password from `.dev.vars`, and start adding dishes. Give kitchen staff the the private kitchen dashboard (`/fc-kitchen.html`) link and their separate email/password.
 
 Payment is strictly online now — there is no pay-at-pickup/delivery fallback. If you skip section 2.3, checkout is broken end-to-end: customers will get an error at the "Place Order" step telling them to contact the cafe directly, so treat `YOCO_PAYMENT_URL` (or `YOCO_CHECKOUT_URL`) as required, not optional.
 
@@ -246,7 +246,7 @@ For local development, change admin/staff passwords directly in `.dev.vars`; nev
 - **My Orders (customer):** now that accounts are required, this is simply every order ever placed by the signed-in customer (`GET /api/order/my`, ordered newest first) — no expiry, no localStorage bookkeeping, it's just the account's permanent history. Each order shows a live animated status tracker with customer-facing labels (Order received → Preparing → The order is ready → Ready for collection/Out for delivery → Completed, or a distinct Cancelled state), polled every 15 seconds while the My Orders window is open so it updates as the kitchen moves the order along — no manual refresh needed. The full itemized receipt is collapsed by default behind a "View Receipt" button.
 - **Customer self-cancel (2-minute window):** while an order is still `New`, its My Orders card shows a "Cancel Order" button with a live countdown, for exactly 2 minutes from `created_at` (`CUSTOMER_CANCEL_WINDOW_MS` in both `public/js/main.js` and `functions/api/order.js` — keep them in sync if you ever change it). `PUT /api/order` (customer session required, and only lets you cancel your own order) re-checks both conditions server-side before cancelling, so a stale button or a tampered request can't cancel something that's already being prepared, past the window, or someone else's order. Cancelling flips the order to `Cancelled`, which is all it takes to drop it off both the admin Live Orders and Staff Portal boards (they only ever query `status IN ('New','Preparing','Ready')`) — and if it was already paid, the same "Refund Needed" flag described above appears for Fulufhelo to action.
 - **Dine-in arrival time:** when a customer selects Dine In at checkout, the generic "Preferred Time" dropdown is replaced with a time picker asking what time they'll arrive (optional — defaults to "As soon as possible" if left blank). It's stored in the same `orders.pickup_time` field every other order type uses, so it shows up automatically wherever pickup_time is already displayed, including the Staff Portal ticket and the admin order card.
-- **Staff Portal (kitchen, `/staff.html`):** a separate page with its own email/password login (STAFF_PASSWORD) — kitchen staff never get access to menu editing, sales figures, or settings. It's a Kanban board (New / Preparing / Ready / Collection / Delivery) polled every 15 seconds so tickets appear automatically as customers order, with a repeating tone (same Web Audio approach as the admin dashboard) for new tickets. Staff can drag tickets between columns or use the status buttons to advance them through the same New→Preparing→Ready→Collection/Delivery→Completed lifecycle as the admin dashboard (`functions/api/staff/order-status.js` shares the same status values as `functions/api/admin/order-status.js`); a Cancel button is always available too. Completed/Cancelled tickets simply stop being returned by `/api/staff/orders` and disappear off the board. Kitchen tickets deliberately exclude prices/totals (`functions/api/staff/orders.js`) — staff see only what they need to cook and fulfil the order.
+- **Staff Portal (kitchen, the private kitchen dashboard (`/fc-kitchen.html`)):** a separate page with its own email/password login (STAFF_PASSWORD) — kitchen staff never get access to menu editing, sales figures, or settings. It's a Kanban board (New / Preparing / Ready / Collection / Delivery) polled every 15 seconds so tickets appear automatically as customers order, with a repeating tone (same Web Audio approach as the admin dashboard) for new tickets. Staff can drag tickets between columns or use the status buttons to advance them through the same New→Preparing→Ready→Collection/Delivery→Completed lifecycle as the admin dashboard (`functions/api/staff/order-status.js` shares the same status values as `functions/api/admin/order-status.js`); a Cancel button is always available too. Completed/Cancelled tickets simply stop being returned by `/api/staff/orders` and disappear off the board. Kitchen tickets deliberately exclude prices/totals (`functions/api/staff/orders.js`) — staff see only what they need to cook and fulfil the order.
 
 ## 4. Not included (out of scope for this pass)
 
@@ -262,7 +262,7 @@ For local development, change admin/staff passwords directly in `.dev.vars`; nev
 
 The `menu images/` folder (chicken, tripe & cow heels, tilapia, meat platter, catering inspo) lives on your computer, not the internet, so the site can't load them directly. For each dish:
 
-1. Log into `/admin.html` → **Menu** tab → **Add Menu Item**.
+1. Log into the private admin dashboard (`/fc-hq.html`) → **Menu** tab → **Add Menu Item**.
 2. Fill in name, category, price, description.
 3. Under **Photo**, choose the matching file from `menu images/...`. The browser compresses it to a WebP under 300KB automatically, uploads it to R2, and fills in the image URL for you.
 4. Save. The dish appears live on the customer menu immediately (unless "Show on Menu" is off).

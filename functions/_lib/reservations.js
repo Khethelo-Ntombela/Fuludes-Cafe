@@ -36,7 +36,7 @@ export async function confirmPreorderReservation(context, orderId) {
     queuePush(context, { roles: ["admin"] }, {
       title: "New reservation (pre-order paid)",
       body: `${r.customer_name} · ${r.party_size} guest${r.party_size > 1 ? "s" : ""} · ${r.day} ${r.time}`,
-      url: "/admin.html#reservations",
+      url: "/fc-hq.html#reservations",
       tag: `reservation-${r.id}`,
     });
     return r;

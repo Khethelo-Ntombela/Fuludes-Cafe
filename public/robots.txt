@@ -4,8 +4,6 @@ Allow: /home
 Allow: /privacy
 Allow: /css/
 Allow: /js/
-Disallow: /admin
-Disallow: /staff
 Disallow: /functions/
 Disallow: /api/admin/
 Disallow: /api/staff/

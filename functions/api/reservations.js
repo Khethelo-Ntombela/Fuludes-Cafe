@@ -220,7 +220,7 @@ export async function onRequestPost(context) {
     if (!advanceOrderRequested) queuePush(context, { roles: ["admin"] }, {
       title: "New reservation request",
       body: `${name} · ${partySize} guest${partySize > 1 ? "s" : ""} · ${reservationDate} ${reservationTime}`,
-      url: "/admin.html#reservations",
+      url: "/fc-hq.html#reservations",
       tag: `reservation-${result.rows[0].id}`,
     });
 

@@ -162,7 +162,7 @@ async function sendOne(env, keys, subject, sub, payloadText) {
  * Sends a notification to everyone matching `target`:
  *   { roles: ["admin", "staff"] }  or  { customerId: 12 }
  * message: { title, body, url, tag }. `url` may be an object keyed by role
- * ({ admin: "/admin.html#orders", staff: "/staff.html" }) for per-app links.
+ * ({ admin: "/fc-hq.html#orders", staff: "/fc-kitchen.html" }) for per-app links.
  * Never throws.
  */
 export async function sendPush(env, target, message, { origin } = {}) {
@@ -246,7 +246,7 @@ export async function sendDueNewOrderPushes(env, { origin } = {}) {
       await sendPush(env, { roles: ["admin", "staff"] }, {
         title: `New paid order #${order.id}`,
         body: `${type} · R${Number(order.total_amount).toFixed(2)}`,
-        url: { admin: "/admin.html#orders", staff: "/staff.html" },
+        url: { admin: "/fc-hq.html#orders", staff: "/fc-kitchen.html" },
         tag: `order-${order.id}`,
       }, { origin });
     }
