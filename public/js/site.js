@@ -223,7 +223,7 @@ async function initAuth() {
     };
     openAuthModal(
       "signin",
-      verificationMessages[verificationResult] || "Sign in with your account. Admins and staff will be sent to their dashboard.",
+      verificationMessages[verificationResult],
     );
   } else if (params.get("create_account") === "1") {
     window.history.replaceState({}, document.title, window.location.pathname);
