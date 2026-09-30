@@ -1382,12 +1382,15 @@ body {
   color: var(--gold);
 }
 
+/* Same look as .site-notice: soft cream fill, gold outline, charcoal text. */
 .form-error {
-  background: #fdecea;
-  color: var(--danger);
+  background: #fbf6ec;
+  border: 1px solid var(--gold);
+  color: var(--charcoal);
   padding: 12px 16px;
   border-radius: 4px;
-  font-size: 0.88rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
   margin-bottom: 18px;
 }
 
