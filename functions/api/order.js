@@ -58,6 +58,7 @@ import { logAudit } from "../_lib/audit.js";
 import { isOpenNow, CLOSED_MESSAGE } from "../_lib/hours.js";
 import { ensureCancelledByColumn, restoreOrderStock } from "../_lib/orderCancel.js";
 import { MAX_DELIVERY_KM } from "../_lib/delivery.js";
+import { ensureScheduleColumns, scheduledForFromPickup, scheduledForFromReservation } from "../_lib/scheduledOrders.js";
 
 const CUSTOMER_CANCEL_WINDOW_MS = 2 * 60 * 1000; // keep in sync with CUSTOMER_CANCEL_WINDOW_MS in public/js/main.js
 const ROAD_BUFFER = 1.3; // straight-line * 1.3 ≈ road distance
@@ -657,13 +658,21 @@ export async function onRequestPost(context) {
       [customerName, phoneNumber, deliveryAddress, customer.id],
     );
 
+    await ensureScheduleColumns(env);
+    const reservationRef = parseInt(orderData.reservation_id, 10);
+    let scheduledFor = null;
+    if (orderType === "dine_in" && Number.isInteger(reservationRef)) {
+      scheduledFor = await scheduledForFromReservation(env, reservationRef, customer.id);
+    }
+    if (!scheduledFor) scheduledFor = scheduledForFromPickup(pickupTime);
+
     const initialPaymentStatus = "awaiting"; // every order is online-paid; kitchen won't treat it as confirmed until the payment gateway callback fires
     const orderInsert = await runQuery(
       env,
       `
       INSERT INTO orders
-        (customer_id, customer_name, customer_phone, order_type, delivery_address, delivery_lat, delivery_lng, delivery_distance_km, delivery_fee, table_number, pickup_time, special_instructions, total_amount, status, payment_method, payment_status, stock_decremented)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'New', $14, $15, FALSE)
+        (customer_id, customer_name, customer_phone, order_type, delivery_address, delivery_lat, delivery_lng, delivery_distance_km, delivery_fee, table_number, pickup_time, special_instructions, total_amount, status, payment_method, payment_status, stock_decremented, scheduled_for)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'New', $14, $15, FALSE, $16)
       RETURNING id, created_at;
     `,
       [
@@ -682,6 +691,7 @@ export async function onRequestPost(context) {
         totalAmount,
         paymentMethod,
         initialPaymentStatus,
+        scheduledFor ? scheduledFor.toISOString() : null,
       ],
     );
 

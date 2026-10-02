@@ -12,6 +12,7 @@
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { queueDueNewOrderPushes } from "../../_lib/push.js";
+import { ensureScheduleColumns } from "../../_lib/scheduledOrders.js";
 
 export async function onRequestGet(context) {
   const { request, env } = context;
@@ -21,6 +22,7 @@ export async function onRequestGet(context) {
   // Sends the "new paid order" notification for orders whose 2-minute window just ended.
   queueDueNewOrderPushes(context);
   try {
+    await ensureScheduleColumns(env);
     const ordersResult = await runQuery(
       env,
       `
@@ -28,7 +30,7 @@ export async function onRequestGet(context) {
              pickup_time, special_instructions, total_amount,
              CASE WHEN status = 'Out for Delivery' THEN 'Delivery' ELSE status END AS status,
              payment_method, payment_status, payment_ref, created_at,
-             delivery_fee, delivery_distance_km, delivery_lat, delivery_lng, payment_confirmed_at, kitchen_release_at
+             delivery_fee, delivery_distance_km, delivery_lat, delivery_lng, payment_confirmed_at, kitchen_release_at, scheduled_for, preparing_at
       FROM orders
       WHERE status IN ('New', 'Preparing', 'Ready', 'Collection', 'Delivery', 'Out for Delivery')
         AND payment_status = 'paid'

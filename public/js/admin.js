@@ -647,7 +647,7 @@ function renderKitchenStrip(allOrders) {
   // longest wait and load - once an order is out for collection/delivery
   // it stops counting.
   const active = orders.filter((o) => ["New", "Preparing", "Ready"].includes(o.status));
-  const ages = active.map(kdsMinutes);
+  const ages = active.filter(kdsCountsInStats).map(kdsMinutes);
   const avgAge = ages.length
     ? Math.round(ages.reduce((s, m) => s + m, 0) / ages.length)
     : 0;
@@ -666,8 +666,8 @@ function renderKitchenStrip(allOrders) {
   set("kpiWaiting", orders.filter((o) => o.status === "New").length);
   set("kpiPreparing", orders.filter((o) => o.status === "Preparing").length);
   set("kpiReady", orders.filter((o) => o.status === "Ready").length);
-  set("kpiPrepTime", active.length ? `${avgAge} min` : "—");
-  set("kpiLongest", active.length ? `${longest} min` : "—", longest >= 30);
+  set("kpiPrepTime", ages.length ? `${avgAge} min` : "—");
+  set("kpiLongest", ages.length ? `${longest} min` : "—", longest >= 30);
   set("kpiEfficiency", `${load}%`, load >= 90);
 }
 

@@ -125,7 +125,7 @@ function renderControlBar(allOrders) {
   // longest wait and load - once an order is out for collection/delivery
   // it stops counting.
   const active = orders.filter((o) => ["New", "Preparing", "Ready"].includes(o.status));
-  const ages = active.map(kdsMinutes);
+  const ages = active.filter(kdsCountsInStats).map(kdsMinutes);
   const avgAge = ages.length
     ? Math.round(ages.reduce((s, m) => s + m, 0) / ages.length)
     : 0;
@@ -144,8 +144,8 @@ function renderControlBar(allOrders) {
   set("sWaiting", orders.filter((o) => o.status === "New").length);
   set("sPreparing", orders.filter((o) => o.status === "Preparing").length);
   set("sReady", orders.filter((o) => o.status === "Ready").length);
-  set("sAvgAge", active.length ? `${avgAge} min` : "—");
-  set("sLongest", active.length ? `${longest} min` : "—", longest >= 30);
+  set("sAvgAge", ages.length ? `${avgAge} min` : "—");
+  set("sLongest", ages.length ? `${longest} min` : "—", longest >= 30);
   set("sLoad", `${load}%`, load >= 90);
 }
 

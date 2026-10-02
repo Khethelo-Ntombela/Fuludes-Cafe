@@ -73,7 +73,20 @@ function kdsFmt(n) {
  * count from then, not from when the customer placed it.
  */
 function kdsStartTime(order) {
-  return new Date(order.kitchen_release_at || order.created_at).getTime();
+  const release = new Date(order.kitchen_release_at || order.created_at).getTime();
+  if (order.scheduled_for && order.preparing_at) return new Date(order.preparing_at).getTime();
+  return release;
+}
+
+/**
+ * Pre-orders and timed orders (scheduled_for) are only a heads-up of when
+ * the customer will arrive; the restaurant decides when to start them. They
+ * stay out of Avg Ticket Age and Longest Waiting until Start Preparing is
+ * pressed, and then count from that moment.
+ */
+function kdsCountsInStats(order) {
+  if (!order.scheduled_for) return true;
+  return order.status !== "New";
 }
 
 /**
@@ -256,7 +269,7 @@ function kdsBoardHtml(orders, columns, opts = {}) {
   return columns
     .map((col) => {
       const list = orders.filter((o) => o.status === col);
-      const ages = list.map(kdsMinutes);
+      const ages = list.filter(kdsCountsInStats).map(kdsMinutes);
       const avg = ages.length ? Math.round(ages.reduce((s, m) => s + m, 0) / ages.length) : null;
       return `
       <div class="kds-col" data-column="${col}">

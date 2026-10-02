@@ -13,6 +13,7 @@ import { getRequestIp } from "../../_lib/security.js";
 import { queueOrderStatusPush } from "../../_lib/push.js";
 import { ensureCancelledByColumn, restoreOrderStock } from "../../_lib/orderCancel.js";
 import { logAudit } from "../../_lib/audit.js";
+import { ensureScheduleColumns } from "../../_lib/scheduledOrders.js";
 
 const ALLOWED_STATUSES = [
   "New",
@@ -161,11 +162,13 @@ export async function onRequestPost(context) {
     }
 
     await ensureCancelledByColumn(env);
+    await ensureScheduleColumns(env);
     const updateResult = await runQuery(
       env,
       `
         UPDATE orders
         SET status = $1,
+            preparing_at = CASE WHEN $1 = 'Preparing' AND preparing_at IS NULL THEN NOW() ELSE preparing_at END,
             cancelled_by = CASE WHEN $1 = 'Cancelled' THEN 'staff' ELSE cancelled_by END,
             order_type = CASE
               WHEN $1 IN ('Collection', 'Delivery') THEN $4
