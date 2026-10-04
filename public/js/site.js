@@ -166,6 +166,7 @@ function addPasswordVisibilityToggle(inputId) {
 
 addPasswordVisibilityToggle("signin-password");
 addPasswordVisibilityToggle("signup-password");
+addPasswordVisibilityToggle("reset-new-password");
 
 /** Runs once on page load: confirms any stored token is still valid, and opens the reset-password form if we landed here from an emailed link. */
 async function initAuth() {
@@ -484,6 +485,9 @@ function switchAuthTab(tab) {
       googleEl.style.display = "block";
     } else {
       googleEl.style.display = "none";
+      if (signInForm && signInForm.parentNode) {
+        signInForm.parentNode.querySelectorAll(".auth-divider").forEach((d) => d.remove());
+      }
     }
     // update button label to match context
     setGoogleButtonLabel(tab === "signup" ? "Create account with Google" : "Sign in with Google");
@@ -2247,6 +2251,9 @@ loadConfig();
   overlay.querySelectorAll("#settingsTabs .auth-tab").forEach((b) =>
     b.addEventListener("click", () => switchTab(b.dataset.settingsTab)),
   );
+
+  addPasswordVisibilityToggle("settings-current-password");
+  addPasswordVisibilityToggle("settings-new-password");
 
   window.openSettingsModal = async function () {
     if (!currentCustomer) return;

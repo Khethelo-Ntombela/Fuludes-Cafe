@@ -52,6 +52,10 @@ function addAdminPasswordVisibilityToggle(inputId) {
 }
 
 addAdminPasswordVisibilityToggle("adminResetPassword");
+addAdminPasswordVisibilityToggle("staffAccountPassword");
+addAdminPasswordVisibilityToggle("adminAccountPassword");
+addAdminPasswordVisibilityToggle("currentAdminPassword");
+addAdminPasswordVisibilityToggle("newAdminPassword");
 
 /** "Delivery: 12 Main Rd" / "Dine In (Table 5)" / "Collection" */
 function describeOrderType(order) {

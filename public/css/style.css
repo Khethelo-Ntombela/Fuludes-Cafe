@@ -1355,6 +1355,12 @@ body {
   min-height: 100px;
 }
 
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear,
+input[type="text"]::-ms-reveal {
+  display: none;
+}
+
 .password-input-wrapper {
   position: relative;
 }
