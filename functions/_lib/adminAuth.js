@@ -23,7 +23,7 @@ export async function requireAdminPermission(request, env, permission) {
   const permissions = env.__actorPermissions || {};
   if (!(permissions.all || permissions[permission])) {
     return {
-      error: jsonResponse({ error: "Unauthorized. Please log in again." }, 401),
+      error: jsonResponse({ error: "You don't have access to this section.", forbidden: true }, 403),
     };
   }
 

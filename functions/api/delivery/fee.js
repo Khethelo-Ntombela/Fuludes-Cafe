@@ -8,6 +8,7 @@
  * -----------------------------------------------------------------------
  */
 import { runQuery, jsonResponse } from "../../_lib/db.js";
+import { MAX_DELIVERY_KM } from "../../_lib/delivery.js";
 
 const ROAD_BUFFER = 1.3; // straight-line * 1.3 ≈ road distance
 
@@ -25,7 +26,7 @@ function toRad(deg) {
   return (deg * Math.PI) / 180;
 }
 
-export async function onRequestPost(context) {
+async function handlePost(context) {
   const { request, env } = context;
 
   let body;
@@ -73,8 +74,18 @@ export async function onRequestPost(context) {
     const roadKm = straightKm * ROAD_BUFFER;
 
     // Find matching band (first where roadKm <= up_to_km)
-    const bands = bandsRes.rows || [];
-    const matchedBand = bands.find((b) => roadKm <= b.up_to_km);
+    const allBands = bandsRes.rows || [];
+    // Only bands inside the delivery limit count - anything further is "too far".
+    const bands = allBands.filter((b) => Number(b.up_to_km) <= MAX_DELIVERY_KM);
+    if (allBands.length === 0) {
+      // Not "too far" - the fee table simply hasn't been set up. Say so
+      // instead of turning every customer away.
+      return jsonResponse(
+        { error: "Delivery fees haven't been set up yet. Please contact the cafe." },
+        500
+      );
+    }
+    const matchedBand = bands.find((b) => roadKm <= Number(b.up_to_km));
 
     if (!matchedBand) {
       // Beyond all bands
@@ -88,7 +99,7 @@ export async function onRequestPost(context) {
     }
 
     return jsonResponse({
-      fee: matchedBand.fee,
+      fee: parseFloat(matchedBand.fee), // NUMERIC comes back from Postgres as a string
       distance_km: Math.round(roadKm * 100) / 100,
       band_up_to_km: matchedBand.up_to_km,
       too_far: false,
@@ -99,4 +110,16 @@ export async function onRequestPost(context) {
       500
     );
   }
+}
+// Never let an unexpected error escape as an HTML error page - the checkout expects JSON.
+export async function onRequestPost(context) {
+  try {
+    return await handlePost(context);
+  } catch (err) {
+    return jsonResponse({ error: "Delivery lookup failed. Please try again.", message: String(err && err.message) }, 500);
+  }
+}
+// Any other method (e.g. a stray GET) also gets JSON instead of an HTML 404/405 page.
+export async function onRequest() {
+  return jsonResponse({ error: "Method not allowed." }, 405);
 }

@@ -16,11 +16,11 @@ let categories = [];
 let menuItems = [];
 let addons = [];
 let spiceLevels = [];
+let sides = [];
 let staffAccounts = [];
 let reservations = [];
 let pollIntervalId = null;
 let knownPaidNewOrderIds = new Set();
-let adminAudioContext = null;
 const ADMIN_ALERTS_MUTED_KEY = "fulude_admin_alerts_muted";
 
 const money = (n) => `R${Number(n).toFixed(2)}`;
@@ -38,19 +38,24 @@ function addAdminPasswordVisibilityToggle(inputId) {
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "password-visibility-toggle";
-  toggle.textContent = "Show";
+  toggle.innerHTML = '<i class="fas fa-eye" aria-hidden="true"></i>'; // eye icon only
   toggle.setAttribute("aria-label", "Show password");
+  toggle.title = "Show password";
   toggle.addEventListener("click", () => {
     const isVisible = input.type === "text";
     input.type = isVisible ? "password" : "text";
-    toggle.textContent = isVisible ? "Show" : "Hide";
+    toggle.innerHTML = `<i class="fas ${isVisible ? "fa-eye" : "fa-eye-slash"}" aria-hidden="true"></i>`;
     toggle.setAttribute("aria-label", `${isVisible ? "Show" : "Hide"} password`);
+    toggle.title = `${isVisible ? "Show" : "Hide"} password`;
   });
   wrapper.appendChild(toggle);
 }
 
-addAdminPasswordVisibilityToggle("adminPassword");
 addAdminPasswordVisibilityToggle("adminResetPassword");
+addAdminPasswordVisibilityToggle("staffAccountPassword");
+addAdminPasswordVisibilityToggle("adminAccountPassword");
+addAdminPasswordVisibilityToggle("currentAdminPassword");
+addAdminPasswordVisibilityToggle("newAdminPassword");
 
 /** "Delivery: 12 Main Rd" / "Dine In (Table 5)" / "Collection" */
 function describeOrderType(order) {
@@ -75,6 +80,33 @@ function orderTypePaymentLabel(order) {
  * automatically (see handleOrderAction's confirm prompt), so this is the
  * at-a-glance reminder that a manual refund may still be needed.
  */
+/**
+ * Order History wording for a cancelled order: who cancelled it and what
+ * happened to the money.
+ *   customer -> "Cancelled by the customer · Automatically refunded"
+ *   staff    -> "Cancelled by staff · Refund needed"   (or "· Refunded" once done)
+ *   admin    -> "Cancelled by admin · Refund needed"
+ */
+function cancelledStatusLabel(order) {
+  const who =
+    order.cancelled_by === "customer"
+      ? "Cancelled by the customer"
+      : order.cancelled_by === "staff"
+        ? "Cancelled by staff"
+        : order.cancelled_by === "admin"
+          ? "Cancelled by admin"
+          : order.cancelled_by === "system"
+            ? `Cancelled automatically (${order.cancel_reason ? escapeHtml(order.cancel_reason) : "sold out"} - after payment)`
+            : "Cancelled";
+  if (order.payment_status === "refunded") {
+    // The customer can only cancel inside the 2-minute window, where the refund is automatic.
+    const auto = order.cancelled_by === "customer" && !order.refund_error;
+    return `${who} · ${auto ? "Automatically refunded" : "Refunded"}`;
+  }
+  if (order.payment_status === "paid") return `${who} · Refund needed`;
+  return `${who} · Not paid, nothing to refund`;
+}
+
 function paymentBadgeHtml(order) {
   if (order.payment_method !== "online") {
     // Legacy orders placed before payment became mandatory.
@@ -82,6 +114,9 @@ function paymentBadgeHtml(order) {
   }
   if (order.status === "Cancelled" && order.payment_status === "paid") {
     return `<span class="badge badge-refund">Refund Needed</span>`;
+  }
+  if (order.payment_status === "refunded") {
+    return `<span class="badge badge-paid">Refunded</span>`;
   }
   if (order.payment_status === "paid") {
     return `<span class="badge badge-paid">Paid Online</span>`;
@@ -103,6 +138,8 @@ async function adminFetch(url, options = {}) {
       Authorization: `Bearer ${adminToken}`,
     },
   });
+  // 401 = the session really ended. (A section this admin isn't allowed to
+  // use answers 403 instead, which never logs anyone out.)
   if (res.status === 401) {
     logout();
     throw new Error("Session expired. Please log in again.");
@@ -110,130 +147,100 @@ async function adminFetch(url, options = {}) {
   return res;
 }
 
-document.getElementById("logoutBtn").addEventListener("click", logout);
+// ---------------------------------------------------------------------
+// Permissions: admins created by the main admin only see (and load) the
+// sections they were given. Main admin = { all: true }.
+// ---------------------------------------------------------------------
+let adminPermissions = { all: true }; // replaced with the real ones right after sign-in
+const adminCan = (perm) => Boolean(adminPermissions.all || adminPermissions[perm]);
+window.adminCan = adminCan;
 
-document
-  .getElementById("forgotAdminPasswordBtn")
-  .addEventListener("click", async () => {
-    const email = prompt(
-      "Enter the admin email address for the password reset link:",
-    );
-    if (!email) return;
+const TAB_PERMISSIONS = {
+  dashboard: ["orders"], orders: ["orders"], placeorder: ["orders"], history: ["orders"], sales: ["orders"],
+  reservations: ["orders"], menu: ["menu"], specials: ["menu"], addons: ["menu"], reviews: ["reviews"],
+  buffet: ["buffet"], customers: ["customers"], audit: ["audit"],
+  settings: ["settings", "admin_accounts", "marketing", "menu"],
+};
+const SETTINGS_TAB_PERMISSIONS = {
+  general: ["settings"], staff: ["settings"], "admin-accounts": ["admin_accounts"], categories: ["menu"],
+  delivery: ["settings"], payments: ["settings"], security: ["settings"], marketing: ["marketing"],
+};
+const allowed = (needs) => !needs || needs.some(adminCan);
 
-    try {
-      const res = await fetch("/api/admin/forgot-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success)
-        throw new Error(data.error || "Couldn't send reset email.");
-      alert(
-        data.message ||
-          "If that email has an admin account, a reset link is on its way.",
-      );
-    } catch (err) {
-      alert(err.message || "Couldn't process that request.");
-    }
+async function loadAdminPermissions() {
+  try {
+    const res = await adminFetch("/api/admin/me");
+    if (res.ok) adminPermissions = (await res.json()).permissions || {};
+  } catch {
+    /* logged out by adminFetch if the session is gone */
+  }
+}
+
+/** Hides sidebar tabs, settings tabs and shortcut buttons this admin can't use; opens the first allowed tab. */
+function applyAdminPermissions() {
+  document.querySelectorAll(".admin-tab-btn").forEach((btn) => {
+    btn.style.display = allowed(TAB_PERMISSIONS[btn.dataset.tab]) ? "" : "none";
   });
+  document.querySelectorAll("[data-goto-tab]").forEach((btn) => {
+    btn.style.display = allowed(TAB_PERMISSIONS[btn.dataset.gotoTab]) ? "" : "none";
+  });
+  document.querySelectorAll(".settings-tab-btn").forEach((btn) => {
+    btn.style.display = allowed(SETTINGS_TAB_PERMISSIONS[btn.dataset.settingsTab]) ? "" : "none";
+  });
+  const activeTab = document.querySelector(".admin-tab-btn.active");
+  if (!activeTab || activeTab.style.display === "none") {
+    [...document.querySelectorAll(".admin-tab-btn")].find((b) => b.style.display !== "none")?.click();
+  }
+  const activeSettings = document.querySelector(".settings-tab-btn.active");
+  if (activeSettings && activeSettings.style.display === "none") {
+    [...document.querySelectorAll(".settings-tab-btn")].find((b) => b.style.display !== "none")?.click();
+  }
+}
+
+document.getElementById("logoutBtn").addEventListener("click", logout);
 
 function logout() {
   adminToken = null;
   localStorage.removeItem(TOKEN_KEY);
   clearInterval(pollIntervalId);
-  document.getElementById("dashboard").style.display = "none";
-  document.getElementById("loginScreen").style.display = "flex";
-  document.getElementById("loginForm").style.display = "block";
-  document.getElementById("adminResetForm").style.display = "none";
+  window.location.assign("/home");
 }
 
-function showDashboard() {
-  document.getElementById("loginScreen").style.display = "none";
+async function showDashboard() {
   document.getElementById("dashboard").style.display = "grid";
+  await loadAdminPermissions();
+  if (!adminToken) return; // the session ended while checking
+  applyAdminPermissions();
   loadEverything();
-  pollIntervalId = setInterval(loadOrders, 30000);
+  clearInterval(pollIntervalId);
+  pollIntervalId = setInterval(adminLivePoll, ADMIN_POLL_MS);
   initAdminAudio();
   setupAdminAlertToggle();
-}
-
-document.getElementById("loginForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const errorEl = document.getElementById("loginError");
-  errorEl.style.display = "none";
-
-  try {
-    const res = await fetch("/api/admin/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: document.getElementById("adminEmail").value.trim(),
-        password: document.getElementById("adminPassword").value,
-      }),
+  if (!adminPushBound) {
+    adminPushBound = true;
+    FuludePWA.bindPushToggle(document.getElementById("pushToggleBtn"), "admin", () => adminToken, {
+      onLabel: "Alerts on",
+      offLabel: "Phone alerts",
     });
-    const data = await res.json();
-    if (!res.ok || !data.success)
-      throw new Error(data.error || "Couldn't log in.");
-
-    adminToken = data.token;
-    localStorage.setItem(TOKEN_KEY, adminToken);
-    document.getElementById("loginForm").reset();
-    showDashboard();
-  } catch (err) {
-    errorEl.textContent = err.message || "Couldn't log in.";
-    errorEl.style.display = "block";
   }
-});
+}
+let adminPushBound = false;
+FuludePWA.setupInstallButton("Install admin app");
 
 function initAdminAudio() {
-  if (adminAudioContext) return;
-  try {
-    adminAudioContext = new (
-      window.AudioContext || window.webkitAudioContext
-    )();
-  } catch (e) {
-    adminAudioContext = null;
-  }
+  FuludeOrderAlert.init();
 }
 
 function playAdminBeep(repeats = 2) {
-  if (!adminAudioContext) return;
-  if (localStorage.getItem(ADMIN_ALERTS_MUTED_KEY) === "1") return;
-  const ctx = adminAudioContext;
-  const now = ctx.currentTime;
-  for (let i = 0; i < repeats; i++) {
-    const t = now + i * 0.18;
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = "sine";
-    o.frequency.value = 880 - i * 80;
-    g.gain.value = 0;
-    o.connect(g);
-    g.connect(ctx.destination);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.12, t + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
-    o.start(t);
-    o.stop(t + 0.14);
-  }
+  FuludeOrderAlert.play(repeats, ADMIN_ALERTS_MUTED_KEY);
 }
 
 function setupAdminAlertToggle() {
-  const btn = document.getElementById("alertMuteBtn");
-  const icon = document.getElementById("alertMuteIcon");
-  if (!btn) return;
-  const update = () => {
-    const muted = localStorage.getItem(ADMIN_ALERTS_MUTED_KEY) === "1";
-    if (icon)
-      icon.className = muted ? "fas fa-volume-mute" : "fas fa-volume-up";
-    btn.title = muted ? "Unmute order alerts" : "Mute order alerts";
-  };
-  btn.addEventListener("click", () => {
-    const muted = localStorage.getItem(ADMIN_ALERTS_MUTED_KEY) === "1";
-    localStorage.setItem(ADMIN_ALERTS_MUTED_KEY, muted ? "0" : "1");
-    update();
-  });
-  update();
+  FuludeOrderAlert.bindMuteButton(
+    document.getElementById("alertMuteBtn"),
+    document.getElementById("alertMuteIcon"),
+    ADMIN_ALERTS_MUTED_KEY,
+  );
 }
 
 // ---------------------------------------------------------------------
@@ -263,22 +270,31 @@ document.querySelectorAll(".admin-tab-btn").forEach((btn) => {
       loadAudit(true);
     }
     if (btn.dataset.tab === "customers") loadCustomerRecords();
+    if (btn.dataset.tab === "buffet") loadBuffetEventsAdmin();
     if (btn.dataset.tab === "settings") loadAdminAccounts();
   });
 });
 
+/** Loads only the sections this admin is allowed to use. */
 function loadEverything() {
-  loadOrders();
-  loadCategories();
-  loadMenuItems();
-  loadAddonsAndSpice();
-  loadAdminReviews();
-  loadBuffetSetting();
+  if (adminCan("orders")) {
+    loadOrders();
+    loadReservations();
+  }
+  if (adminCan("menu")) {
+    loadCategories();
+    loadMenuItems();
+    loadAddonsAndSpice();
+  }
+  if (adminCan("reviews")) loadAdminReviews();
+  if (adminCan("settings")) {
+    loadBuffetSetting();
+    loadStaffAccounts();
+  }
+  if (adminCan("admin_accounts")) loadAdminAccounts();
   initBuffetAdminHandlers();
+  initStoreStatusHandlers();
   initAuditHandlers();
-  loadStaffAccounts();
-  loadReservations();
-  loadAdminAccounts();
 }
 
 async function loadCustomerRecords() {
@@ -304,6 +320,9 @@ async function loadCustomerRecords() {
   }
 }
 
+let adminAccountsById = {};
+let adminAccountsMeta = { me: null, can_manage: false, helper_limit: 2, helper_count: 0 };
+
 async function loadAdminAccounts() {
   const list = document.getElementById("adminAccountsList");
   if (!list) return;
@@ -312,24 +331,130 @@ async function loadAdminAccounts() {
     const data = await response.json();
     if (!response.ok)
       throw new Error(data.error || "Failed to load admin accounts.");
+    adminAccountsMeta = { me: data.me, can_manage: Boolean(data.can_manage), helper_limit: data.helper_limit ?? 2, helper_count: data.helper_count ?? 0 };
+    updateAdminLimitNote();
+    adminAccountsById = Object.fromEntries((data.accounts || []).map((a) => [a.id, a]));
     list.innerHTML =
       (data.accounts || [])
-        .map(
-          (account) =>
-            `<div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">${account.email}</div><div class="sa-list-sub">Permissions: ${
-              account.permissions?.all
-                ? "All"
-                : Object.keys(account.permissions || {})
-                    .filter((key) => account.permissions[key])
-                    .join(", ") || "None"
-            }</div></div></div>`,
-        )
+        .map((account) => {
+          const isMe = Number(account.id) === Number(data.me);
+          const perms = account.permissions?.all
+            ? "Main admin (full access)"
+            : Object.keys(account.permissions || {})
+                .filter((key) => account.permissions[key])
+                .join(", ") || "None";
+          // Another admin's main (full-access) account can't be changed by anyone else.
+          const protectedMain = Boolean(account.permissions?.all) && !isMe;
+          const actions = data.can_manage && !protectedMain
+            ? `<div style="display:flex;gap:6px;margin-top:8px">
+                <button type="button" class="admin-mini-btn" data-edit-admin="${account.id}"><i class="fas fa-pen"></i> Edit</button>
+                ${account.is_locked ? `<button type="button" class="admin-mini-btn unlock" data-unlock-admin="${account.id}" title="Let this admin try signing in again"><i class="fas fa-lock-open"></i> Unlock</button>` : ""}
+                ${isMe ? "" : `<button type="button" class="admin-mini-btn danger" data-delete-admin="${account.id}"><i class="fas fa-trash"></i> Delete</button>`}
+              </div>`
+            : "";
+          return `<div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">${escapeHtml(account.username || account.email)}${isMe ? " <small>(you)</small>" : ""}${account.is_active === false ? ' <span class="badge badge-refund">Disabled</span>' : ""}${account.is_locked ? ' <span class="badge badge-refund">Locked</span>' : ""}${account.email_verified === false ? ' <span class="badge">Email not verified</span>' : ""}</div><div class="sa-list-sub">${escapeHtml(account.email)}</div><div class="sa-list-sub">Permissions: ${escapeHtml(perms)}</div>${actions}</div></div>`;
+        })
         .join("") ||
       '<p class="menu-empty">No database admin accounts yet.</p>';
   } catch (error) {
     list.innerHTML = `<p class="form-error">${error.message}</p>`;
   }
 }
+
+/** "You've reached the 2-admin limit." note under the create form. */
+function updateAdminLimitNote() {
+  const status = document.getElementById("adminAccountStatus");
+  const editing = document.getElementById("adminAccountId")?.value;
+  if (!status || editing) return;
+  const reached = adminAccountsMeta.helper_count >= adminAccountsMeta.helper_limit;
+  if (reached) status.textContent = `You've reached the ${adminAccountsMeta.helper_limit}-admin limit.`;
+  else if (status.textContent.startsWith("You've reached")) status.textContent = "";
+}
+
+/** Back to "Create Admin Account". */
+function resetAdminAccountForm() {
+  const form = document.getElementById("adminAccountForm");
+  form.reset();
+  document.getElementById("adminAccountId").value = "";
+  document.getElementById("adminAccountFormTitle").textContent = "Create Admin Account";
+  document.getElementById("adminAccountSubmitBtn").textContent = "Create Admin Account";
+  document.getElementById("adminAccountPasswordLabel").textContent = "Password";
+  document.getElementById("adminAccountEmail").readOnly = false;
+  document.getElementById("adminAccountPassword").required = true;
+  document.getElementById("adminAccountCancelBtn").style.display = "none";
+  document.getElementById("adminActiveOption").style.display = "none";
+  document.getElementById("adminPermissionOptions").style.display = "";
+  editingFullAccess = false;
+}
+
+// True while a main (full-access) admin is editing their own account, so
+// their full access is kept without needing a checkbox.
+var editingFullAccess = false;
+
+function startEditAdminAccount(account) {
+  const form = document.getElementById("adminAccountForm");
+  document.getElementById("adminAccountId").value = account.id;
+  document.getElementById("adminAccountEmail").value = account.email;
+  // The email address is fixed once the account exists.
+  document.getElementById("adminAccountEmail").readOnly = true;
+  document.getElementById("adminAccountUsername").value = account.username || "";
+  document.getElementById("adminAccountPassword").value = "";
+  document.getElementById("adminAccountPassword").required = false;
+  document.getElementById("adminAccountPasswordLabel").textContent = "New Password (leave blank to keep)";
+  document.getElementById("adminAccountFormTitle").textContent = `Edit: ${account.email}`;
+  document.getElementById("adminAccountSubmitBtn").textContent = "Save Changes";
+  document.getElementById("adminAccountCancelBtn").style.display = "";
+  document.getElementById("adminActiveOption").style.display = "";
+  document.getElementById("adminAccountActive").checked = account.is_active !== false;
+  const full = Boolean(account.permissions?.all);
+  editingFullAccess = full;
+  document.getElementById("adminPermissionOptions").style.display = full ? "none" : "";
+  document.querySelectorAll("#adminPermissionOptions input").forEach((input) => {
+    input.checked = full || Boolean(account.permissions?.[input.value]);
+  });
+  document.getElementById("adminAccountStatus").textContent = "";
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+document.getElementById("adminAccountCancelBtn")?.addEventListener("click", resetAdminAccountForm);
+
+document.getElementById("adminAccountsList")?.addEventListener("click", async (e) => {
+  const editBtn = e.target.closest("[data-edit-admin]");
+  if (editBtn) {
+    const account = adminAccountsById[editBtn.dataset.editAdmin];
+    if (account) startEditAdminAccount(account);
+    return;
+  }
+  const unlockBtn = e.target.closest("[data-unlock-admin]");
+  if (unlockBtn) {
+    const response = await adminFetch("/api/admin/accounts", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: Number(unlockBtn.dataset.unlockAdmin), unlock: true }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) alert(data.error || "Couldn't unlock the account.");
+    loadAdminAccounts();
+    return;
+  }
+  const delBtn = e.target.closest("[data-delete-admin]");
+  if (!delBtn) return;
+  const account = adminAccountsById[delBtn.dataset.deleteAdmin];
+  if (!account) return;
+  if (!confirm(`Delete the admin account ${account.email}?\n\nThey'll be signed out and won't be able to log in again. This can't be undone.`)) return;
+  const response = await adminFetch("/api/admin/accounts", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: account.id }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success) {
+    alert(data.error || "Couldn't delete the account.");
+    return;
+  }
+  if (String(document.getElementById("adminAccountId").value) === String(account.id)) resetAdminAccountForm();
+  loadAdminAccounts();
+});
 
 document
   .getElementById("customerSearchBtn")
@@ -338,27 +463,39 @@ document
   .getElementById("adminAccountForm")
   ?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const permissions = Object.fromEntries(
-      [...document.querySelectorAll("#adminPermissionOptions input")].map(
-        (input) => [input.value, input.checked],
-      ),
-    );
+    const fullAccess = editingFullAccess;
+    const permissions = fullAccess
+      ? { all: true }
+      : Object.fromEntries(
+          [...document.querySelectorAll("#adminPermissionOptions input")].map(
+            (input) => [input.value, input.checked],
+          ),
+        );
     const status = document.getElementById("adminAccountStatus");
+    const editingId = document.getElementById("adminAccountId").value;
+    if (!editingId && !fullAccess && adminAccountsMeta.helper_count >= adminAccountsMeta.helper_limit) {
+      status.textContent = `You've reached the ${adminAccountsMeta.helper_limit}-admin limit.`;
+      return;
+    }
     try {
       const response = await adminFetch("/api/admin/accounts", {
-        method: "POST",
+        method: editingId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: document.getElementById("adminAccountEmail").value.trim(),
+          id: editingId ? Number(editingId) : undefined,
+          // Email is only sent when creating - it can't be changed afterwards.
+          email: editingId ? undefined : document.getElementById("adminAccountEmail").value.trim(),
+          username: document.getElementById("adminAccountUsername").value.trim(),
           password: document.getElementById("adminAccountPassword").value,
           permissions,
+          is_active: editingId ? document.getElementById("adminAccountActive").checked : undefined,
         }),
       });
       const data = await response.json();
       if (!response.ok || !data.success)
-        throw new Error(data.error || "Failed to create admin account.");
-      status.textContent = "Admin account created.";
-      event.currentTarget.reset();
+        throw new Error(data.error || (editingId ? "Failed to save the admin account." : "Failed to create admin account."));
+      resetAdminAccountForm();
+      status.textContent = editingId ? "Admin account updated." : "Admin account created. A verification link was emailed to them - they can't sign in until they click it.";
       loadAdminAccounts();
     } catch (error) {
       status.textContent = error.message;
@@ -368,10 +505,29 @@ document
 // ---------------------------------------------------------------------
 // Orders: poll every 30s
 // ---------------------------------------------------------------------
+/**
+ * Live refresh every 5s so nobody has to reload the page: the kitchen
+ * board always (it drives the new-order beep, even in a background tab),
+ * plus whatever fast-changing tab is open while the page is visible.
+ */
+const ADMIN_POLL_MS = 5000;
+let adminPollTick = 0;
+function adminLivePoll() {
+  adminPollTick++;
+  if (!adminCan("orders")) return; // nothing live to refresh for this admin
+  loadOrders();
+  if (document.hidden) return;
+  const tab = document.querySelector(".admin-tab-btn.active")?.dataset.tab;
+  if (tab === "reservations") loadReservations();
+  // The dashboard pulls full history - every 30s is plenty.
+  if (tab === "dashboard" && adminPollTick % 6 === 0 && typeof loadDashboardData === "function") loadDashboardData();
+}
+
 async function loadOrders() {
   try {
     const res = await adminFetch("/api/admin/pending-orders");
     const data = await res.json();
+    kdsScheduleNextRelease(data, loadOrders);
     const orders = data.orders || [];
 
     document.getElementById("orderCountBadge").textContent = orders.length;
@@ -486,11 +642,16 @@ document.querySelectorAll('.admin-tab-btn[data-tab="menu"]').forEach(btn => {
 /** Sticky kitchen control bar above the board: instant operational visibility. */
 const KITCHEN_CAPACITY = 12; // active tickets considered a "full" kitchen
 
-function renderKitchenStrip(orders) {
-  const active = orders.filter((o) =>
-    ["New", "Preparing", "Ready", "Collection", "Delivery", "Out for Delivery"].includes(o.status),
-  );
-  const ages = active.map(kdsMinutes);
+function renderKitchenStrip(allOrders) {
+  // Stats cover today's orders only, so they start from zero at midnight.
+  const orders = allOrders.filter(kdsIsToday);
+  const note = document.getElementById("kpiResetNote");
+  if (note) note.textContent = kdsResetLabel();
+  // Only tickets the kitchen is still working on count towards ticket age,
+  // longest wait and load - once an order is out for collection/delivery
+  // it stops counting.
+  const active = orders.filter((o) => ["New", "Preparing", "Ready"].includes(o.status));
+  const ages = active.filter(kdsCountsInStats).map(kdsMinutes);
   const avgAge = ages.length
     ? Math.round(ages.reduce((s, m) => s + m, 0) / ages.length)
     : 0;
@@ -509,13 +670,17 @@ function renderKitchenStrip(orders) {
   set("kpiWaiting", orders.filter((o) => o.status === "New").length);
   set("kpiPreparing", orders.filter((o) => o.status === "Preparing").length);
   set("kpiReady", orders.filter((o) => o.status === "Ready").length);
-  set("kpiPrepTime", active.length ? `${avgAge} min` : "—");
-  set("kpiLongest", active.length ? `${longest} min` : "—", longest >= 30);
+  set("kpiPrepTime", ages.length ? `${avgAge} min` : "—");
+  set("kpiLongest", ages.length ? `${longest} min` : "—", longest >= 30);
   set("kpiEfficiency", `${load}%`, load >= 90);
 }
 
+let lastKitchenOrders = [];
+kdsOnTick(() => renderKitchenStrip(lastKitchenOrders)); // live Avg Ticket Age / Longest Waiting
+
 function renderOrders(orders) {
   const list = document.getElementById("ordersList");
+  lastKitchenOrders = orders;
   renderKitchenStrip(orders);
 
   list.innerHTML = kdsBoardHtml(orders, [
@@ -533,7 +698,7 @@ function renderOrders(orders) {
     confirmAction: (order, status) => {
       if (status === "Cancelled" && order.payment_status === "paid") {
         return confirm(
-          `Order #${order.id} was already paid online (${money(order.total_amount)}). Cancelling does NOT refund it automatically - you'll need to log into Yoco and refund it yourself (Transactions History${order.payment_ref ? `, ref: ${order.payment_ref}` : ""}).\n\nCancel this order anyway?`,
+          `Order #${order.id} was already paid online (${money(order.total_amount)}). Cancelling marks it "Refund needed" - you can then refund it with one tap from Order History (the "Refund via Yoco" button).\n\nCancel this order?`,
         );
       }
       if (status !== "Cancelled" && order.payment_status !== "paid") {
@@ -668,6 +833,7 @@ function renderOrderHistory(orders) {
         (order.status === "Cancelled" &&
           order.payment_status === "paid" &&
           order.refund_processed_at == null);
+      const statusLabel = order.status === "Cancelled" ? cancelledStatusLabel(order) : order.status;
 
       return `
       <div class="admin-order-card status-${order.status.toLowerCase()}${refundNeeded ? " refund-needed" : ""}">
@@ -676,22 +842,74 @@ function renderOrderHistory(orders) {
           <span>${money(order.total_amount)}</span>
         </div>
         <div class="admin-order-meta">
-          ${orderDate} · ${order.status} · ${order.customer_phone} · ${describeOrderType(order)} · ${order.pickup_time} · ${paymentBadgeHtml(order)}
+          ${orderDate} · ${order.status === "Cancelled" ? `<strong class="${refundNeeded ? "refund-needed-note" : ""}">${statusLabel}</strong>` : statusLabel} · ${order.customer_phone} · ${describeOrderType(order)} · ${order.pickup_time} · ${paymentBadgeHtml(order)}
           ${order.special_instructions ? `<br>Note: ${order.special_instructions}` : ""}
-          ${refundNeeded ? `<br><strong class="refund-needed-note">Refund needed via Yoco${order.payment_ref ? ` (ref: ${order.payment_ref})` : ""}</strong><br><button class="btn btn-secondary mark-refund-btn" data-order-id="${order.id}">Mark refund processed</button>` : order.refund_processed_at ? `<br>Refund marked processed ${new Date(order.refund_processed_at).toLocaleString("en-ZA")}` : ""}
+          ${
+            refundNeeded
+              ? `<div class="refund-actions">
+                  ${order.refund_error ? `<div class="refund-error">Last refund attempt failed: ${escapeHtml(order.refund_error)}</div>` : ""}
+                  <button type="button" class="admin-mini-btn refund-yoco-btn" data-order-id="${order.id}" data-amount="${order.total_amount}"><i class="fas fa-rotate-left"></i> Refund ${money(order.total_amount)} via Yoco</button>
+                  <button type="button" class="admin-mini-btn mark-refund-btn" data-order-id="${order.id}">Already refunded in Yoco</button>
+                </div>`
+              : order.refund_processed_at
+                ? `<br>Refunded ${new Date(order.refund_processed_at).toLocaleString("en-ZA")}${order.refund_ref ? ` (Yoco ref: ${escapeHtml(order.refund_ref)})` : ""}`
+                : ""
+          }
         </div>
+        ${
+          order.order_type === "delivery" && ["Delivery", "Completed"].includes(order.status)
+            ? `<label class="admin-delivered-tick"><input type="checkbox" data-delivered-order="${order.id}" ${order.delivered_at ? "checked" : ""}> Delivered${order.delivered_at ? ` · ${new Date(order.delivered_at).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit", hour12: false })}` : ""}</label>`
+            : ""
+        }
         <ul class="admin-order-items">${itemsHtml}</ul>
       </div>
     `;
     })
     .join("");
 
-  list.querySelectorAll(".mark-refund-btn").forEach((button) =>
+  list.querySelectorAll("[data-delivered-order]").forEach((box) =>
+    box.addEventListener("change", async () => {
+      box.disabled = true;
+      const response = await adminFetch("/api/admin/order-delivered", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_id: Number(box.dataset.deliveredOrder), delivered: box.checked }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) alert(data.error || "Couldn't update the delivered tick.");
+      loadOrderHistory(true);
+    }),
+  );
+
+  list.querySelectorAll(".refund-yoco-btn").forEach((button) =>
     button.addEventListener("click", async () => {
-      if (!confirm("Confirm the refund has been completed in Yoco?")) return;
+      const id = Number(button.dataset.orderId);
+      if (!confirm(`Refund ${money(button.dataset.amount)} for order #${id} back to the customer's card through Yoco now?`)) return;
+      button.disabled = true;
+      button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Refunding…';
       const response = await adminFetch("/api/admin/refund", {
         method: "POST",
-        body: JSON.stringify({ order_id: Number(button.dataset.orderId) }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_id: id, mode: "yoco" }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) {
+        alert(data.error || "The refund didn't go through.");
+        loadOrderHistory(true);
+        return;
+      }
+      alert(`Order #${id} refunded through Yoco. It usually reaches the customer's card within a few business days.`);
+      loadOrderHistory(true);
+    }),
+  );
+
+  list.querySelectorAll(".mark-refund-btn").forEach((button) =>
+    button.addEventListener("click", async () => {
+      if (!confirm("Only use this if you already refunded this order yourself in the Yoco dashboard. Mark it as refunded?")) return;
+      const response = await adminFetch("/api/admin/refund", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_id: Number(button.dataset.orderId), mode: "manual" }),
       });
       const data = await response.json();
       if (!response.ok || !data.success)
@@ -1103,32 +1321,62 @@ function renderCategoryOptions() {
   }
 }
 
-/** Show/hide ingredients field based on category (hide for Dessert, Drinks) */
+/** A category counts as drinks when its name says so (keep DRINK_CATEGORY_RE in menu.js in sync). */
+function isDrinksCategory(cat) {
+  return !!cat && /drink|beverage|juice|soda|cocktail|alcohol|liquor|wine|beer|smoothie|shake|coffee|\btea\b/i.test(`${cat.slug} ${cat.name}`);
+}
+
+/** Drinks: show the drink-type picker, hide photos + ingredients. Dessert: hide ingredients. */
+function updateMenuFormForCategory() {
+  const categorySelect = document.getElementById("itemCategory");
+  if (!categorySelect) return;
+  const selectedCat = categories.find((c) => String(c.id) === categorySelect.value);
+  const drinks = isDrinksCategory(selectedCat);
+  const ingredientsGroup = document.getElementById("itemIngredients")?.closest(".form-group");
+  if (ingredientsGroup) ingredientsGroup.style.display = drinks || selectedCat?.slug === "dessert" ? "none" : "block";
+  document.getElementById("itemDrinkTypeGroup").style.display = drinks ? "block" : "none";
+  document.getElementById("itemPhotosGroup").style.display = drinks ? "none" : "";
+  document.getElementById("itemImageThumbs").style.display = drinks ? "none" : "";
+}
+
+let menuCategoryListenerAttached = false;
 function setupIngredientsVisibility() {
   const categorySelect = document.getElementById("itemCategory");
-  const ingredientsGroup = document.getElementById("itemIngredients")?.closest(".form-group");
-  if (!categorySelect || !ingredientsGroup) return;
-
-  // Category slugs that should NOT show ingredients
-  const excludedSlugs = new Set(["dessert", "drinks"]);
-
-  function checkVisibility() {
-    const selectedId = categorySelect.value;
-    const selectedCat = categories.find((c) => String(c.id) === selectedId);
-    const shouldHide = selectedCat && excludedSlugs.has(selectedCat.slug);
-    ingredientsGroup.style.display = shouldHide ? "none" : "block";
+  if (!categorySelect) return;
+  if (!menuCategoryListenerAttached) {
+    categorySelect.addEventListener("change", updateMenuFormForCategory);
+    menuCategoryListenerAttached = true;
   }
-
-  categorySelect.addEventListener("change", checkVisibility);
-  checkVisibility(); // initial
+  updateMenuFormForCategory();
 }
 
 function renderCategoriesList() {
   const list = document.getElementById("categoriesList");
   list.innerHTML = categories
-    .map((c) => `<span class="admin-chip">${c.name}</span>`)
+    .map(
+      (c) =>
+        `<span class="admin-chip">${escapeHtml(c.name)}<button type="button" class="chip-remove" data-delete-category="${c.id}" title="Delete ${escapeHtml(c.name)}" aria-label="Delete ${escapeHtml(c.name)}">&times;</button></span>`,
+    )
     .join("");
 }
+
+document.getElementById("categoriesList")?.addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-delete-category]");
+  if (!btn) return;
+  const cat = categories.find((c) => String(c.id) === btn.dataset.deleteCategory);
+  if (!cat || !confirm(`Delete the category "${cat.name}"?`)) return;
+  const res = await adminFetch("/api/admin/categories", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: cat.id }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    alert(data.error || "Couldn't delete the category.");
+    return;
+  }
+  loadCategories();
+});
 
 document
   .getElementById("categoryForm")
@@ -1238,7 +1486,7 @@ function renderMenuItemsList() {
       return `
       <tr>
         <td>${item.image_url ? `<img src="${item.image_url}" alt="${item.name}" loading="lazy" />` : `<div class="table-noimg"></div>`}</td>
-        <td><strong>${item.name}</strong>${item.accepts_spice || item.accepts_addons ? `<div class="admin-item-meta">${[item.accepts_spice ? "Spice" : "", item.accepts_addons ? "Extras" : ""].filter(Boolean).join(" · ")}</div>` : ""}</td>
+        <td><strong>${item.name}</strong>${item.accepts_spice || item.accepts_addons || (item.side_ids || []).length ? `<div class="admin-item-meta">${[item.accepts_spice ? "Spice" : "", item.accepts_addons ? "Extras" : "", (item.side_ids || []).length ? "Side choice" : ""].filter(Boolean).join(" · ")}</div>` : ""}</td>
         <td>${item.category_name}</td>
         <td>${priceHtml}</td>
         <td><button class="admin-mini-btn${stockButtonClass(item)}" data-action="edit-stock" data-id="${item.id}">${stockButtonLabel(item)}</button></td>
@@ -1455,6 +1703,21 @@ document.getElementById("specialForm").addEventListener("submit", async (e) => {
   document.getElementById("specialForm").reset();
 });
 
+function renderSideCheckboxesForForm(selectedIds = []) {
+  const container = document.getElementById("itemSideCheckboxes");
+  if (!container) return;
+  if (sides.length === 0) {
+    container.innerHTML = `<p class="admin-hint">Add sides in the "Extras" tab first.</p>`;
+    return;
+  }
+  container.innerHTML = sides
+    .map(
+      (sd) =>
+        `<label class="checkbox-option"><input type="checkbox" value="${sd.id}" ${selectedIds.includes(sd.id) ? "checked" : ""} /> ${sd.name}</label>`,
+    )
+    .join("");
+}
+
 function renderAddonCheckboxesForForm(selectedIds = []) {
   const container = document.getElementById("itemAddonCheckboxes");
   if (addons.length === 0) {
@@ -1491,6 +1754,8 @@ function populateFormForEdit(item) {
   document.getElementById("itemAcceptsSpice").checked = item.accepts_spice;
   document.getElementById("itemAcceptsAddons").checked = item.accepts_addons;
   document.getElementById("itemIngredients").value = item.ingredients || "";
+  document.getElementById("itemDrinkType").value = item.drink_type || "beverage";
+  updateMenuFormForCategory();
 
   formImages =
     Array.isArray(item.images) && item.images.length > 0
@@ -1501,6 +1766,7 @@ function populateFormForEdit(item) {
   renderImageThumbs();
 
   renderAddonCheckboxesForForm(item.addon_ids || []);
+  renderSideCheckboxesForForm(item.side_ids || []);
   document.getElementById("cancelEditBtn").style.display = "inline-block";
 }
 
@@ -1514,6 +1780,8 @@ function resetMenuForm() {
   formImages = [];
   renderImageThumbs();
   renderAddonCheckboxesForForm([]);
+  renderSideCheckboxesForForm([]);
+  updateMenuFormForCategory();
 }
 
 /** Renders the uploaded-photo thumbnail strip, first photo marked as the cover. */
@@ -1580,18 +1848,24 @@ document
         ? carriedSpecialPrice
         : null;
 
+    const categoryId = parseInt(document.getElementById("itemCategory").value, 10);
+    const isDrink = isDrinksCategory(categories.find((c) => c.id === categoryId));
     const payload = {
-      category_id: parseInt(document.getElementById("itemCategory").value, 10),
+      category_id: categoryId,
+      drink_type: isDrink ? document.getElementById("itemDrinkType").value : null,
       name: document.getElementById("itemName").value.trim(),
       description: document.getElementById("itemDescription").value.trim(),
       price,
       special_price: specialPrice,
-      images: formImages,
+      images: isDrink ? [] : formImages,
       stock_quantity: stockQuantity,
       is_visible: document.getElementById("itemVisible").checked,
       accepts_spice: document.getElementById("itemAcceptsSpice").checked,
       accepts_addons: document.getElementById("itemAcceptsAddons").checked,
       addon_ids: selectedAddonIds,
+      side_ids: [...document.querySelectorAll("#itemSideCheckboxes input:checked")].map((el) =>
+        parseInt(el.value, 10),
+      ),
       ingredients: document.getElementById("itemIngredients").value
         .split("\n")
         .map((s) => s.trim())
@@ -1674,7 +1948,7 @@ document.getElementById("itemImage").addEventListener("change", async (e) => {
  * an oversized upload - keeping R2 usage and Worker CPU time inside the
  * free tier.
  */
-function compressImageToWebP(file, maxBytes = 300 * 1024) {
+function compressImageToWebP(file, maxBytes = 300 * 1024, type = "image/webp") {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("Could not read the file."));
@@ -1719,7 +1993,7 @@ function compressImageToWebP(file, maxBytes = 300 * 1024) {
               }
               tryExport();
             },
-            "image/webp",
+            type, // "image/jpeg" for email images - every email app can show JPEG
             quality,
           );
         };
@@ -1740,8 +2014,10 @@ async function loadAddonsAndSpice() {
   const data = await res.json();
   addons = data.addons || [];
   spiceLevels = data.spice_levels || [];
+  sides = data.sides || [];
   renderAddonsList();
   renderSpiceLevelsList();
+  renderSidesList();
 
   // Keep the menu item form's extras checkboxes in sync, preserving
   // whatever is currently checked (e.g. mid-edit) where possible.
@@ -1749,6 +2025,18 @@ async function loadAddonsAndSpice() {
     ...document.querySelectorAll("#itemAddonCheckboxes input:checked"),
   ].map((el) => parseInt(el.value, 10));
   renderAddonCheckboxesForForm(currentlyChecked);
+  renderSideCheckboxesForForm(
+    [...document.querySelectorAll("#itemSideCheckboxes input:checked")].map((el) => parseInt(el.value, 10)),
+  );
+}
+
+function renderSidesList() {
+  const list = document.getElementById("sidesList");
+  if (!list) return;
+  list.innerHTML = sides
+    .map((sd) => `<span class="admin-chip">${sd.name} <button data-id="${sd.id}" data-type="side">&times;</button></span>`)
+    .join("");
+  attachChipDeleteHandlers(list);
 }
 
 function renderAddonsList() {
@@ -1776,10 +2064,11 @@ function renderSpiceLevelsList() {
 function attachChipDeleteHandlers(container) {
   container.querySelectorAll("button[data-id]").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      const isSpice = btn.dataset.type === "spice";
-      const query = isSpice
-        ? `?type=spice&id=${btn.dataset.id}`
-        : `?id=${btn.dataset.id}`;
+      const type = btn.dataset.type;
+      const query =
+        type === "spice" || type === "side"
+          ? `?type=${type}&id=${btn.dataset.id}`
+          : `?id=${btn.dataset.id}`;
       await adminFetch(`/api/admin/addons${query}`, { method: "DELETE" });
       loadAddonsAndSpice();
     });
@@ -1800,6 +2089,18 @@ document.getElementById("addonForm").addEventListener("submit", async (e) => {
   });
   nameInput.value = "";
   priceInput.value = "";
+  loadAddonsAndSpice();
+});
+
+document.getElementById("sideForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const nameInput = document.getElementById("sideName");
+  await adminFetch("/api/admin/addons?type=side", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: nameInput.value.trim() }),
+  });
+  nameInput.value = "";
   loadAddonsAndSpice();
 });
 
@@ -1869,8 +2170,10 @@ function renderReviewSummary(reviews) {
 }
 
 async function loadAdminReviews() {
-  const res = await fetch("/api/review");
-  const data = await res.json();
+  // Admin endpoint: every review including pending ones (the public
+  // /api/review only returns approved reviews, so pending never showed here).
+  const res = await adminFetch("/api/admin/reviews");
+  const data = await res.json().catch(() => ({}));
   const reviews = data.reviews || [];
   const list = document.getElementById("adminReviewsList");
   renderReviewSummary(reviews);
@@ -1882,27 +2185,41 @@ async function loadAdminReviews() {
 
   list.innerHTML = reviews
     .map((r) => {
+      const statusColors = { pending: "var(--sa-gold)", approved: "var(--sa-green-deep, #1a7f37)", rejected: "var(--sa-red)" };
       const statusBadge = r.status
-        ? `<div class="admin-item-meta">Status: <strong>${r.status}</strong></div>`
+        ? `<div class="admin-item-meta">Status: <strong style="color:${statusColors[r.status] || "inherit"}">${r.status === "pending" ? "Waiting for approval" : escapeHtml(r.status)}</strong></div>`
         : "";
-      const actions =
-        r.status === "pending"
-          ? `<div class="admin-item-actions" style="margin-top:8px;"><button class="admin-mini-btn" data-action="approve" data-id="${r.id}">Approve</button> <button class="admin-mini-btn danger" data-action="reject" data-id="${r.id}">Reject</button></div>`
-          : `<div class="admin-item-actions" style="margin-top:8px;"><button class="admin-mini-btn danger" data-action="delete" data-id="${r.id}">Delete</button></div>`;
+      const buttons = [
+        r.status !== "approved" ? `<button class="admin-mini-btn" data-action="approve" data-id="${r.id}">Approve</button>` : "",
+        r.status === "pending" ? `<button class="admin-mini-btn danger" data-action="reject" data-id="${r.id}">Reject</button>` : "",
+        `<button class="admin-mini-btn" data-edit-review="${r.id}"><i class="fas fa-pen"></i> Edit</button>`,
+        `<button class="admin-mini-btn danger" data-action="delete" data-id="${r.id}">Delete</button>`,
+      ].join(" ");
 
       return `
     <div class="admin-item-card" style="flex-direction: column; align-items: stretch;">
       <div class="admin-item-info">
-        <strong>${r.customer_name} - ${"★".repeat(r.rating)}${"☆".repeat(5 - r.rating)}</strong>
-        <div class="admin-item-meta">${r.comment}</div>
-        ${r.owner_reply ? `<div class="admin-item-meta"><strong>Your reply:</strong> ${r.owner_reply}</div>` : ""}
+        <strong>${escapeHtml(r.customer_name)} - ${"★".repeat(r.rating)}${"☆".repeat(5 - r.rating)}</strong>
+        <div class="admin-item-meta">${escapeHtml(r.comment)}</div>
+        ${r.items && r.items.length ? `<div class="admin-item-meta"><i class="fas fa-utensils"></i> Ordered: ${escapeHtml(r.items.join(", "))}${r.order_id ? ` (order #${r.order_id})` : ""}</div>` : ""}
+        ${r.owner_reply ? `<div class="admin-item-meta"><strong>Your reply:</strong> ${escapeHtml(r.owner_reply)}</div>` : ""}
         ${statusBadge}
+        <div class="admin-item-meta">${new Date(r.created_at).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" })}</div>
       </div>
+      <form class="review-edit-form" data-edit-form="${r.id}" style="display:none">
+        <div class="form-row">
+          <div class="form-group"><label>Name</label><input type="text" name="customer_name" maxlength="100" value="${escapeHtml(r.customer_name)}" required /></div>
+          <div class="form-group"><label>Rating</label><select name="rating">${[5, 4, 3, 2, 1].map((n) => `<option value="${n}" ${n === r.rating ? "selected" : ""}>${"★".repeat(n)}</option>`).join("")}</select></div>
+        </div>
+        <div class="form-group"><label>Review</label><textarea name="comment" rows="3" maxlength="1000" required>${escapeHtml(r.comment)}</textarea></div>
+        <button type="submit" class="btn btn-primary admin-mini-btn">Save changes</button>
+        <button type="button" class="admin-mini-btn" data-cancel-edit="${r.id}">Cancel</button>
+      </form>
       <form class="admin-form-inline" data-review-id="${r.id}" style="padding: 0; margin-top: 10px;">
-        <input type="text" placeholder="Write a reply…" value="${r.owner_reply || ""}" required />
+        <input type="text" placeholder="Write a reply…" value="${escapeHtml(r.owner_reply || "")}" required />
         <button type="submit" class="btn btn-primary admin-mini-btn">Reply</button>
       </form>
-      ${actions}
+      <div class="admin-item-actions" style="margin-top:8px;">${buttons}</div>
     </div>
   `;
     })
@@ -1923,6 +2240,38 @@ async function loadAdminReviews() {
       loadAdminReviews();
     });
   });
+
+  // Edit: show the inline form, save through review-moderate (action "edit")
+  list.querySelectorAll("[data-edit-review]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const form = list.querySelector(`[data-edit-form="${btn.dataset.editReview}"]`);
+      if (form) form.style.display = form.style.display === "none" ? "" : "none";
+    }),
+  );
+  list.querySelectorAll("[data-cancel-edit]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      list.querySelector(`[data-edit-form="${btn.dataset.cancelEdit}"]`).style.display = "none";
+    }),
+  );
+  list.querySelectorAll("form[data-edit-form]").forEach((form) =>
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const res = await adminFetch("/api/admin/review-moderate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          review_id: Number(form.dataset.editForm),
+          action: "edit",
+          customer_name: form.customer_name.value.trim(),
+          rating: Number(form.rating.value),
+          comment: form.comment.value.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) return alert(data.error || "Couldn't save the review.");
+      loadAdminReviews();
+    }),
+  );
 
   // moderation action handlers
   list.querySelectorAll("[data-action]").forEach((btn) => {
@@ -2001,10 +2350,11 @@ function renderStaffAccountsList() {
       <div class="admin-item-card">
         <div class="admin-item-info">
           <strong>${account.name}</strong>
-          <div class="admin-item-meta">${account.email} · ${account.is_active ? "Active" : "Inactive"}</div>
+          <div class="admin-item-meta">${account.email} · ${account.is_active ? "Active" : "Inactive"}${account.is_locked ? " · Locked" : ""}${account.email_verified === false ? " · Email not verified" : ""}</div>
         </div>
         <div class="admin-item-actions">
           <button class="admin-mini-btn" data-staff-action="edit" data-id="${account.id}">Edit</button>
+          ${account.is_locked ? `<button class="admin-mini-btn unlock" data-staff-action="unlock" data-id="${account.id}" title="Let this staff member try signing in again"><i class="fas fa-lock-open"></i> Unlock</button>` : ""}
           <button class="admin-mini-btn danger" data-staff-action="delete" data-id="${account.id}">Delete</button>
         </div>
       </div>
@@ -2026,6 +2376,7 @@ function resetStaffAccountForm() {
   document.getElementById("staffAccountForm").reset();
   document.getElementById("staffAccountId").value = "";
   document.getElementById("staffAccountPassword").required = false;
+  document.getElementById("staffAccountEmail").readOnly = false;
   document.getElementById("cancelStaffEditBtn").style.display = "none";
   document.getElementById("staffAccountStatus").textContent = "";
 }
@@ -2038,8 +2389,10 @@ document
   .getElementById("marketingEmailForm")
   ?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    const form = event.currentTarget;
     const status = document.getElementById("marketingEmailStatus");
-    const button = event.currentTarget.querySelector("button[type=submit]");
+    const button = form.querySelector("button[type=submit]");
+    const picked = getMarketingPicker().files();
     const formData = new FormData();
     formData.append(
       "subject",
@@ -2049,11 +2402,24 @@ document
       "body",
       document.getElementById("marketingBody").value.trim(),
     );
-    for (const file of document.getElementById("marketingImages").files)
-      formData.append("images", file);
     button.disabled = true;
-    status.textContent = "Sending…";
     try {
+      // Images are optional: each one is shrunk here, uploaded once, and shown inside the email.
+      const imageUrls = [];
+      for (let i = 0; i < picked.length; i++) {
+        status.textContent = `Preparing image ${i + 1} of ${picked.length}…`;
+        const blob = await compressImageToWebP(picked[i], 300 * 1024, "image/jpeg");
+        const up = await adminFetch("/api/admin/marketing/upload?filename=email.jpeg", {
+          method: "POST",
+          headers: { "Content-Type": "image/jpeg" },
+          body: blob,
+        });
+        const upData = await up.json().catch(() => ({}));
+        if (!up.ok || !upData.url) throw new Error(upData.error || `Couldn't upload image ${i + 1}.`);
+        imageUrls.push(upData.url);
+      }
+      formData.append("image_urls", JSON.stringify(imageUrls));
+      status.textContent = "Sending…";
       const response = await adminFetch("/api/admin/marketing/send", {
         method: "POST",
         body: formData,
@@ -2064,14 +2430,22 @@ document
           data.error ||
             `Sent ${data.sent || 0} email(s); ${data.failed || 0} failed.`,
         );
-      status.textContent = `Sent to ${data.sent} subscriber${data.sent === 1 ? "" : "s"}.`;
-      event.currentTarget.reset();
+      status.textContent = `Sent to ${data.sent} subscriber${data.sent === 1 ? "" : "s"}${data.images ? ` with ${data.images} image${data.images === 1 ? "" : "s"}` : ""}.`;
+      form.reset();
+      getMarketingPicker().reset();
     } catch (error) {
       status.textContent = error.message;
     } finally {
       button.disabled = false;
     }
   });
+
+let marketingPicker = null;
+function getMarketingPicker() {
+  if (!marketingPicker) marketingPicker = createImagePicker({ inputId: "marketingImages", previewId: "marketingImagePreview", max: 5 });
+  return marketingPicker;
+}
+getMarketingPicker();
 
 document
   .getElementById("staffAccountForm")
@@ -2085,8 +2459,10 @@ document
       password: document.getElementById("staffAccountPassword").value,
       permissions: { orders: true },
     };
+    // The email address can't be changed once the account exists.
+    if (id) delete payload.email;
 
-    if (!payload.name || !payload.email) {
+    if (!payload.name || (!id && !payload.email)) {
       statusEl.textContent = "Name and email are required.";
       return;
     }
@@ -2109,8 +2485,10 @@ document
         throw new Error(data.error || "Couldn't save the staff account.");
       statusEl.textContent = id
         ? "Staff account updated."
-        : "Staff account created.";
+        : "Staff account created. A verification link was emailed to them - they can't sign in until they click it.";
+      const doneMessage = statusEl.textContent;
       resetStaffAccountForm();
+      statusEl.textContent = doneMessage;
       loadStaffAccounts();
     } catch (err) {
       statusEl.textContent = err.message;
@@ -2118,6 +2496,21 @@ document
   });
 
 async function handleStaffAccountAction(action, id) {
+  if (action === "unlock") {
+    try {
+      const res = await adminFetch("/api/admin/staff", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, unlock: true }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Couldn't unlock that account.");
+      loadStaffAccounts();
+    } catch (err) {
+      alert(err.message);
+    }
+    return;
+  }
   if (action === "delete") {
     const account = staffAccounts.find((item) => item.id === id);
     if (!account) return;
@@ -2141,6 +2534,7 @@ async function handleStaffAccountAction(action, id) {
   document.getElementById("staffAccountId").value = account.id;
   document.getElementById("staffAccountName").value = account.name;
   document.getElementById("staffAccountEmail").value = account.email;
+  document.getElementById("staffAccountEmail").readOnly = true;
   document.getElementById("staffAccountPassword").value = "";
   document.getElementById("staffAccountPassword").required = false;
   document.getElementById("cancelStaffEditBtn").style.display = "inline-block";
@@ -2148,6 +2542,20 @@ async function handleStaffAccountAction(action, id) {
     "Editing existing staff account.";
   document.querySelector('.admin-tab-btn[data-tab="settings"]').click();
 }
+
+/** Confirmation text for a table booking (opened in WhatsApp for the admin to send). */
+function reservationWhatsAppText(r) {
+  const d = new Date(`${String(r.reservation_date).slice(0, 10)}T00:00:00`);
+  const dateLabel = d.toLocaleDateString("en-ZA", { weekday: "long", day: "numeric", month: "long" });
+  const time = r.reservation_time ? String(r.reservation_time).slice(0, 5) : "";
+  const cancelled = r.status === "Cancelled";
+  if (cancelled) {
+    const prepaid = ["paid", "refunded"].includes(r.preorder_payment_status);
+    return `Hi ${r.customer_name}, your table booking at Fulude's Cafe for ${dateLabel} at ${time} has been cancelled${prepaid ? " and will be refunded" : ""}. Please contact us if you need any further assistance.`;
+  }
+  return `Hi ${r.customer_name}, your table at Fulude's Cafe is ${r.status === "Confirmed" ? "confirmed" : "reserved"} for ${dateLabel} at ${time} for ${r.party_size} guest${r.party_size > 1 ? "s" : ""}${r.table_number ? ` (table ${r.table_number})` : ""}. We look forward to seeing you! Reply here if you need to change anything.`;
+}
+window.reservationWhatsAppText = reservationWhatsAppText;
 
 async function loadReservations() {
   try {
@@ -2166,37 +2574,54 @@ function renderReservationSummary() {
   const wrap = document.getElementById("resSummary");
   if (!wrap) return;
 
-  const todayKey = new Date().toISOString().slice(0, 10);
+  // "Today" is the cafe's day (South Africa time): these cards count
+  // today's bookings only and start from zero again at 12:00 am.
+  const todayKey = kdsDayKey();
+  // Completed (fulfilled) bookings still count towards today's stats even
+  // after the admin has cleared them from the list.
   const today = reservations.filter(
     (r) => r.reservation_date === todayKey && r.status !== "Cancelled",
   );
   const upcoming = reservations.filter(
-    (r) => r.reservation_date > todayKey && r.status !== "Cancelled",
+    (r) => r.reservation_date > todayKey && r.status !== "Cancelled" && r.status !== "Completed",
   );
   const pending = reservations.filter((r) => r.status === "Pending");
-  const guestsToday = today.reduce((s, r) => s + (r.party_size || 0), 0);
+  const guestsToday = today.reduce((s, r) => s + (Number(r.party_size) || 0), 0);
 
   wrap.innerHTML = `
     <div class="kpi-card"><span class="kpi-label">Today's Reservations</span><span class="kpi-value">${today.length}</span></div>
     <div class="kpi-card"><span class="kpi-label">Guests Today</span><span class="kpi-value">${guestsToday}</span></div>
     <div class="kpi-card"><span class="kpi-label">Upcoming</span><span class="kpi-value">${upcoming.length}</span></div>
     <div class="kpi-card"><span class="kpi-label">Awaiting Confirmation</span><span class="kpi-value">${pending.length}</span></div>
+    <p class="kds-reset-note" style="grid-column:1 / -1;margin:0">${kdsResetLabel().replace("Today's stats", "Today's Reservations and Guests Today")}</p>
   `;
 }
+// Page left open overnight: roll the "today" cards and kitchen strip over at midnight.
+kdsOnMidnight(() => {
+  if (!adminToken) return;
+  renderReservationSummary();
+  loadOrders();
+});
 
 function renderReservations() {
   const list = document.getElementById("reservationsList");
   renderReservationSummary();
 
-  if (reservations.length === 0) {
-    list.innerHTML = `<p class="menu-empty">No reservations yet.</p>`;
+  const visible = reservations.filter((r) => !r.admin_cleared);
+  const finishedCount = visible.filter((r) => r.status === "Completed" || r.status === "Cancelled").length;
+  if (visible.length === 0) {
+    list.innerHTML = `<p class="menu-empty">No reservations to show.</p>`;
     return;
   }
 
-  list.innerHTML = reservations
+  const clearBar = finishedCount
+    ? `<div style="margin-bottom:10px"><button type="button" class="btn admin-mini-btn" id="clearFinishedReservationsBtn"><i class="fas fa-eraser"></i> Clear completed &amp; cancelled (${finishedCount})</button> <span class="admin-hint" style="margin:0">Completed bookings stay in today's stats.</span></div>`
+    : "";
+
+  list.innerHTML = clearBar + visible
     .map((reservation) => {
       const dateLabel = new Date(
-        `${reservation.reservation_date}T00:00:00`,
+        `${String(reservation.reservation_date).slice(0, 10)}T00:00:00`,
       ).toLocaleDateString("en-ZA", {
         weekday: "short",
         day: "2-digit",
@@ -2205,6 +2630,9 @@ function renderReservations() {
       const timeLabel = reservation.reservation_time
         ? reservation.reservation_time.slice(0, 5)
         : "";
+      // Paid pre-order: confirmed by the payment, so only Confirmed / Cancelled / Completed.
+      const prepaid = ["paid", "refunded"].includes(reservation.preorder_payment_status);
+      const statusOptions = prepaid ? ["Confirmed", "Cancelled", "Completed"] : ["Pending", "Confirmed", "Cancelled", "Completed"];
       return `
         <div class="admin-item-card" style="flex-direction: column; align-items: stretch;">
           <div class="admin-item-info">
@@ -2212,60 +2640,266 @@ function renderReservations() {
             <div class="admin-item-meta">${dateLabel} at ${timeLabel} · ${reservation.customer_phone} · ${reservation.customer_email}</div>
             ${reservation.table_number ? `<div class="admin-item-meta">Table: ${reservation.table_number}</div>` : ""}
             ${reservation.notes ? `<div class="admin-item-meta">Notes: ${reservation.notes}</div>` : ""}
-            ${reservation.advance_order_requested ? `<div class="admin-item-meta">Advance order requested: ${reservation.advance_order_details || "Details provided"}</div>` : ""}
+            ${
+              prepaid
+                ? `<div class="admin-item-meta"><span class="badge badge-paid">${reservation.preorder_payment_status === "refunded" ? "Pre-order refunded" : "Pre-order paid"}</span> Order #${reservation.advance_order_id} · ${money(reservation.preorder_total)}</div>`
+                : reservation.advance_order_requested
+                  ? `<div class="admin-item-meta">Advance order requested: ${reservation.advance_order_details || "Details provided"}</div>`
+                  : ""
+            }
             <div class="admin-item-meta">Status: ${reservation.status}</div>
           </div>
           <div class="admin-form-inline" style="padding: 0; margin-top: 10px;">
-            <select data-reservation-status="${reservation.id}">
-              <option value="Pending" ${reservation.status === "Pending" ? "selected" : ""}>Pending</option>
-              <option value="Confirmed" ${reservation.status === "Confirmed" ? "selected" : ""}>Confirmed</option>
-              <option value="Cancelled" ${reservation.status === "Cancelled" ? "selected" : ""}>Cancelled</option>
-              <option value="Completed" ${reservation.status === "Completed" ? "selected" : ""}>Completed</option>
+            <select data-reservation-status="${reservation.id}" data-prepaid="${prepaid && reservation.preorder_payment_status === "paid" ? "1" : ""}" data-total="${reservation.preorder_total || 0}">
+              ${statusOptions.map((s) => `<option value="${s}" ${reservation.status === s ? "selected" : ""}>${s}</option>`).join("")}
             </select>
             <button type="button" class="btn btn-primary admin-mini-btn" data-reservation-update="${reservation.id}">Save</button>
+            ${reservation.status === "Completed" || reservation.status === "Cancelled" ? `<button type="button" class="btn admin-mini-btn" data-reservation-clear="${reservation.id}" title="Remove from this list"><i class="fas fa-eraser"></i> Clear</button>` : ""}
+            <a class="btn admin-mini-btn wa-btn" target="_blank" rel="noopener" title="Send the customer a WhatsApp confirmation"
+               href="${window.waLink ? window.waLink(reservation.customer_phone, reservationWhatsAppText(reservation)) : "#"}"><i class="fab fa-whatsapp"></i> WhatsApp</a>
           </div>
         </div>
       `;
     })
     .join("");
 
+  const doClear = async (payload) => {
+    try {
+      await adminFetch("/api/admin/reservations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      loadReservations();
+    } catch {
+      alert("Couldn't clear.");
+    }
+  };
+  list.querySelectorAll("[data-reservation-clear]").forEach((btn) =>
+    btn.addEventListener("click", () => doClear({ action: "clear", reservation_id: parseInt(btn.dataset.reservationClear, 10) })),
+  );
+  document.getElementById("clearFinishedReservationsBtn")?.addEventListener("click", () => {
+    if (confirm("Clear all completed & cancelled bookings from this list? Completed ones still count in today's stats.")) doClear({ action: "clear_finished" });
+  });
+
   list.querySelectorAll("[data-reservation-update]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const id = parseInt(btn.dataset.reservationUpdate, 10);
       const select = list.querySelector(`[data-reservation-status="${id}"]`);
       if (!select) return;
+      const current = reservations.find((r) => r.id === id);
+      if (select.value === "Cancelled" && select.dataset.prepaid && current?.status !== "Cancelled") {
+        if (!confirm(`Cancel this booking?\n\nIts pre-order (${money(select.dataset.total)}) will be cancelled and refunded to the customer's card through Yoco.`)) return;
+      }
       try {
-        await adminFetch("/api/admin/reservations", {
+        const res = await adminFetch("/api/admin/reservations", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ reservation_id: id, status: select.value }),
         });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) throw new Error(data.error || "Couldn't update the reservation.");
+        if (data.refund?.outcome === "refunded") alert("Booking cancelled and the pre-order refunded through Yoco.");
+        else if (data.refund?.outcome === "refund_needed")
+          alert(`Booking cancelled, but the automatic refund didn't go through (${data.refund.error || "unknown reason"}). Refund it from Order History with "Refund via Yoco".`);
         loadReservations();
-      } catch {
-        alert("Couldn't update the reservation.");
+      } catch (err) {
+        alert(err.message || "Couldn't update the reservation.");
       }
     });
   });
 }
 
+// Last known store settings are cached in localStorage so the dashboard paints
+// the right state instantly on load, then refreshes silently from the server
+// (stale-while-revalidate). Anything wrong with storage is simply ignored.
+const STORE_CACHE_KEY = "fc_admin_store_config_v1";
+const STORE_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000; // same length as an admin session
+
+function readStoreCache() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(STORE_CACHE_KEY) || "null");
+    if (!raw || !raw.data || Date.now() - raw.savedAt > STORE_CACHE_MAX_AGE_MS) return null;
+    return raw.data;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoreCache(data) {
+  try {
+    localStorage.setItem(
+      STORE_CACHE_KEY,
+      JSON.stringify({
+        savedAt: Date.now(),
+        data: {
+          is_out_of_service: !!data.is_out_of_service,
+          out_of_service_reason: data.out_of_service_reason || "",
+          announcement_message: data.announcement_message || "",
+          is_buffet_visible: !!data.is_buffet_visible,
+        },
+      }),
+    );
+  } catch {
+    /* storage full / blocked - the live fetch below still works */
+  }
+}
+
+/** Paint the last known status immediately (no network wait). */
+function showCachedStoreStatus() {
+  const cached = readStoreCache();
+  if (!cached) return;
+  const buffet = document.getElementById("buffetToggle");
+  if (buffet) buffet.checked = !!cached.is_buffet_visible;
+  applyStoreStatus(cached, { fromCache: true });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  if (adminToken) showCachedStoreStatus(); // signed in: show last known status before any request finishes
+});
+
 async function loadBuffetSetting() {
-  const res = await fetch("/api/config");
-  const data = await res.json();
-  document.getElementById("buffetToggle").checked = !!data.is_buffet_visible;
+  showCachedStoreStatus();
+  try {
+    const res = await fetch("/api/config", { cache: "no-store" });
+    if (!res.ok) throw new Error("config " + res.status);
+    const data = await res.json();
+    document.getElementById("buffetToggle").checked = !!data.is_buffet_visible;
+    applyStoreStatus(data);
+  } catch {
+    /* offline / server hiccup: keep showing the last known status */
+  }
+}
+
+// ---------------- Store status: Out of Service + hero announcement ----------------
+function applyStoreStatus(data, opts = {}) {
+  if (!opts.fromCache) {
+    writeStoreCache({
+      ...(readStoreCache() || {}),
+      ...data,
+      is_buffet_visible: data.is_buffet_visible ?? document.getElementById("buffetToggle")?.checked,
+    });
+  }
+  const on = !!data.is_out_of_service;
+  const reason = data.out_of_service_reason || "";
+  const toggle = document.getElementById("oosToggle");
+  if (toggle) toggle.checked = on;
+  const banner = document.getElementById("oosBanner");
+  if (banner) banner.style.display = on ? "flex" : "none";
+  const row = document.getElementById("oosReasonRow");
+  if (row) row.style.display = on ? "block" : "none";
+  const text = document.getElementById("oosReasonText");
+  if (text) text.textContent = reason;
+  const ann = document.getElementById("announcementInput");
+  if (ann && document.activeElement !== ann) ann.value = data.announcement_message || "";
+}
+
+async function saveConfig(patch) {
+  const res = await adminFetch("/api/admin/config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) throw new Error(data.error || "Couldn't save that setting.");
+  applyStoreStatus(data);
+  return data;
+}
+
+let oosModalMode = "enable"; // "enable" | "edit"
+function openOosModal(mode, currentReason = "") {
+  oosModalMode = mode;
+  document.querySelector("#oosModal h3").textContent =
+    mode === "edit" ? "Edit Out of Service reason" : "Turn on Out of Service";
+  document.getElementById("oosConfirmBtn").textContent = mode === "edit" ? "Save" : "Turn on";
+  document.getElementById("oosReasonInput").value = currentReason;
+  document.getElementById("oosModalError").style.display = "none";
+  document.getElementById("oosModal").classList.add("active");
+  document.getElementById("oosReasonInput").focus();
+}
+function closeOosModal() {
+  document.getElementById("oosModal").classList.remove("active");
+  // Toggle reflects the saved state, not the cancelled click.
+  const banner = document.getElementById("oosBanner");
+  document.getElementById("oosToggle").checked = banner && banner.style.display !== "none";
+}
+
+function initStoreStatusHandlers() {
+  const toggle = document.getElementById("oosToggle");
+  if (!toggle) return;
+
+  toggle.addEventListener("change", async (e) => {
+    if (e.target.checked) {
+      openOosModal("enable");
+      return;
+    }
+    try {
+      await saveConfig({ is_out_of_service: false });
+    } catch (err) {
+      alert(err.message);
+      toggle.checked = true;
+    }
+  });
+
+  document.getElementById("oosEditReasonBtn").addEventListener("click", () =>
+    openOosModal("edit", document.getElementById("oosReasonText").textContent),
+  );
+  document.getElementById("oosBannerManage").addEventListener("click", () => {
+    document.querySelector('[data-tab="settings"]')?.click();
+    document.querySelector('[data-settings-tab="general"]')?.click();
+  });
+  document.getElementById("oosCancelBtn").addEventListener("click", closeOosModal);
+
+  document.getElementById("oosConfirmBtn").addEventListener("click", async () => {
+    const reason = document.getElementById("oosReasonInput").value.trim();
+    const err = document.getElementById("oosModalError");
+    if (!reason) {
+      err.textContent = "Please enter a reason - your customers will see it.";
+      err.style.display = "block";
+      return;
+    }
+    try {
+      await saveConfig({ is_out_of_service: true, out_of_service_reason: reason });
+      document.getElementById("oosModal").classList.remove("active");
+    } catch (e) {
+      err.textContent = e.message;
+      err.style.display = "block";
+    }
+  });
+
+  const status = document.getElementById("announcementStatus");
+  const saveAnnouncement = async (value) => {
+    try {
+      await saveConfig({ announcement_message: value });
+      document.getElementById("announcementInput").value = value;
+      status.textContent = value ? "Saved - it's now showing on the home page." : "Removed - nothing is showing on the home page.";
+    } catch (e) {
+      status.textContent = e.message;
+    }
+  };
+  document.getElementById("announcementSaveBtn").addEventListener("click", () =>
+    saveAnnouncement(document.getElementById("announcementInput").value.trim()),
+  );
+  document.getElementById("announcementClearBtn").addEventListener("click", () => saveAnnouncement(""));
 }
 
 // ----------------- Buffet admin UI handlers -----------------
-function initBuffetAdminHandlers() {
-  const btn = document.getElementById("manageBuffetBtn");
-  const modal = document.getElementById("buffetAdminModal");
-  const close = document.getElementById("buffetAdminClose");
+/** Empties the event form back to "Add Buffet Event". */
+function resetBuffetEventForm() {
   const form = document.getElementById("buffetEventForm");
-  if (!btn || !modal) return;
-  btn.addEventListener("click", async () => {
-    modal.style.display = "block";
-    await loadBuffetEventsAdmin();
-  });
-  close.addEventListener("click", () => (modal.style.display = "none"));
+  if (!form) return;
+  form.reset();
+  form.dataset.existingPhotos = "[]";
+  getBuffetPhotoPicker().reset();
+  document.getElementById("buffetEventId").value = "";
+  document.getElementById("buffetFormTitle").textContent = "Add Buffet Event";
+}
+
+/** The Buffet page (its own sidebar tab): event form, events list and bookings. */
+function initBuffetAdminHandlers() {
+  const form = document.getElementById("buffetEventForm");
+  if (form) getBuffetPhotoPicker(); // start collecting picked photos
+  document.getElementById("buffetEventNewBtn")?.addEventListener("click", resetBuffetEventForm);
   if (form) {
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -2274,8 +2908,9 @@ function initBuffetAdminHandlers() {
       const event_date = document.getElementById("buffetEventDate").value;
       const capacity =
         Number(document.getElementById("buffetEventCapacity").value) || 30;
-      const price_cents =
-        Number(document.getElementById("buffetEventPrice").value) || 0;
+      const price_cents = Math.round(
+        (Number(document.getElementById("buffetEventPrice").value) || 0) * 100,
+      );
       const description = document
         .getElementById("buffetEventDescription")
         .value.trim();
@@ -2286,20 +2921,39 @@ function initBuffetAdminHandlers() {
       const booking_closes_at = booking_closes_at_raw
         ? new Date(booking_closes_at_raw).toISOString()
         : null;
+      // Dates matter - ask for anything that's missing instead of failing quietly.
+      const missing = [];
+      if (!title) missing.push("Title");
+      if (!event_date) missing.push("Date & time of the buffet");
+      if (!booking_closes_at) missing.push("Date & time booking closes");
+      if (missing.length) {
+        alert(`Please fill in: ${missing.join(", ")}.`);
+        return;
+      }
+      if (new Date(event_date) < new Date() && !id) {
+        alert("The buffet date is in the past. Please pick a future date & time.");
+        return;
+      }
+      if (new Date(booking_closes_at) > new Date(event_date)) {
+        alert("Booking must close before (or at) the buffet start time. Please fix the 'Booking closes at' date.");
+        return;
+      }
+      const saveBtn = form.querySelector('button[type="submit"]');
+      const saveLabel = saveBtn ? saveBtn.textContent : "";
       try {
-        const photoInput = document.getElementById("buffetEventPhotos");
+        if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = "Saving…"; }
         const existingPhotos = JSON.parse(form.dataset.existingPhotos || "[]");
         const photos = [...existingPhotos];
-        for (const file of Array.from(photoInput.files).slice(
-          0,
-          6 - photos.length,
-        )) {
+        for (const file of getBuffetPhotoPicker().files().slice(0, 6 - photos.length)) {
+          // Phone photos are several MB - shrink to WebP (<300KB) first,
+          // otherwise the server rejects them and the picture never shows.
+          const webpBlob = await compressImageToWebP(file, 300 * 1024);
           const upload = await adminFetch(
-            `/api/admin/upload?filename=${encodeURIComponent(file.name)}`,
+            `/api/admin/upload?filename=${encodeURIComponent(`${Date.now()}.webp`)}`,
             {
               method: "POST",
-              headers: { "Content-Type": file.type },
-              body: await file.arrayBuffer(),
+              headers: { "Content-Type": "image/webp" },
+              body: webpBlob,
             },
           );
           const uploadData = await upload.json();
@@ -2328,14 +2982,225 @@ function initBuffetAdminHandlers() {
         });
         const data = await res.json();
         if (!res.ok || !data.success) throw new Error(data.error || "Failed");
-        form.reset();
-        form.dataset.existingPhotos = "[]";
-        document.getElementById("buffetEventPhotoPreview").innerHTML = "";
+        resetBuffetEventForm();
         await loadBuffetEventsAdmin();
       } catch (err) {
         alert(err.message || "Failed to save event");
+      } finally {
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = saveLabel; }
       }
     });
+  }
+}
+
+let buffetEventsById = {};
+
+/** Photo thumbnails in the buffet form, each with a remove (x) button. */
+/**
+ * Photo picker that lets admins add pictures in several goes: every pick is
+ * ADDED to the list (never replaces it), all of them - already-saved and
+ * new - show as thumbnails with a remove (x), and nothing is uploaded until
+ * Save / Send. Used by the buffet event form and the marketing email.
+ */
+function createImagePicker({ inputId, previewId, max, existing = () => [], setExisting = () => {} }) {
+  const input = document.getElementById(inputId);
+  const preview = document.getElementById(previewId);
+  let pending = []; // [{ file, url }]
+  const thumb = (src, attr, isNew) =>
+    `<span class="picker-thumb"><img src="${escapeHtml(src)}" alt="" />${isNew ? '<span class="picker-new">new</span>' : ""}<button type="button" ${attr} aria-label="Remove photo">&times;</button></span>`;
+  const render = () => {
+    if (!preview) return;
+    const saved = existing();
+    const total = saved.length + pending.length;
+    preview.innerHTML =
+      saved.map((src, i) => thumb(src, `data-remove-saved="${i}"`, false)).join("") +
+      pending.map((p, i) => thumb(p.url, `data-remove-new="${i}"`, true)).join("") +
+      (total ? `<span class="picker-count">${total} of ${max}</span>` : "");
+  };
+  input?.addEventListener("change", () => {
+    const room = max - existing().length - pending.length;
+    const picked = [...input.files];
+    picked.slice(0, Math.max(0, room)).forEach((file) => pending.push({ file, url: URL.createObjectURL(file) }));
+    if (picked.length > room) alert(`Up to ${max} photos - ${picked.length - Math.max(0, room)} weren't added.`);
+    input.value = ""; // the next pick adds to the list instead of replacing it
+    render();
+  });
+  preview?.addEventListener("click", (e) => {
+    const savedBtn = e.target.closest("[data-remove-saved]");
+    const newBtn = e.target.closest("[data-remove-new]");
+    if (savedBtn) {
+      const list = existing();
+      list.splice(Number(savedBtn.dataset.removeSaved), 1);
+      setExisting(list);
+    } else if (newBtn) {
+      const [gone] = pending.splice(Number(newBtn.dataset.removeNew), 1);
+      if (gone) URL.revokeObjectURL(gone.url);
+    } else return;
+    render();
+  });
+  return {
+    files: () => pending.map((p) => p.file),
+    reset() {
+      pending.forEach((p) => URL.revokeObjectURL(p.url));
+      pending = [];
+      render();
+    },
+    render,
+  };
+}
+
+let buffetPhotoPicker = null;
+function getBuffetPhotoPicker() {
+  if (!buffetPhotoPicker) {
+    const form = document.getElementById("buffetEventForm");
+    buffetPhotoPicker = createImagePicker({
+      inputId: "buffetEventPhotos",
+      previewId: "buffetEventPhotoPreview",
+      max: 6,
+      existing: () => JSON.parse(form.dataset.existingPhotos || "[]"),
+      setExisting: (list) => (form.dataset.existingPhotos = JSON.stringify(list)),
+    });
+  }
+  return buffetPhotoPicker;
+}
+
+function renderBuffetPhotoPreview() {
+  getBuffetPhotoPicker().render();
+}
+
+function buffetWhatsAppText(bk) {
+  const evt = buffetEventsById[bk.event_id] || {};
+  const when = evt.event_date
+    ? new Date(evt.event_date).toLocaleString("en-ZA", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })
+    : "";
+  if (bk.status === "cancelled") {
+    return `Hi ${bk.name}, your buffet booking${evt.title ? ` for "${evt.title}"` : ""} at Fulude's Cafe has been cancelled. Please contact us if you'd like to rebook.`;
+  }
+  if (bk.status === "pending") {
+    return `Hi ${bk.name}, we've received your buffet booking${evt.title ? ` for "${evt.title}"` : ""} at Fulude's Cafe for ${bk.seats} seat${bk.seats > 1 ? "s" : ""}. We'll confirm it shortly.`;
+  }
+  return `Hi ${bk.name}, your buffet booking at Fulude's Cafe is confirmed${evt.title ? `: "${evt.title}"` : ""}${when ? ` on ${when}` : ""} for ${bk.seats} seat${bk.seats > 1 ? "s" : ""}. We look forward to seeing you! Reply here if you need to change anything.`;
+}
+
+let buffetBookingsTab = "pending"; // which status tab is open in the bookings list
+
+/** Receipt block for one booking: what was booked and what it costs, whatever the status. */
+function buffetReceiptHtml(bk) {
+  const evt = buffetEventsById[bk.event_id] || {};
+  const perSeat = Number(evt.price_cents || 0) / 100;
+  const seats = Number(bk.seats) || 0;
+  const row = (label, value) => `<div style="display:flex;justify-content:space-between;gap:12px"><span class="admin-hint">${label}</span><span>${value}</span></div>`;
+  return `<div class="buffet-admin-receipt" style="border:1px dashed var(--sa-border-strong);border-radius:8px;padding:8px 10px;margin-top:8px;font-size:0.85rem">
+    ${row("Booking", `#${bk.id}`)}
+    ${row("Event", escapeHtml(evt.title || "Buffet"))}
+    ${evt.event_date ? row("Date", new Date(evt.event_date).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" })) : ""}
+    ${row("Seats", seats)}
+    ${row("Price per seat", money(perSeat))}
+    ${row("Booked on", new Date(bk.created_at).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" }))}
+    ${row("Status", escapeHtml(bk.status))}
+    <div style="display:flex;justify-content:space-between;border-top:1px solid var(--sa-border);margin-top:4px;padding-top:4px;font-weight:700"><span>Total</span><span>${money(perSeat * seats)}</span></div>
+  </div>`;
+}
+
+/** Bookings for one buffet event + a form so admin can book seats for customers who phone in. */
+async function showBuffetBookings(eventId) {
+  const container = document.getElementById("buffetBookingsList");
+  try {
+    const res = await adminFetch(`/api/admin/buffet-bookings?event_id=${eventId}`);
+    const data = await res.json();
+    const evt = buffetEventsById[eventId] || {};
+    const active = (data.bookings || []).filter((bk) => bk.status === "confirmed" || bk.status === "pending").reduce((n, bk) => n + Number(bk.seats), 0);
+    container.innerHTML = `
+      <h4 style="margin:0 0 8px">${evt.title || "Buffet"} - ${active}/${evt.capacity || "?"} seats booked</h4>
+      <form id="buffetAdminBookForm" class="res-new-form">
+        <div class="form-group"><label>Customer name</label><input type="text" id="bbName" required></div>
+        <div class="form-group"><label>Phone / WhatsApp</label><input type="tel" id="bbPhone" required></div>
+        <div class="form-group"><label>Email (optional)</label><input type="email" id="bbEmail"></div>
+        <div class="form-group"><label>Seats</label><input type="number" id="bbSeats" min="1" value="1" required></div>
+        <div class="res-full"><button type="submit" class="btn btn-primary">Book seats for customer</button>
+          <span id="bbMsg" class="admin-hint" style="margin-left:10px"></span></div>
+      </form>
+      <div class="res-tabs" id="bbTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin:12px 0"></div>
+      <div id="bbRows"></div>`;
+    const rows = container.querySelector("#bbRows");
+    const all = data.bookings || [];
+    const tabs = [["pending", "Pending"], ["confirmed", "Confirmed"], ["cancelled", "Cancelled"], ["all", "All"]];
+    const tabsEl = container.querySelector("#bbTabs");
+    tabsEl.innerHTML = tabs
+      .map(([key, label]) => {
+        const n = key === "all" ? all.length : all.filter((bk) => bk.status === key).length;
+        return `<button type="button" class="admin-mini-btn${key === buffetBookingsTab ? " active" : ""}" data-bb-tab="${key}" style="${key === buffetBookingsTab ? "background:var(--sa-gold);color:#fff;border-color:var(--sa-gold)" : ""}">${label} (${n})</button>`;
+      })
+      .join("");
+    tabsEl.querySelectorAll("[data-bb-tab]").forEach((b) =>
+      b.addEventListener("click", () => {
+        buffetBookingsTab = b.dataset.bbTab;
+        showBuffetBookings(eventId);
+      }),
+    );
+    const visible = buffetBookingsTab === "all" ? all : all.filter((bk) => bk.status === buffetBookingsTab);
+    if (!visible.length) rows.innerHTML = `<p class="admin-hint">No ${buffetBookingsTab === "all" ? "" : buffetBookingsTab + " "}bookings.</p>`;
+    visible.forEach((bk) => {
+      const row = document.createElement("div");
+      row.className = "sa-list-item";
+      // The message matches the booking's status, ready to send as-is.
+      const text = buffetWhatsAppText(bk);
+      const wa = window.waLink ? window.waLink(bk.phone, text) : "#";
+      row.innerHTML = `<div class="sa-list-main"><div class="sa-list-title">${escapeHtml(bk.name)} (${bk.seats} seat${bk.seats > 1 ? "s" : ""}) - ${escapeHtml(bk.status)}</div><div class="sa-list-sub">${escapeHtml(bk.email || "no email")} • ${escapeHtml(bk.phone || "")}</div>
+        ${buffetReceiptHtml(bk)}
+        ${bk.phone ? `<div style="margin-top:8px"><div class="admin-hint" style="margin-bottom:4px"><i class="fab fa-whatsapp"></i> Message ready to send:</div><div style="background:var(--sa-green-soft, #ecfdf3);border-radius:8px;padding:8px 10px;font-size:0.85rem;white-space:pre-wrap">${escapeHtml(text)}</div></div>` : ""}</div>
+        <div style="margin-top:8px">${bk.status === "pending" ? `<button class="admin-mini-btn btn-confirm" data-id="${bk.id}">Confirm</button> ` : ""}${bk.status === "pending" || bk.status === "confirmed" ? `<button class="admin-mini-btn danger btn-cancel" data-id="${bk.id}">Cancel</button>` : ""} ${bk.phone ? `<a class="admin-mini-btn wa-btn" target="_blank" rel="noopener" href="${wa}"><i class="fab fa-whatsapp"></i> Send on WhatsApp</a>` : ""}</div>`;
+      rows.appendChild(row);
+    });
+    const act = (cls, action) =>
+      rows.querySelectorAll(cls).forEach((btn) =>
+        btn.addEventListener("click", async (ev) => {
+          await adminFetch("/api/admin/buffet-bookings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ booking_id: Number(ev.currentTarget.dataset.id), action }),
+          });
+          await loadBuffetEventsAdmin();
+          showBuffetBookings(eventId);
+        }),
+      );
+    act(".btn-confirm", "confirm");
+    act(".btn-cancel", "cancel");
+
+    container.querySelector("#buffetAdminBookForm").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const msg = container.querySelector("#bbMsg");
+      const body = {
+        action: "create",
+        event_id: eventId,
+        name: container.querySelector("#bbName").value.trim(),
+        phone: container.querySelector("#bbPhone").value.trim(),
+        email: container.querySelector("#bbEmail").value.trim(),
+        seats: Number(container.querySelector("#bbSeats").value),
+      };
+      const r = await adminFetch("/api/admin/buffet-bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok || !out.success) {
+        msg.textContent = out.error || "Couldn't book the seats.";
+        msg.style.color = "var(--sa-red)";
+        return;
+      }
+      await loadBuffetEventsAdmin();
+      await showBuffetBookings(eventId);
+      // Offer the WhatsApp confirmation right away
+      const created = { id: out.booking_id, event_id: eventId, name: body.name, phone: body.phone, seats: body.seats, status: "confirmed" };
+      const m = document.getElementById("buffetBookingsList").querySelector("#bbMsg");
+      if (m) {
+        m.style.color = "var(--sa-green-deep)";
+        m.innerHTML = `Booked. <a class="admin-mini-btn wa-btn" target="_blank" rel="noopener" href="${window.waLink(body.phone, buffetWhatsAppText(created))}"><i class="fab fa-whatsapp"></i> Send WhatsApp confirmation</a>`;
+      }
+    });
+  } catch (err) {
+    alert("Failed to load bookings");
   }
 }
 
@@ -2344,6 +3209,7 @@ async function loadBuffetEventsAdmin() {
     const res = await adminFetch("/api/admin/buffet-events");
     const data = await res.json();
     const list = document.getElementById("buffetEventsList");
+    const form = document.getElementById("buffetEventForm");
     if (!list) return;
     list.innerHTML = "";
     (data.events || []).forEach((evt) => {
@@ -2378,6 +3244,8 @@ async function loadBuffetEventsAdmin() {
         const all = await res.json();
         const evt = (all.events || []).find((x) => x.id === id);
         if (!evt) return alert("Not found");
+        document.getElementById("buffetFormTitle").textContent = `Edit: ${evt.title}`;
+        form.scrollIntoView({ behavior: "smooth", block: "start" });
         document.getElementById("buffetEventId").value = evt.id;
         document.getElementById("buffetEventTitle").value = evt.title;
         const d = new Date(evt.event_date);
@@ -2386,18 +3254,14 @@ async function loadBuffetEventsAdmin() {
           .slice(0, 16);
         document.getElementById("buffetEventDate").value = isoLocal;
         document.getElementById("buffetEventCapacity").value = evt.capacity;
-        document.getElementById("buffetEventPrice").value = evt.price_cents;
+        document.getElementById("buffetEventPrice").value = (
+          Number(evt.price_cents || 0) / 100
+        ).toFixed(2);
         document.getElementById("buffetEventDescription").value =
           evt.description || "";
         const eventPhotos = Array.isArray(evt.photos) ? evt.photos : [];
         form.dataset.existingPhotos = JSON.stringify(eventPhotos);
-        document.getElementById("buffetEventPhotoPreview").innerHTML =
-          eventPhotos
-            .map(
-              (photo) =>
-                `<img src="${photo}" alt="Buffet event" style="width:72px;height:54px;object-fit:cover;border-radius:4px;" />`,
-            )
-            .join("");
+        getBuffetPhotoPicker().reset(); // drop unsaved picks, show this event's photos
         document.getElementById("buffetEventPublished").checked =
           !!evt.is_published;
         if (evt.booking_closes_at) {
@@ -2411,48 +3275,11 @@ async function loadBuffetEventsAdmin() {
         }
       }),
     );
+    buffetEventsById = Object.fromEntries((data.events || []).map((e) => [e.id, e]));
     document.querySelectorAll("#buffetEventsList .btn-view").forEach((b) =>
       b.addEventListener("click", async (e) => {
-        const id = Number(e.target.dataset.id);
-        try {
-          const res = await adminFetch(
-            `/api/admin/buffet-bookings?event_id=${id}`,
-          );
-          const data = await res.json();
-          const container = document.getElementById("buffetBookingsList");
-          container.innerHTML = "";
-          (data.bookings || []).forEach((bk) => {
-            const row = document.createElement("div");
-            row.className = "sa-list-item";
-            row.innerHTML = `<div class="sa-list-main"><div class="sa-list-title">${bk.name} (${bk.seats} seats)</div><div class="sa-list-sub">${bk.email} • ${bk.phone || ""} • ${new Date(bk.created_at).toLocaleString()}</div></div>
-            <div style="margin-top:8px"><button class="admin-mini-btn btn-confirm" data-id="${bk.id}">Confirm</button> <button class="admin-mini-btn danger btn-cancel" data-id="${bk.id}">Cancel</button></div>`;
-            container.appendChild(row);
-          });
-          container.querySelectorAll(".btn-confirm").forEach((btn) =>
-            btn.addEventListener("click", async (ev) => {
-              const bid = Number(ev.target.dataset.id);
-              await adminFetch("/api/admin/buffet-bookings", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ booking_id: bid, action: "confirm" }),
-              });
-              await loadBuffetEventsAdmin();
-            }),
-          );
-          container.querySelectorAll(".btn-cancel").forEach((btn) =>
-            btn.addEventListener("click", async (ev) => {
-              const bid = Number(ev.target.dataset.id);
-              await adminFetch("/api/admin/buffet-bookings", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ booking_id: bid, action: "cancel" }),
-              });
-              await loadBuffetEventsAdmin();
-            }),
-          );
-        } catch (err) {
-          alert("Failed to load bookings");
-        }
+        await showBuffetBookings(Number(e.currentTarget.dataset.id));
+        document.getElementById("buffetBookingsCard")?.scrollIntoView({ behavior: "smooth", block: "start" });
       }),
     );
   } catch (err) {
@@ -2479,11 +3306,10 @@ function getResetTokenFromUrl() {
 }
 
 function showAdminResetForm(token) {
-  const loginForm = document.getElementById("loginForm");
   const resetForm = document.getElementById("adminResetForm");
   const resetTokenInput = document.getElementById("adminResetToken");
 
-  loginForm.style.display = "none";
+  document.getElementById("adminResetScreen").style.display = "flex";
   resetForm.style.display = "block";
   resetTokenInput.value = token;
 }
@@ -2509,13 +3335,7 @@ document
         "Password reset successfully. You can now log in with your new password.";
       document.getElementById("adminResetForm").reset();
       setTimeout(() => {
-        window.history.replaceState(
-          {},
-          document.title,
-          window.location.pathname,
-        );
-        document.getElementById("loginForm").style.display = "flex";
-        document.getElementById("adminResetForm").style.display = "none";
+        window.location.assign("/home.html?auth=signin");
       }, 1500);
     } catch (err) {
       statusEl.textContent = err.message;
@@ -2569,6 +3389,71 @@ async function loadAudit(reset = true) {
   }
 }
 
+const AUDIT_LABELS = {
+  menu_item_created: "Menu item added",
+  menu_item_updated: "Menu item updated",
+  menu_item_deleted: "Menu item deleted",
+  special_added: "Special added",
+  special_updated: "Special updated",
+  special_removed: "Special removed",
+  delivery_fee_updated: "Delivery fee updated",
+  cafe_details_updated: "Cafe details updated",
+  out_of_service_enabled: "Out of service ON",
+  out_of_service_disabled: "Out of service OFF",
+  out_of_service_reason_updated: "Out-of-service reason changed",
+  announcement_updated: "Announcement updated",
+  buffet_visibility_updated: "Buffet visibility changed",
+  order_completed: "Order completed",
+  order_cancelled: "Order cancelled",
+};
+
+/** Username/name recorded at the time of the action; older entries (before
+ * this was stored) fall back to "admin #N" / "staff #N". */
+function auditActor(r) {
+  if (r.actor_name) return r.actor_name;
+  return `${r.actor_type || ""}${r.actor_id ? " #" + r.actor_id : ""}`;
+}
+
+function auditLabel(action) {
+  if (AUDIT_LABELS[action]) return AUDIT_LABELS[action];
+  const t = String(action || "").replace(/_/g, " ").trim();
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+function auditTone(action) {
+  if (/deleted|removed|enabled$|refund|cancelled/.test(action || "")) return "danger";
+  if (/disabled$|created|added|completed/.test(action || "")) return "good";
+  return "";
+}
+
+// Turns a details object into readable lines. New-style entries carry
+// details.changes [{label, from, to}]; older entries fall back to key: value.
+function auditChangesHtml(details) {
+  if (!details || typeof details !== "object") return escapeHtml(details || "");
+  if (Array.isArray(details.changes) && details.changes.length) {
+    return details.changes
+      .map(
+        (c) =>
+          `<span class="audit-change-line"><b>${escapeHtml(c.label)}:</b> <span class="audit-from">${escapeHtml(c.from)}</span> → <span class="audit-to">${escapeHtml(c.to)}</span></span>`,
+      )
+      .join("");
+  }
+  const skip = new Set(["summary", "changes"]);
+  const lines = Object.entries(details)
+    .filter(([k, v]) => !skip.has(k) && v !== null && v !== undefined && v !== "")
+    .map(([k, v]) => {
+      const label = k.replace(/_/g, " ");
+      const val = typeof v === "object" ? JSON.stringify(v) : String(v);
+      return `<span class="audit-change-line"><b>${escapeHtml(label.charAt(0).toUpperCase() + label.slice(1))}:</b> ${escapeHtml(val)}</span>`;
+    });
+  return lines.join("") || "-";
+}
+
+function parseAuditDetails(d) {
+  if (d && typeof d === "object") return d;
+  try { return JSON.parse(d); } catch { return d || {}; }
+}
+
 function renderAuditTable(rows) {
   const body = document.getElementById("auditTableBody");
   if (!body) return;
@@ -2578,18 +3463,18 @@ function renderAuditTable(rows) {
     return;
   }
   rows.forEach((r) => {
-    const details =
-      typeof r.details === "object"
-        ? JSON.stringify(r.details)
-        : String(r.details || "");
+    const details = parseAuditDetails(r.details);
+    const raw = typeof details === "object" ? JSON.stringify(details) : String(details);
+    const summary = details && details.summary ? details.summary : "";
+    const tone = auditTone(r.action);
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${new Date(r.created_at).toLocaleString()}</td>
-      <td>${escapeHtml(r.action)}</td>
+      <td><span class="audit-action-tag ${tone}">${escapeHtml(auditLabel(r.action))}</span>${summary ? `<span class="audit-summary">${escapeHtml(summary)}</span>` : ""}</td>
       <td>${escapeHtml(r.actor_role || "")}</td>
-      <td>${escapeHtml(r.actor_type || "")}${r.actor_id ? " #" + r.actor_id : ""}</td>
+      <td>${escapeHtml(auditActor(r))}</td>
       <td>${escapeHtml(r.target_type || "")}${r.target_id ? " #" + r.target_id : ""}</td>
-      <td class="audit-details" data-raw="${escapeHtml(details)}" title="Click to copy">${escapeHtml(details)}</td>
+      <td class="audit-details audit-changes" data-raw="${escapeHtml(raw)}" title="Click to copy the raw details">${auditChangesHtml(details)}</td>
     `;
     body.appendChild(tr);
   });
@@ -2599,6 +3484,26 @@ function initAuditHandlers() {
   document
     .getElementById("auditLoadBtn")
     ?.addEventListener("click", () => loadAudit(true));
+  // Clearing is permanent, so it only happens after an explicit "yes".
+  document.getElementById("auditClearBtn")?.addEventListener("click", async () => {
+    const sure = confirm(
+      "Are you sure you want to clear the whole audit log?\n\nThis permanently deletes every entry and CANNOT be undone. (Tip: use Export CSV first if you want a copy.)",
+    );
+    if (!sure) return;
+    try {
+      const res = await adminFetch("/api/admin/audit", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: "CLEAR" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || "Couldn't clear the audit log.");
+      alert(`Audit log cleared (${data.deleted} entr${data.deleted === 1 ? "y" : "ies"} removed).`);
+      loadAudit(true);
+    } catch (err) {
+      alert(err.message || "Couldn't clear the audit log.");
+    }
+  });
   document.getElementById("auditPrevBtn")?.addEventListener("click", () => {
     auditOffset = Math.max(0, auditOffset - auditLimit);
     loadAudit(false);
@@ -2623,7 +3528,7 @@ function initAuditHandlers() {
             `"${new Date(r.created_at).toISOString()}"`,
             `"${r.action || ""}"`,
             `"${r.actor_role || ""}"`,
-            `"${r.actor_type || ""}${r.actor_id ? " #" + r.actor_id : ""}"`,
+            `"${auditActor(r)}"`,
             `"${r.target_type || ""}${r.target_id ? " #" + r.target_id : ""}"`,
             `"${details.replace(/"/g, '""')}"`,
           ].join(",");
@@ -2667,4 +3572,56 @@ function initAuditHandlers() {
 // ---------------------------------------------------------------------
 if (adminToken) {
   showDashboard();
+} else if (!initialResetToken) {
+  window.location.replace("/home.html?auth=signin");
 }
+
+// ---------------------------------------------------------------------
+// Form validation for every admin form - rules live in js/form-validation.js
+// (shared with the customer site); the server re-checks all of it.
+// ---------------------------------------------------------------------
+if (typeof FuludeValidation !== "undefined") {
+  const money = (max, title) => ({ min: 0, max, step: 0.01, title });
+  FuludeValidation.apply({
+    // Customer details entered by staff: Place Order, Book for a customer, buffet seats
+    names: ["resNewName", "orderCustomerName", "bbName", "staffAccountName"],
+    newPasswords: ["staffAccountPassword", "adminAccountPassword", "newAdminPassword", "adminResetPassword"],
+    futureDates: ["resNewDate"],
+    futureDateTimes: ["buffetEventDate"],
+    numbers: {
+      itemPrice: money(100000, "Price in Rand, e.g. 85 or 85.50"),
+      addonPrice: money(100000, "Price in Rand, e.g. 15"),
+      specialPriceInput: money(100000, "Special price in Rand"),
+      buffetEventPrice: money(100000, "Price per seat in Rand"),
+      poManualFee: money(10000, "Delivery fee in Rand"),
+      itemStockQuantity: { min: 0, max: 100000, step: 1, title: "Whole number - leave empty for unlimited" },
+      buffetEventCapacity: { min: 1, max: 1000, step: 1, title: "Number of seats (1-1000)" },
+      resNewParty: { min: 1, max: 200, step: 1, title: "1 to 200 guests" },
+      bbSeats: { min: 1, max: 500, step: 1, title: "Number of seats" },
+      cafeLatitude: { min: -90, max: 90, step: "any", title: "Between -90 and 90, e.g. -22.9834" },
+      cafeLongitude: { min: -180, max: 180, step: "any", title: "Between -180 and 180, e.g. 30.3571" },
+    },
+    maxLengths: {
+      itemName: 100, itemDescription: 500, itemIngredients: 1000,
+      addonName: 60, spiceName: 60, sideName: 60, categoryName: 60,
+      resNewTable: 30, resNewNotes: 500, orderTableNumber: 30, orderInstructions: 500,
+      poStreet: 200, poUnit: 50, poSuburb: 100, poCity: 100,
+      buffetEventTitle: 200, buffetEventDescription: 2000,
+      marketingSubject: 150, marketingBody: 5000,
+    },
+    patterns: { poPostal: { pattern: "[0-9]{4}", title: "4-digit postal code, e.g. 0950" } },
+    custom: [
+      {
+        id: "buffetEventBookingCloses",
+        test: (v) => !document.getElementById("buffetEventDate")?.value || v <= document.getElementById("buffetEventDate").value,
+        message: "Booking must close before the event starts.",
+      },
+      {
+        id: "specialEndsInput",
+        test: (v) => !document.getElementById("specialStartsInput")?.value || v > document.getElementById("specialStartsInput").value,
+        message: "The special must end after it starts.",
+      },
+    ],
+  });
+}
+

@@ -68,12 +68,17 @@ export async function onRequestPost(context) {
     const account = result.rows[0];
 
     if (!account) {
-      const legacyResult = await runQuery(
-        env,
-        "SELECT name, email, password, role FROM users WHERE LOWER(email) = $1 LIMIT 1;",
-        [email],
-      );
-      const legacyAccount = legacyResult.rows[0];
+      let legacyAccount = null;
+      try {
+        const legacyResult = await runQuery(
+          env,
+          "SELECT name, email, password, role FROM users WHERE LOWER(email) = $1 LIMIT 1;",
+          [email],
+        );
+        legacyAccount = legacyResult.rows[0];
+      } catch {
+        // Old "users" table doesn't exist on this database - treat as no legacy account.
+      }
       if (
         legacyAccount &&
         !["admin", "staff"].includes(String(legacyAccount.role || "").toLowerCase()) &&
@@ -100,7 +105,17 @@ export async function onRequestPost(context) {
         );
         return jsonResponse({ success: true, token, customer });
       }
-      return wrongCredentials();
+      if (
+        legacyAccount &&
+        !["admin", "staff"].includes(String(legacyAccount.role || "").toLowerCase())
+      ) {
+        return wrongCredentials();
+      }
+      // No account with this email (customers or legacy table).
+      return jsonResponse(
+        { error: "Incorrect email or password.", code: "account_not_found" },
+        404,
+      );
     }
 
     if (account.is_locked) {

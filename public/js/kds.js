@@ -22,8 +22,132 @@
 
 const KDS_MAX_ITEM_LINES = 3;
 
+/* ---------------- Daily reset (South Africa time) ----------------
+ * Today's stats (kitchen strip, today's reservations) only count things
+ * from the current cafe day, so they clear by themselves at 12:00 am. */
+const KDS_TZ = "Africa/Johannesburg";
+
+/** "YYYY-MM-DD" of a moment in cafe time (defaults to now). */
+function kdsDayKey(date = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: KDS_TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+}
+
+function kdsIsToday(order) {
+  return kdsDayKey(new Date(order.created_at)) === kdsDayKey();
+}
+
+/** Milliseconds until the next 12:00 am in cafe time. */
+function kdsMsUntilMidnight() {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: KDS_TZ, hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  }).formatToParts(new Date());
+  const get = (t) => Number(parts.find((p) => p.type === t)?.value || 0);
+  const elapsed = (get("hour") * 3600 + get("minute") * 60 + get("second")) * 1000;
+  return 24 * 3600 * 1000 - elapsed;
+}
+
+/** "Resets at 12:00 am (in 5h 12m)" */
+function kdsResetLabel() {
+  const mins = Math.ceil(kdsMsUntilMidnight() / 60000);
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `Today's stats reset at 12:00 am (in ${h ? `${h}h ` : ""}${m}m)`;
+}
+
+/** Runs fn right after every cafe midnight while the page stays open. */
+function kdsOnMidnight(fn) {
+  setTimeout(() => {
+    fn();
+    kdsOnMidnight(fn);
+  }, kdsMsUntilMidnight() + 1000);
+}
+
+function kdsFmt(n) {
+  return `R${Number(n).toFixed(2)}`;
+}
+
+/**
+ * When the order reached the admin/staff boards: paid orders wait out the
+ * customer's 2-minute cancel window first (kitchen_release_at), so all
+ * timers - card timer, column average, Avg Ticket Age, Longest Waiting -
+ * count from then, not from when the customer placed it.
+ */
+function kdsStartTime(order) {
+  const release = new Date(order.kitchen_release_at || order.created_at).getTime();
+  if (order.scheduled_for && order.preparing_at) return new Date(order.preparing_at).getTime();
+  return release;
+}
+
+/**
+ * Pre-orders and timed orders (scheduled_for) are only a heads-up of when
+ * the customer will arrive; the restaurant decides when to start them. They
+ * stay out of Avg Ticket Age and Longest Waiting until Start Preparing is
+ * pressed, and then count from that moment.
+ */
+function kdsCountsInStats(order) {
+  if (!order.scheduled_for) return true;
+  return order.status !== "New";
+}
+
+/**
+ * Order times come from the database's clock; this device's clock can be
+ * minutes off, which made every timer start at e.g. "6 min". Each board
+ * fetch reports the database's current time, so timers count on that clock.
+ */
+let kdsClockOffset = 0;
+function kdsNow() {
+  return Date.now() + kdsClockOffset;
+}
+
+/** Whole minutes since the order reached the board: 0 for the first minute, then 1, 2, ... */
 function kdsMinutes(order) {
-  return Math.max(0, Math.round((Date.now() - new Date(order.created_at).getTime()) / 60000));
+  return Math.max(0, Math.floor((kdsNow() - kdsStartTime(order)) / 60000));
+}
+
+/**
+ * Timers tick every second between fetches: card/row timers update in place
+ * and each board's callbacks (Avg Ticket Age, Longest Waiting) re-run.
+ */
+const kdsTickCallbacks = [];
+function kdsOnTick(fn) {
+  kdsTickCallbacks.push(fn);
+}
+setInterval(() => {
+  document.querySelectorAll("[data-kds-start]").forEach((el) => {
+    const order = { kitchen_release_at: Number(el.dataset.kdsStart), status: el.dataset.kdsStatus };
+    const { cls, mins } = kdsUrgency(order);
+    if (el.classList.contains("kds-timer")) {
+      el.innerHTML = `${mins}<small>min</small>`;
+      el.className = `kds-timer ${cls}`;
+      const card = el.closest(".kds-card");
+      if (card) card.className = card.className.replace(/u-(ok|warn|hot|late|done)/, cls);
+    } else {
+      el.textContent = `${mins} min`;
+    }
+  });
+  kdsTickCallbacks.forEach((fn) => {
+    try {
+      fn();
+    } catch {
+      /* a board that isn't showing - ignore */
+    }
+  });
+}, 1000);
+
+/**
+ * The boards poll every 5s; the API also says when the next paid order
+ * leaves its 2-minute window, so fetch again at exactly that moment and the
+ * new-order sound rings as soon as it reaches the kitchen.
+ */
+let kdsReleaseTimer = null;
+function kdsScheduleNextRelease(data, refresh) {
+  clearTimeout(kdsReleaseTimer);
+  if (data && data.server_now) kdsClockOffset = new Date(data.server_now).getTime() - Date.now();
+  if (!data || !data.next_release_at) return;
+  // Server clock for both ends - a wrong clock on this device doesn't matter.
+  const serverNow = data.server_now ? new Date(data.server_now).getTime() : Date.now();
+  const wait = new Date(data.next_release_at).getTime() - serverNow + 250;
+  if (wait > 0 && wait < 10 * 60 * 1000) kdsReleaseTimer = setTimeout(refresh, wait);
 }
 
 /* Urgency tiers: 0-10 green, 10-20 amber, 20-30 orange, 30+ red (pulse). */
@@ -92,8 +216,9 @@ function kdsCardHtml(order) {
         <div class="kds-card-head-left">
           <span class="kds-card-id">#${order.id}</span>
           ${kdsTypeBadgeHtml(order)}
+          ${order.total_amount !== undefined ? `<span class="kds-card-total">${kdsFmt(order.total_amount)}</span>` : ""}
         </div>
-        <span class="kds-timer ${cls}">${mins}<small>min</small></span>
+        <span class="kds-timer ${cls}" data-kds-start="${kdsStartTime(order)}" data-kds-status="${order.status}">${mins}<small>min</small></span>
       </div>
       <ul class="kds-card-items">${shown.map((i) => `<li>${kdsItemLine(i)}</li>`).join("")}</ul>
       ${moreCount > 0 ? `<div class="kds-more">+${moreCount} more item${moreCount === 1 ? "" : "s"} · tap ⋮</div>` : ""}
@@ -106,7 +231,7 @@ function kdsCardHtml(order) {
         }
         <button type="button" class="kds-menu-btn" data-menu-toggle aria-label="More actions">⋮</button>
         <div class="kds-menu">
-          <button type="button" data-open-details="${order.id}">View details</button>
+          <button type="button" data-open-details="${order.id}"><i class="fas fa-circle-info"></i> Order info</button>
           ${kdsStatusMenuHtml(order)}
           <button type="button" class="danger" data-status="Cancelled" data-id="${order.id}">Cancel order</button>
         </div>
@@ -122,7 +247,16 @@ function kdsRowHtml(order) {
     <div class="kds-row" data-open-details="${order.id}" data-order-id="${order.id}" draggable="true">
       <strong>#${order.id}</strong>
       <span class="kds-row-meta">${type}</span>
-      <span class="kds-row-age">${mins} min</span>
+      ${order.total_amount !== undefined ? `<span class="kds-row-total">${kdsFmt(order.total_amount)}</span>` : ""}
+      <span class="kds-row-age" data-kds-start="${kdsStartTime(order)}" data-kds-status="${order.status}">${mins} min</span>
+      <div class="kds-card-actions kds-row-actions">
+        <button type="button" class="kds-menu-btn" data-menu-toggle aria-label="More actions">⋮</button>
+        <div class="kds-menu">
+          <button type="button" data-open-details="${order.id}"><i class="fas fa-circle-info"></i> Order info</button>
+          <button type="button" data-status="Completed" data-id="${order.id}">Mark as Completed</button>
+          <button type="button" class="danger" data-status="Cancelled" data-id="${order.id}">Cancel order</button>
+        </div>
+      </div>
     </div>`;
 }
 
@@ -135,7 +269,7 @@ function kdsBoardHtml(orders, columns, opts = {}) {
   return columns
     .map((col) => {
       const list = orders.filter((o) => o.status === col);
-      const ages = list.map(kdsMinutes);
+      const ages = list.filter(kdsCountsInStats).map(kdsMinutes);
       const avg = ages.length ? Math.round(ages.reduce((s, m) => s + m, 0) / ages.length) : null;
       return `
       <div class="kds-col" data-column="${col}">
@@ -181,7 +315,9 @@ function kdsBindBoard(container, orders, { onAction, confirmAction, onError }) {
       const actions = btn.closest(".kds-card-actions");
       const wasOpen = actions.classList.contains("menu-open");
       closeMenus();
-      if (!wasOpen) actions.classList.add("menu-open");
+      if (wasOpen) return;
+      actions.classList.add("menu-open");
+      if (actions.classList.contains("kds-row-actions")) kdsPlaceFloatingMenu(btn, actions.querySelector(".kds-menu"));
     });
   });
 
@@ -190,7 +326,8 @@ function kdsBindBoard(container, orders, { onAction, confirmAction, onError }) {
       e.stopPropagation();
       const order = byId[el.dataset.openDetails];
       closeMenus();
-      if (order) kdsOpenDetails(order);
+      // The details window can finish the order itself (Collection / Delivery -> Completed).
+      if (order) kdsOpenDetails(order, (status) => dispatchAction(status, order.id, order));
     });
   });
 
@@ -243,9 +380,40 @@ function kdsBindBoard(container, orders, { onAction, confirmAction, onError }) {
 document.addEventListener("click", () => {
   document.querySelectorAll(".kds-card-actions.menu-open").forEach((a) => a.classList.remove("menu-open"));
 });
+// Floating row menus follow their ⋮ button when the page or a column scrolls.
+document.addEventListener(
+  "scroll",
+  () => {
+    document.querySelectorAll(".kds-row-actions.menu-open").forEach((actions) => {
+      kdsPlaceFloatingMenu(actions.querySelector("[data-menu-toggle]"), actions.querySelector(".kds-menu"));
+    });
+  },
+  true,
+);
+
+/** Escapes customer-typed text (names, addresses, notes) before it goes into HTML. */
+function kdsEsc(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+/** Row menus sit in a scrolling column - float them next to the ⋮ button, above or below, whichever fits. */
+function kdsPlaceFloatingMenu(btn, menu) {
+  if (!menu) return;
+  const r = btn.getBoundingClientRect();
+  menu.style.position = "fixed";
+  menu.style.right = `${Math.max(8, window.innerWidth - r.right)}px`;
+  menu.style.left = "auto";
+  const h = menu.offsetHeight;
+  if (r.top - h - 6 > 8) {
+    menu.style.top = `${r.top - h - 6}px`;
+  } else {
+    menu.style.top = `${Math.min(r.bottom + 6, window.innerHeight - h - 8)}px`;
+  }
+  menu.style.bottom = "auto";
+}
 
 /* ---------------- Details overlay ---------------- */
-function kdsOpenDetails(order) {
+function kdsOpenDetails(order, onAction) {
   let overlay = document.getElementById("kdsDetailOverlay");
   if (!overlay) {
     overlay = document.createElement("div");
@@ -259,33 +427,77 @@ function kdsOpenDetails(order) {
     overlay.querySelector("#kdsDetailClose").addEventListener("click", () => overlay.classList.remove("active"));
   }
 
-  const fmt = (n) => `R${Number(n).toFixed(2)}`;
+  const fmt = kdsFmt;
+  const esc = kdsEsc;
   const mins = kdsMinutes(order);
-  const placed = new Date(order.created_at).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" });
-  const typeLabel =
-    order.order_type === "delivery"
-      ? `Delivery${order.delivery_address ? ` · ${order.delivery_address}` : ""}`
-      : order.order_type === "dine_in"
-      ? `Dine In${order.table_number ? ` (Table ${order.table_number})` : ""}`
-      : "Collection";
+  const when = (d) => (d ? new Date(d).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" }) : "");
+  const row = (label, value) => (value ? `<div class="row"><span>${label}</span><span>${value}</span></div>` : "");
+  const section = (title) => `<div class="kds-detail-section">${title}</div>`;
+  const typeLabel = order.order_type === "delivery" ? "Delivery" : order.order_type === "dine_in" ? "Dine in" : "Collection";
 
-  const itemsHtml = (order.items || [])
-    .map((i) => `<li>${kdsItemLine(i)}${i.subtotal !== undefined ? ` — ${fmt(i.subtotal)}` : ""}</li>`)
+  const items = order.items || [];
+  const itemsTotal = items.reduce((sum, i) => sum + Number(i.subtotal || 0), 0);
+  const itemsHtml = items
+    .map((i) => `<li><span>${kdsItemLine(i)}</span>${i.subtotal !== undefined ? `<span>${fmt(i.subtotal)}</span>` : ""}</li>`)
     .join("");
+
+  let deliveryHtml = "";
+  if (order.order_type === "delivery") {
+    const hasPin = order.delivery_lat && order.delivery_lng;
+    const mapQuery = hasPin ? `${order.delivery_lat},${order.delivery_lng}` : order.delivery_address || "";
+    const mapLink = mapQuery
+      ? `<a class="kds-map-link" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapQuery)}" target="_blank" rel="noopener"><i class="fas fa-map-location-dot"></i> Open in Google Maps</a>`
+      : "";
+    deliveryHtml = `
+      ${section("Delivery")}
+      <div class="kds-address">${order.delivery_address ? esc(order.delivery_address) : "No address given"}${mapLink}</div>
+      ${row("Distance", order.delivery_distance_km ? `${Number(order.delivery_distance_km).toFixed(1)} km` : "")}
+      ${row("Delivery fee", order.delivery_fee !== undefined && order.delivery_fee !== null ? fmt(order.delivery_fee) : "")}`;
+  }
+
+  const phone = order.customer_phone ? `<a href="tel:${esc(order.customer_phone.replace(/s+/g, ""))}">${esc(order.customer_phone)}</a>` : "";
+  const payment =
+    order.payment_status === "paid"
+      ? `Paid online${order.payment_confirmed_at ? ` · ${when(order.payment_confirmed_at)}` : ""}`
+      : esc(order.payment_status || "");
 
   overlay.querySelector("#kdsDetailTitle").textContent = `Order #${order.id}`;
   overlay.querySelector("#kdsDetailBody").innerHTML = `
     <div class="kds-detail-rows">
-      <div class="row"><span>Status</span><span>${order.status} · ${mins} min ago</span></div>
-      <div class="row"><span>Placed</span><span>${placed}</span></div>
-      <div class="row"><span>Type</span><span>${typeLabel}</span></div>
-      <div class="row"><span>Timing</span><span>${order.pickup_time || "—"}</span></div>
-      <div class="row"><span>Customer</span><span>${order.customer_name}${order.customer_phone ? ` · ${order.customer_phone}` : ""}</span></div>
-      ${order.payment_status ? `<div class="row"><span>Payment</span><span>${order.payment_status === "paid" ? "Paid online" : order.payment_status}</span></div>` : ""}
-      ${order.total_amount !== undefined ? `<div class="row"><span>Total</span><span><strong>${fmt(order.total_amount)}</strong></span></div>` : ""}
-      ${order.special_instructions ? `<div class="row"><span>Note</span><span>${order.special_instructions}</span></div>` : ""}
-      <ul>${itemsHtml}</ul>
+      ${section("Order")}
+      ${row("Status", `${esc(order.status)} · ${mins} min in kitchen`)}
+      ${row("Type", order.order_type === "dine_in" && order.table_number ? `Dine in · Table ${esc(order.table_number)}` : typeLabel)}
+      ${row("Placed", when(order.created_at))}
+      ${order.kitchen_release_at ? row("Reached kitchen", when(order.kitchen_release_at)) : ""}
+      ${row("Timing", esc(order.pickup_time || ""))}
+      ${section("Customer")}
+      ${row("Name", esc(order.customer_name || "—"))}
+      ${row("Phone", phone)}
+      ${deliveryHtml}
+      ${section(`Items (${items.reduce((n, i) => n + Number(i.quantity || 0), 0)})`)}
+      <ul class="kds-detail-items">${itemsHtml}</ul>
+      ${order.special_instructions ? `<div class="kds-detail-note"><i class="fas fa-circle-exclamation"></i> ${esc(order.special_instructions)}</div>` : ""}
+      ${section("Payment")}
+      ${order.order_type === "delivery" && order.delivery_fee ? row("Items", fmt(itemsTotal)) : ""}
+      ${order.order_type === "delivery" && order.delivery_fee ? row("Delivery fee", fmt(order.delivery_fee)) : ""}
+      ${order.total_amount !== undefined ? row("Total", `<strong>${fmt(order.total_amount)}</strong>`) : ""}
+      ${row("Payment", payment)}
+      ${row("Reference", esc(order.payment_ref || ""))}
     </div>
+    ${
+      onAction && ["Collection", "Delivery", "Out for Delivery"].includes(order.status)
+        ? `<button type="button" class="kds-complete-btn" id="kdsCompleteBtn"><i class="fas fa-circle-check"></i> Mark as Completed</button>`
+        : ""
+    }
   `;
+  const completeBtn = overlay.querySelector("#kdsCompleteBtn");
+  if (completeBtn) {
+    completeBtn.addEventListener("click", async () => {
+      completeBtn.disabled = true;
+      completeBtn.textContent = "Completing…";
+      await onAction("Completed");
+      overlay.classList.remove("active"); // the board refreshes and the order drops off it
+    });
+  }
   overlay.classList.add("active");
 }

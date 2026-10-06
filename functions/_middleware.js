@@ -1,0 +1,30 @@
+/**
+ * functions/_middleware.js
+ * -----------------------------------------------------------------------
+ * The old public dashboard addresses (/admin, /staff and their .html
+ * versions) must look like they never existed: always a plain 404, never
+ * a redirect to the home page. This runs before any static file, so it
+ * still returns a 404 even if an old copy of those pages is left over in
+ * a deployment. (public/_routes.json limits it to these paths + /api.)
+ * ----------------------------------------------------------------------- */
+const HIDDEN = /^\/(admin|staff)(\.html)?\/?$|^\/(admin|staff)\//i;
+
+const NOT_FOUND_HTML = `<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex, nofollow"><title>404 Not Found</title>
+<style>body{margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#000;color:#fff;font-family:Inter,system-ui,sans-serif;text-align:center;padding:24px}h1{font-size:64px;margin:0 0 8px;color:#b8963f}p{margin:0;color:#ccc}</style></head>
+<body><h1>404</h1><p>Page not found.</p></body></html>`;
+
+export async function onRequest(context) {
+  const { pathname } = new URL(context.request.url);
+  if (HIDDEN.test(pathname)) {
+    return new Response(NOT_FOUND_HTML, {
+      status: 404,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+        "X-Robots-Tag": "noindex, nofollow",
+      },
+    });
+  }
+  return context.next();
+}

@@ -8,6 +8,11 @@
  *
  * GET /api/reservations
  * Returns the reservations for the currently signed-in customer.
+ *
+ * DELETE /api/reservations
+ * "Clear history" for the signed-in customer: hides every one of their
+ * bookings from their own list (hidden_by_customer). The bookings stay in
+ * the database and on the admin Reservations tab.
  * -----------------------------------------------------------------------
  */
 import { runQuery, jsonResponse } from "../_lib/db.js";
@@ -15,8 +20,17 @@ import {
   requireCustomer,
   ensureCustomerProfileColumns,
 } from "../_lib/customerAuth.js";
-import { sanitizeText, getRequestIp } from "../_lib/security.js";
+import { sanitizeText, getRequestIp, isValidEmail, isValidName, normalizePhone, VALIDATION_MESSAGES } from "../_lib/security.js";
 import { logAudit } from "../_lib/audit.js";
+import { validateReservationSlot } from "../_lib/hours.js";
+import { queuePush } from "../_lib/push.js";
+
+let hiddenColumnReady = false;
+async function ensureHiddenByCustomerColumn(env) {
+  if (hiddenColumnReady) return;
+  await runQuery(env, "ALTER TABLE customer_reservations ADD COLUMN IF NOT EXISTS hidden_by_customer BOOLEAN NOT NULL DEFAULT FALSE;");
+  hiddenColumnReady = true;
+}
 
 export async function onRequestGet(context) {
   const { request, env } = context;
@@ -24,14 +38,20 @@ export async function onRequestGet(context) {
   if (error) return error;
 
   try {
+    await ensureHiddenByCustomerColumn(env);
     const result = await runQuery(
       env,
       `
-      SELECT id, reservation_date, reservation_time, party_size, table_number, notes,
-             advance_order_requested, advance_order_details, status, created_at
-      FROM customer_reservations
-      WHERE customer_id = $1
-      ORDER BY reservation_date DESC, reservation_time DESC;
+      SELECT r.id, r.customer_name, r.customer_phone,
+             to_char(r.reservation_date, 'YYYY-MM-DD') AS reservation_date,
+             to_char(r.reservation_time, 'HH24:MI') AS reservation_time,
+             r.party_size, r.table_number, r.notes,
+             r.advance_order_requested, r.advance_order_details, r.advance_order_id, r.status, r.created_at,
+             o.payment_status AS preorder_payment_status, o.total_amount AS preorder_total
+      FROM customer_reservations r
+      LEFT JOIN orders o ON o.id = r.advance_order_id
+      WHERE r.customer_id = $1 AND NOT r.hidden_by_customer
+      ORDER BY r.reservation_date DESC, r.reservation_time DESC;
     `,
       [customer.id],
     );
@@ -42,6 +62,24 @@ export async function onRequestGet(context) {
       { error: "Failed to load your reservations.", message: err.message },
       500,
     );
+  }
+}
+
+export async function onRequestDelete(context) {
+  const { request, env } = context;
+  const { customer, error } = await requireCustomer(request, env);
+  if (error) return error;
+
+  try {
+    await ensureHiddenByCustomerColumn(env);
+    const result = await runQuery(
+      env,
+      "UPDATE customer_reservations SET hidden_by_customer = TRUE WHERE customer_id = $1 AND NOT hidden_by_customer RETURNING id;",
+      [customer.id],
+    );
+    return jsonResponse({ success: true, cleared_count: result.rows.length });
+  } catch (err) {
+    return jsonResponse({ error: "Couldn't clear your reservation history.", message: err.message }, 500);
   }
 }
 
@@ -62,7 +100,8 @@ export async function onRequestPost(context) {
 
   const name = sanitizeText(body.name || "", 100);
   const email = sanitizeText(body.email || "", 100).toLowerCase();
-  const phone = sanitizeText(body.phone || "", 50);
+  const phoneInput = sanitizeText(body.phone || "", 50);
+  const phone = normalizePhone(phoneInput) || "";
   const reservationDate = sanitizeText(body.reservation_date || "", 30);
   const reservationTime = sanitizeText(body.reservation_time || "", 30);
   const partySize = parseInt(body.party_size || body.partySize, 10);
@@ -79,6 +118,12 @@ export async function onRequestPost(context) {
     500,
   );
 
+  if (name && !isValidName(name)) return jsonResponse({ error: VALIDATION_MESSAGES.name }, 400);
+  if (email && !isValidEmail(email)) return jsonResponse({ error: VALIDATION_MESSAGES.email }, 400);
+  if (phoneInput && !phone) return jsonResponse({ error: VALIDATION_MESSAGES.phone }, 400);
+  if (Number.isInteger(partySize) && partySize > 50) {
+    return jsonResponse({ error: "For groups of more than 50 please contact us directly." }, 400);
+  }
   if (
     !name ||
     !email ||
@@ -97,46 +142,20 @@ export async function onRequestPost(context) {
     );
   }
 
+  const slotError = validateReservationSlot(reservationDate, reservationTime);
+  if (slotError) return jsonResponse({ error: slotError }, 400);
+
   let linkedCustomerId = customer?.id || null;
   let advanceOrderId = null;
   let advancePayment = null;
-  if (advanceOrderRequested) {
-    const authorization = request.headers.get("Authorization") || "";
-    if (!customer || !authorization.startsWith("Bearer "))
-      return jsonResponse(
-        { error: "Sign in is required for advance food ordering." },
-        401,
-      );
-    const cartItems = Array.isArray(body.cart_items) ? body.cart_items : [];
-    if (cartItems.length === 0)
-      return jsonResponse(
-        { error: "Add your advance food order to the cart before booking." },
-        400,
-      );
-    const orderRequest = new Request(new URL("/api/order", request.url), {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        Authorization: authorization,
-      },
-      body: JSON.stringify({
-        customer_name: name,
-        phone_number: phone,
-        order_type: "dine_in",
-        pickup_time: reservationTime,
-        special_instructions: notes,
-        cart_items: cartItems,
-      }),
-    });
-    const { onRequestPost } = await import("./order.js");
-    const orderResponse = await onRequestPost({ request: orderRequest, env });
-    const orderBody = await orderResponse
-      .clone()
-      .json()
-      .catch(() => ({}));
-    if (!orderResponse.ok || !orderBody.success) return orderResponse;
-    advanceOrderId = orderBody.order_id;
-    advancePayment = orderBody.payment;
+  if (advanceOrderRequested && !customer) {
+    // Pre-ordering needs an account; the customer then checks out from the
+    // menu page (their reservation details are filled in there), and that
+    // order is linked to this reservation by /api/order.
+    return jsonResponse(
+      { error: "Sign in is required for advance food ordering." },
+      401,
+    );
   }
   if (!linkedCustomerId && email) {
     const existingCustomer = await runQuery(
@@ -149,6 +168,9 @@ export async function onRequestPost(context) {
   }
 
   try {
+    // Customers can hold several bookings at once - an earlier one that is
+    // still pending, confirmed or waiting for its pre-order payment no
+    // longer blocks booking another table.
     const result = await runQuery(
       env,
       `
@@ -157,7 +179,7 @@ export async function onRequestPost(context) {
         reservation_date, reservation_time, party_size, table_number,
         notes, advance_order_requested, advance_order_details, advance_order_id, status
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'Pending')
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING id;
     `,
       [
@@ -173,6 +195,9 @@ export async function onRequestPost(context) {
         advanceOrderRequested,
         advanceOrderDetails || null,
         advanceOrderId,
+        // With a pre-order the booking waits (hidden from the admin) until the
+        // food is paid for - then it's confirmed automatically.
+        advanceOrderRequested ? "AwaitingPayment" : "Pending",
       ],
     );
 
@@ -192,13 +217,19 @@ export async function onRequestPost(context) {
       },
     });
 
+    if (!advanceOrderRequested) queuePush(context, { roles: ["admin"] }, {
+      title: "New reservation request",
+      body: `${name} · ${partySize} guest${partySize > 1 ? "s" : ""} · ${reservationDate} ${reservationTime}`,
+      url: "/fc-hq.html#reservations",
+      tag: `reservation-${result.rows[0].id}`,
+    });
+
     return jsonResponse({
       success: true,
       reservation_id: result.rows[0].id,
-      payment: advancePayment,
-      message: advancePayment
-        ? "Reservation received. Complete payment to confirm your advance food order."
-        : "Your reservation request has been received. The cafe will confirm it shortly.",
+      advance_order_requested: advanceOrderRequested,
+      message:
+        "Your reservation request has been received. We should send your confirmation on WhatsApp shortly.",
     });
   } catch (err) {
     return jsonResponse(

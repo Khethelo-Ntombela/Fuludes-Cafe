@@ -12,7 +12,7 @@
     <meta name="robots" content="index, follow" />
     <link rel="canonical" href="https://fuludescafe.co.za/contact" />
 
-    <link rel="stylesheet" href="css/style.css" />
+    <link rel="stylesheet" href="css/style.css?v=25" />
     <link
       href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap"
       rel="stylesheet"
@@ -26,12 +26,17 @@
       href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css"
     />
     <meta name="google-client-id" content="633808599246-vluj9dv2qigabk9cpn1sb7qflnaucie0.apps.googleusercontent.com" />
+    <link rel="icon" href="/favicon.ico?v=2" sizes="any">
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png?v=2">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#000000">
   </head>
   <body>
     <header class="header">
       <div class="container nav-container">
         <a href="home.html" class="logo">
-          <img src="images/logo.jpeg" alt="Fulude's Cafe Logo" />
+          <img src="images/logo-transparent.png" alt="Fulude's Cafe Logo" />
           <h4>Fulude's Cafe</h4>
         </a>
         <nav class="nav" id="navbar">
@@ -53,6 +58,21 @@
           >
             <i class="bi bi-person-circle"></i>
             <span id="accountNavLabel">Sign In</span>
+            <script>
+              // Show the cached name immediately (if we have one) so the
+              // nav doesn't flash "Sign In" for a signed-in customer while
+              // we re-confirm the token with the server in the background.
+              (function () {
+                try {
+                  if (localStorage.getItem("fulude_customer_token")) {
+                    var cachedName = localStorage.getItem("fulude_customer_name");
+                    if (cachedName) {
+                      document.getElementById("accountNavLabel").textContent = cachedName;
+                    }
+                  }
+                } catch (e) {}
+              })();
+            </script>
           </button>
           <button
             class="mobile-toggle"
@@ -70,7 +90,10 @@
         <p class="page-eyebrow">Fulude's Cafe</p>
         <h1 class="page-hero-title">Visit Us</h1>
         <p class="page-hero-sub">
-          Find us in Mapate, Thohoyandou — open daily from 09:00 to 21:00.
+          Find us in Mapate, Thohoyandou - opening hours</br>
+          Monday-Thursday : 09:00-18:00.</br>
+          Friday and Sunday : 09:00-20:00.</br>
+          Saturday : 09:00-21:00.
         </p>
       </div>
     </section>
@@ -83,8 +106,12 @@
               <strong>Address:</strong> Mapate, Thohoyandou, 0945, South Africa
             </p>
             <p><strong>Phone:</strong> +27 663 649 016</p>
-            <p><strong>Email:</strong> hello@fuludescafe.co.za</p>
-            <p><strong>Hours:</strong><br />Open 09:00 - 21:00</p>
+            <p><strong>Email:</strong> <a href="mailto:orders@fuludescafe.co.za">orders@fuludescafe.co.za</a></p>
+            <p><strong>Hours:</strong><br />Open </br> 
+              Monday-Thursday : 09:00-18:00.</br>
+              Friday & Sunday : 09:00-20:00.</br>
+              Saturday : 09:00-21:00.
+            </p>
           </div>
           <div class="contact-map" id="contactMap">
             <iframe
@@ -112,7 +139,8 @@
             </button>
             <div class="faq-answer">
               <p>
-                We are open daily from 09:00 to 21:00. Come visit us at Mapate,
+                Monday to Thursday we're open 09:00-18:00, Friday and Sunday
+                09:00-20:00, and Saturday 09:00-21:00. Come visit us at Mapate,
                 Thohoyandou for a memorable dining experience. To avoid waiting
                 please consider ordering online.
               </p>
@@ -125,9 +153,10 @@
             </button>
             <div class="faq-answer">
               <p>
-                All three. We deliver within the Thohoyandou area, or you can
-                order ahead online and choose collection or dine-in when you
-                check out.
+                All three. We deliver within Thohoyandou and the surrounding
+                areas, not just within Thohoyandou itself, or you can order
+                ahead online and choose collection or dine-in when you check
+                out.
               </p>
             </div>
           </div>
@@ -193,12 +222,19 @@
                 begins within minutes, so there is very little room for anything
                 to go wrong. If you change your mind right after ordering, you
                 can cancel it yourself from My Orders within the first two
-                minutes of placing it. After that window closes, or once our
-                kitchen has started preparing your food, cancellation is no
+                minutes of placing it, and this triggers an automatic refund
+                straight away. After that window closes, or once our kitchen
+                has started preparing your food, self-cancellation is no
                 longer possible, so please contact us directly if there is a
-                problem. Whenever an order is cancelled while it was already
-                paid for, you will receive a full refund back to your original
-                payment method, so you will never be left out of pocket.
+                problem. If our admin or staff need to cancel your order on
+                our end, for example if we can't fulfil it, that refund is
+                processed manually by our team rather than automatically. In
+                the rare case an item turns out to be unavailable right at the
+                payment gateway, before your order reaches the kitchen, that
+                refund is also automatic. Either way, whenever an order is
+                cancelled after being paid for, you will receive a full refund
+                back to your original payment method, so you will never be
+                left out of pocket.
               </p>
             </div>
           </div>
@@ -216,35 +252,19 @@
             </button>
             <div class="faq-answer">
               <p>
-                To place an order, you create an account with your name, email
-                address, and a password. We also collect your phone number, and
-                where relevant your delivery address or table number, each time
-                you check out. This information is stored securely and used to
-                process your order, keep you updated on its status, and show you
-                your order history when you are signed in.
+                We collect only what we need to run your account and orders:
+                your name, email, phone number, and (for delivery) your
+                address. If you sign in with Google we receive only your name,
+                email and Google account ID, and use them only to create and
+                sign you in to your account. We never store card details, we
+                do not sell your information, and email marketing is strictly
+                opt-in (we do not send SMS marketing). You can update your
+                details, change your password (with an emailed confirmation)
+                or delete your account under My Account &rarr; Settings.
               </p>
               <p>
-                Your password is never stored in plain text. We store it as a
-                one way cryptographic hash, meaning even we cannot see or
-                recover your actual password.
-              </p>
-              <p>
-                We never collect or store your card number, CVV, or expiry date.
-                All online payments are handled entirely by Yoco, a licensed
-                South African payment gateway, on their own secure page, so your
-                banking details never pass through our systems.
-              </p>
-              <p>
-                Staying signed in works through a secure session on your device,
-                which remains active until you sign out. If you ever forget your
-                password, you can request a reset link sent to your email
-                address.
-              </p>
-              <p>
-                We do not sell, rent, or share your personal information with
-                third parties for marketing purposes. If you have any questions
-                about how your information is used, please contact us using the
-                details in the Visit Us section above.
+                <a href="privacy.html"><strong>Read our full Privacy Policy</strong></a>
+                for how we use, store and share your information.
               </p>
             </div>
           </div>
@@ -260,11 +280,16 @@
                 can try to stop preparation in time.
               </p>
               <p>
-                If we cancel your order for any reason, for example because an
-                item has unexpectedly sold out, you will receive a full refund.
-                Refunds are processed manually through Yoco back to the same
-                payment method you used, and typically reflect within a few
-                business days.
+                If you cancel your own order within the first two minutes of
+                placing it, that refund is automatic and is triggered
+                straight away. In the rare case that an item is unexpectedly
+                out of stock right at the payment gateway, before your order
+                even reaches our kitchen, that refund is automatic too. If our
+                admin or staff need to cancel your order for any other reason,
+                for example because an item has sold out after your order was
+                already placed, that refund is processed manually by our team
+                back to the same payment method you used, and typically
+                reflects within a few business days.
               </p>
               <p>
                 Once your order has been collected, delivered, or served,
@@ -289,7 +314,7 @@
       <div class="container footer-content">
         <a href="home.html" class="logo"
           ><div class="footer-brand">
-            <img src="images/logo2.jpeg" alt="Fulude's Cafe Logo" />
+            <img src="images/logo2-transparent.png" alt="Fulude's Cafe Logo" />
           </div>
           Fulude's Cafe</a
         >
@@ -308,7 +333,8 @@
           ></a>
         </div>
         <p class="footer-policy-link">
-          <a href="#policies">Privacy &amp; Refund Policy</a>
+          <a href="privacy.html">Privacy Policy</a> &middot;
+          <a href="#policies">Refund Policy</a>
         </p>
         <p class="copyright">© 2026 Fulude's Cafe. All rights reserved.</p>
       </div>
@@ -427,7 +453,7 @@
       </div>
     </div>
 
-    <!-- My Orders: every order ever placed on this account -->
+    <!-- My Orders: orders from the last 24 hours -->
     <div class="modal-overlay" id="myOrdersModal">
       <div class="modal">
         <button class="modal-close" id="myOrdersModalClose">&times;</button>
@@ -494,11 +520,10 @@
             Create Account
           </button>
           <div class="auth-divider">or</div>
-          <div class="auth-google">
+          <div class="auth-google" style="position: relative;">
             <button type="button" id="googleSignInBtn" class="btn btn-google">
               Sign in with Google
             </button>
-            <div id="googleSignInContainer" style="display: none"></div>
           </div>
         </form>
 
@@ -527,6 +552,10 @@
             Back to Sign In
           </button>
         </form>
+        <p class="legal-consent">
+          By signing in or creating an account you agree to our
+          <a href="privacy.html">Privacy Policy</a>.
+        </p>
       </div>
     </div>
 
@@ -566,41 +595,23 @@
         <button class="modal-close" id="accountModalClose">&times;</button>
         <h3>My Account</h3>
         <p id="accountWelcome" class="auth-hint"></p>
-        <label
-          ><input type="checkbox" id="marketingEmailOptIn" /> Email
-          marketing</label
-        >
-        <label
-          ><input type="checkbox" id="marketingSmsOptIn" /> SMS marketing</label
-        >
         <button
           type="button"
-          class="btn btn-secondary btn-block"
-          id="saveMarketingPreferencesBtn"
+          class="btn btn-block btn-account-settings"
+          id="openSettingsBtn"
         >
-          Save preferences
-        </button>
-        <button
-          type="button"
-          class="btn btn-primary btn-block"
-          id="viewMyOrdersFromAccountBtn"
-        >
-          View My Orders
+          <i class="fas fa-gear"></i> Settings
         </button>
         <button type="button" class="auth-link-btn" id="logoutBtn">
           Log Out
         </button>
-        <button
-          type="button"
-          class="auth-link-btn danger"
-          id="deleteAccountBtn"
-        >
-          Delete Account
-        </button>
       </div>
     </div>
 
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script src="js/site.js"></script>
-  </body>
+    <script src="js/form-validation.js?v=1"></script>
+    <script src="js/site.js?v=28"></script>
+  <script>
+  if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+</script>
+</body>
 </html>

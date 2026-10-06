@@ -34,6 +34,46 @@
  */
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
+import { logAudit, diffChanges, summarizeChanges, money } from "../../_lib/audit.js";
+import { getRequestIp } from "../../_lib/security.js";
+
+const yesNo = (v) => (v ? "Yes" : "No");
+const dateText = (v) => (v ? new Date(v).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "none");
+
+// Fields that count as a normal menu edit vs. a "special" edit, so the audit
+// log can show them as two clearly separate events.
+const MENU_FIELDS = {
+  name: { label: "Name" },
+  category_id: { label: "Category" },
+  description: { label: "Description" },
+  price: { label: "Price", format: money },
+  stock_quantity: { label: "Stock", format: (v) => (v === null || v === undefined ? "unlimited" : String(v)) },
+  is_visible: { label: "Visible on menu", format: yesNo },
+  accepts_spice: { label: "Spice option", format: yesNo },
+  accepts_addons: { label: "Extras option", format: yesNo },
+  image_url: { label: "Cover photo", format: (v) => (v ? "set" : "none") },
+};
+const SPECIAL_FIELDS = {
+  special_price: { label: "Special price", format: money },
+  special_starts_at: { label: "Special starts", format: dateText },
+  special_ends_at: { label: "Special ends", format: dateText },
+};
+
+async function auditMenu(context, action, item, summary, changes = []) {
+  try {
+    await logAudit(context.env, {
+      actor_type: "admin",
+      actor_role: "admin",
+      actor_ip: getRequestIp(context.request),
+      action,
+      target_type: "menu_item",
+      target_id: item?.id ?? null,
+      details: { item: item?.name || null, summary, changes },
+    });
+  } catch (e) {
+    console.error("audit log failed", e);
+  }
+}
 
 const MAX_IMAGES = 6; // keeps R2 usage + gallery UI sane for a small cafe menu
 
@@ -94,6 +134,21 @@ async function syncAddonLinks(env, menuItemId, addonIds) {
   return ids;
 }
 
+async function syncSideLinks(env, menuItemId, sideIds) {
+  // Only touch links when the client actually sent side_ids (older admin pages don't).
+  if (!Array.isArray(sideIds)) return undefined;
+  await runQuery(env, "DELETE FROM menu_item_sides WHERE menu_item_id = $1;", [menuItemId]);
+  const ids = [...new Set(sideIds.map((id) => parseInt(id, 10)).filter(Number.isInteger))];
+  for (const sideId of ids) {
+    await runQuery(
+      env,
+      "INSERT INTO menu_item_sides (menu_item_id, side_id) VALUES ($1, $2) ON CONFLICT DO NOTHING;",
+      [menuItemId, sideId],
+    );
+  }
+  return ids;
+}
+
 async function syncIngredients(env, menuItemId, ingredients) {
   // ingredients is an array of strings (ingredient names)
   const names = Array.isArray(ingredients)
@@ -139,16 +194,35 @@ async function syncImages(env, menuItemId, imageUrls) {
   return urls;
 }
 
+const DRINK_TYPES = ["beverage", "cocktail", "alcohol", "other"];
+let drinkTypeColumnReady = false;
+
+/** menu_items.drink_type (migration 008) - added here too so the admin works before the migration is run. */
+async function ensureDrinkTypeColumn(env) {
+  if (drinkTypeColumnReady) return;
+  await runQuery(env, "ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS drink_type TEXT;");
+  drinkTypeColumnReady = true;
+}
+
+/** Stores the drink sub-type; anything unrecognised becomes NULL (food). */
+async function syncDrinkType(env, menuItemId, raw) {
+  await ensureDrinkTypeColumn(env);
+  const drinkType = DRINK_TYPES.includes(raw) ? raw : null;
+  await runQuery(env, "UPDATE menu_items SET drink_type = $1 WHERE id = $2;", [drinkType, menuItemId]);
+  return drinkType;
+}
+
 export async function onRequestGet(context) {
   const authError = await requireAdmin(context.request, context.env);
   if (authError) return authError;
+  await ensureDrinkTypeColumn(context.env);
 
-  const [itemsResult, linksResult, imagesResult, ingredientsResult] = await Promise.all([
+  const [itemsResult, linksResult, imagesResult, ingredientsResult, sideLinksResult] = await Promise.all([
     runQuery(
       context.env,
       `
       SELECT m.id, m.category_id, c.name AS category_name, m.name, m.description, m.price, m.special_price,
-             m.special_starts_at, m.special_ends_at, m.image_url, m.is_available, m.stock_quantity, m.is_visible, m.accepts_spice, m.accepts_addons, m.sort_order
+             m.special_starts_at, m.special_ends_at, m.image_url, m.is_available, m.stock_quantity, m.is_visible, m.accepts_spice, m.accepts_addons, m.sort_order, m.drink_type
       FROM menu_items m
       JOIN categories c ON c.id = m.category_id
       ORDER BY c.sort_order ASC, m.sort_order ASC, m.name ASC;
@@ -166,7 +240,16 @@ export async function onRequestGet(context) {
       context.env,
       "SELECT menu_item_id, ingredient_name FROM dish_ingredients ORDER BY ingredient_name ASC;",
     ),
+    runQuery(
+      context.env,
+      "SELECT menu_item_id, side_id FROM menu_item_sides;",
+    ).catch(() => ({ rows: [] })), // sides table not created yet (migration 006)
   ]);
+
+  const sideIdsByItem = {};
+  for (const row of sideLinksResult.rows) {
+    (sideIdsByItem[row.menu_item_id] || (sideIdsByItem[row.menu_item_id] = [])).push(row.side_id);
+  }
 
   const addonIdsByItem = {};
   for (const row of linksResult.rows) {
@@ -202,6 +285,7 @@ export async function onRequestGet(context) {
       ? new Date(item.special_ends_at).toISOString()
       : null,
     addon_ids: addonIdsByItem[item.id] || [],
+    side_ids: sideIdsByItem[item.id] || [],
     ingredients: ingredientsByItem[item.id] || [],
     images: imagesByItem[item.id] || (item.image_url ? [item.image_url] : []),
   }));
@@ -230,6 +314,8 @@ export async function onRequestPost(context) {
         400,
       );
     }
+    if (name.length > 100) return jsonResponse({ error: "Dish names can be at most 100 characters." }, 400);
+    if (price > 100000) return jsonResponse({ error: "That price looks too high - please check it." }, 400);
 
     const stockResult = parseStockQuantity(body.stock_quantity);
     if (!stockResult.ok) {
@@ -320,6 +406,16 @@ export async function onRequestPost(context) {
       body.ingredients,
     );
     const images = await syncImages(context.env, newItemId, incomingImages);
+    await syncSideLinks(context.env, newItemId, body.side_ids);
+    await syncDrinkType(context.env, newItemId, body.drink_type);
+
+    await auditMenu(
+      context,
+      "menu_item_created",
+      { id: newItemId, name },
+      `Added "${name}" to the menu at ${money(price)}` + (specialPrice !== null ? ` (special ${money(specialPrice)})` : "") + ".",
+      [{ label: "Price", from: "none", to: money(price) }],
+    );
 
     return jsonResponse(
       { success: true, id: newItemId, addon_ids: addonIds, ingredients: ingredientNames, images },
@@ -357,6 +453,8 @@ export async function onRequestPut(context) {
         400,
       );
     }
+    if (name.length > 100) return jsonResponse({ error: "Dish names can be at most 100 characters." }, 400);
+    if (price > 100000) return jsonResponse({ error: "That price looks too high - please check it." }, 400);
 
     const stockResult = parseStockQuantity(body.stock_quantity);
     if (!stockResult.ok) {
@@ -409,6 +507,15 @@ export async function onRequestPut(context) {
       );
     }
 
+    const beforeRes = await runQuery(
+      context.env,
+      `SELECT name, category_id, description, price, special_price, special_starts_at, special_ends_at,
+              image_url, stock_quantity, is_visible, accepts_spice, accepts_addons
+         FROM menu_items WHERE id = $1;`,
+      [id],
+    );
+    const before = beforeRes.rows[0] || {};
+
     await runQuery(
       context.env,
       `
@@ -439,6 +546,48 @@ export async function onRequestPut(context) {
     const addonIds = await syncAddonLinks(context.env, id, body.addon_ids);
     const ingredientNames = await syncIngredients(context.env, id, body.ingredients);
     const images = await syncImages(context.env, id, incomingImages);
+    await syncSideLinks(context.env, id, body.side_ids);
+    await syncDrinkType(context.env, id, body.drink_type);
+
+    // ---- Audit: menu edits and special edits are logged as separate events ----
+    const beforeNorm = {
+      ...before,
+      price: before.price != null ? Number(before.price) : null,
+      special_price: before.special_price != null ? Number(before.special_price) : null,
+    };
+    const after = {
+      name,
+      category_id: categoryId,
+      description: (body.description || "").trim(),
+      price,
+      special_price: specialPrice,
+      special_starts_at: specialStarts,
+      special_ends_at: specialEnds,
+      image_url: incomingImages[0] || null,
+      stock_quantity: stockQuantity,
+      is_visible: body.is_visible !== false,
+      accepts_spice: !!body.accepts_spice,
+      accepts_addons: !!body.accepts_addons,
+    };
+    const menuChanges = diffChanges(beforeNorm, after, MENU_FIELDS).map((c) =>
+      c.field === "description" ? { ...c, from: "(old text)", to: "(new text)" } : c,
+    );
+    const specialChanges = diffChanges(beforeNorm, after, SPECIAL_FIELDS);
+    const itemRef = { id, name };
+
+    if (menuChanges.length) {
+      await auditMenu(context, "menu_item_updated", itemRef, `Menu item "${name}" updated - ${summarizeChanges(menuChanges)}`, menuChanges);
+    }
+    if (specialChanges.length) {
+      const hadSpecial = beforeNorm.special_price !== null;
+      const action = after.special_price === null ? "special_removed" : hadSpecial ? "special_updated" : "special_added";
+      const text =
+        action === "special_removed"
+          ? `Special removed from "${name}" (was ${money(beforeNorm.special_price)}).`
+          : `${action === "special_added" ? "Special added to" : "Special updated on"} "${name}" - ${summarizeChanges(specialChanges)}`;
+      await auditMenu(context, action, itemRef, text, specialChanges);
+    }
+
     return jsonResponse({ success: true, id, addon_ids: addonIds, ingredients: ingredientNames, images });
   } catch (err) {
     return jsonResponse(
@@ -457,6 +606,10 @@ export async function onRequestDelete(context) {
   if (!Number.isInteger(id))
     return jsonResponse({ error: "A valid id is required." }, 400);
 
+  const existing = await runQuery(context.env, "SELECT name, price FROM menu_items WHERE id = $1;", [id]);
   await runQuery(context.env, "DELETE FROM menu_items WHERE id = $1;", [id]);
+  if (existing.rows[0]) {
+    await auditMenu(context, "menu_item_deleted", { id, name: existing.rows[0].name }, `Menu item "${existing.rows[0].name}" (${money(existing.rows[0].price)}) deleted.`);
+  }
   return jsonResponse({ success: true });
 }

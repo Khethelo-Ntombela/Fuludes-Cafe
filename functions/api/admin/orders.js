@@ -26,6 +26,8 @@
  */
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
+import { ensureCancelledByColumn } from "../../_lib/orderCancel.js";
+import { ensureScheduleColumns } from "../../_lib/scheduledOrders.js";
 
 export async function onRequestGet(context) {
   const { request, env } = context;
@@ -44,7 +46,16 @@ export async function onRequestGet(context) {
   const offset = Math.max(parseInt(url.searchParams.get("offset"), 10) || 0, 0);
 
   try {
-    const conditions = [];
+    // Order History never lists unpaid orders (payment still awaiting, or
+    // failed) - they were never really placed as far as the cafe is
+    // concerned. Cancelled-after-payment orders are still shown. The only
+    // way to see unpaid orders is to ask for them explicitly with
+    // payment_status=awaiting|failed (used by the dashboard's "Pending
+    // Orders" card, never by the History tab).
+    const asksForUnpaid = paymentStatus === "awaiting" || paymentStatus === "failed";
+    const conditions = asksForUnpaid
+      ? []
+      : [`payment_status NOT IN ('awaiting', 'failed')`];
     const params = [];
 
     if (
@@ -69,7 +80,7 @@ export async function onRequestGet(context) {
     }
     if (
       paymentStatus &&
-      ["paid", "awaiting", "failed", "not_required"].includes(paymentStatus)
+      ["paid", "awaiting", "failed", "not_required", "refunded"].includes(paymentStatus)
     ) {
       params.push(paymentStatus);
       conditions.push(`payment_status = $${params.length}`);
@@ -101,13 +112,15 @@ export async function onRequestGet(context) {
     params.push(offset);
     const offsetIndex = params.length;
 
+    await ensureCancelledByColumn(env);
+    await ensureScheduleColumns(env);
     const ordersResult = await runQuery(
       env,
       `
       SELECT id, customer_name, customer_phone, order_type, delivery_address, table_number,
              pickup_time, special_instructions, total_amount,
              CASE WHEN status = 'Out for Delivery' THEN 'Delivery' ELSE status END AS status,
-             payment_method, payment_status, payment_ref, refund_needed, refund_processed_at, created_at
+             payment_method, payment_status, payment_ref, refund_needed, refund_processed_at, refund_ref, refund_error, cancelled_by, cancel_reason, created_at, out_for_delivery_at, delivered_at
       FROM orders
       ${whereClause}
       ORDER BY created_at DESC
@@ -155,6 +168,25 @@ export async function onRequestDelete(context) {
   if (authError) return authError;
 
   try {
+    // Dashboard "Pending Orders" manual clear: removes orders that were
+    // never paid (awaiting / failed) - either one specific order (?id=) or
+    // all of them. Paid orders are never touched by this.
+    const url = new URL(request.url);
+    if (url.searchParams.get("scope") === "unpaid") {
+      const id = parseInt(url.searchParams.get("id"), 10);
+      const result = Number.isInteger(id)
+        ? await runQuery(
+            env,
+            `DELETE FROM orders WHERE id = $1 AND payment_status IN ('awaiting', 'failed') RETURNING id;`,
+            [id],
+          )
+        : await runQuery(
+            env,
+            `DELETE FROM orders WHERE payment_status IN ('awaiting', 'failed') RETURNING id;`,
+          );
+      return jsonResponse({ success: true, deleted_count: result.rows.length });
+    }
+
     const result = await runQuery(
       env,
       `

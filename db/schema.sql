@@ -122,6 +122,22 @@ CREATE TABLE IF NOT EXISTS menu_item_addons (
 );
 
 -- ---------------------------------------------------------------------
+-- sides: FREE choice-of-side options (Chips / Pap / Rice ...), ticked per dish
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sides (
+  id          SERIAL PRIMARY KEY,
+  name        TEXT NOT NULL UNIQUE,
+  is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS menu_item_sides (
+  menu_item_id  INTEGER NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
+  side_id       INTEGER NOT NULL REFERENCES sides(id) ON DELETE CASCADE,
+  PRIMARY KEY (menu_item_id, side_id)
+);
+
+-- ---------------------------------------------------------------------
 -- customers: real accounts, required to check out. password_hash/salt
 -- use PBKDF2-SHA256 via the Web Crypto API (functions/_lib/password.js) -
 -- no bcrypt, since Cloudflare Workers can't use native/binary bindings.
@@ -147,7 +163,7 @@ ALTER TABLE customers ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFA
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS phone_number TEXT;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS delivery_address TEXT;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS marketing_email_opt_in BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS marketing_sms_opt_in BOOLEAN NOT NULL DEFAULT FALSE;
+-- (SMS marketing was removed - see db/migrations/005_remove_sms_marketing.sql)
 
 -- Allow OAuth-only customers to exist without a stored password
 ALTER TABLE customers ALTER COLUMN password_hash DROP NOT NULL;
@@ -178,6 +194,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   actor_type   TEXT,
   actor_id     INTEGER,
   actor_role   TEXT,
+  actor_name   TEXT, -- username/name at the time of the action, kept even if the account is later renamed or deleted
   actor_ip     TEXT,
   action       TEXT NOT NULL,
   target_type  TEXT,
@@ -197,6 +214,23 @@ CREATE TABLE IF NOT EXISTS password_resets (
 );
 
 CREATE INDEX IF NOT EXISTS idx_password_resets_customer ON password_resets(customer_id);
+
+-- password_change_requests: a signed-in customer asked to change their
+-- password from Settings. The NEW password is hashed immediately and parked
+-- here; it is only copied onto the customer row once they click the link
+-- we emailed them (functions/api/auth/confirm-password-change.js). If the
+-- link is never opened, the password never changes.
+CREATE TABLE IF NOT EXISTS password_change_requests (
+  token         TEXT PRIMARY KEY,
+  customer_id   INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  new_hash      TEXT NOT NULL,
+  new_salt      TEXT NOT NULL,
+  expires_at    TIMESTAMPTZ NOT NULL,
+  used          BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_password_change_requests_customer ON password_change_requests(customer_id);
 
 CREATE TABLE IF NOT EXISTS email_verification_tokens (
   token       TEXT PRIMARY KEY,
@@ -226,11 +260,13 @@ CREATE TABLE IF NOT EXISTS customer_reservations (
   created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE customer_reservations ADD COLUMN IF NOT EXISTS admin_cleared BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS idx_customer_reservations_customer ON customer_reservations(customer_id);
 
 CREATE TABLE IF NOT EXISTS admin_accounts (
   id            SERIAL PRIMARY KEY,
   email         TEXT NOT NULL UNIQUE,
+  username      TEXT,
   password_hash TEXT NOT NULL,
   password_salt TEXT NOT NULL,
   permissions JSONB NOT NULL DEFAULT '{"all": true}',
@@ -240,6 +276,10 @@ CREATE TABLE IF NOT EXISTS admin_accounts (
 );
 
 ALTER TABLE admin_accounts ADD COLUMN IF NOT EXISTS permissions JSONB NOT NULL DEFAULT '{"all": true}';
+ALTER TABLE admin_accounts ADD COLUMN IF NOT EXISTS username TEXT;
+-- Two admins may not share a username (NULLs are exempt, so older accounts
+-- that haven't set one yet don't conflict with each other).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_accounts_username ON admin_accounts(username) WHERE username IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS admin_sessions (
   token TEXT PRIMARY KEY,
@@ -300,6 +340,10 @@ CREATE TABLE IF NOT EXISTS orders (
   payment_ref       TEXT,                              -- gateway reference once paid
   payment_confirmed_at TIMESTAMPTZ,
   kitchen_release_at TIMESTAMPTZ,
+  scheduled_for     TIMESTAMPTZ,                       -- when a pre-order / timed order is due (migration 015)
+  preparing_at      TIMESTAMPTZ,                       -- when the kitchen pressed Start Preparing (migration 015)
+  out_for_delivery_at TIMESTAMPTZ,                     -- when the order left for delivery (migration 016)
+  delivered_at      TIMESTAMPTZ,                       -- when the cafe ticked it Delivered (migration 016)
   stock_decremented BOOLEAN NOT NULL DEFAULT FALSE,
 refund_needed     BOOLEAN NOT NULL DEFAULT FALSE,     -- true when a paid order is cancelled and a manual refund is still owed
   refund_processed_at TIMESTAMPTZ,                      -- set when a refund has been completed outside the app
@@ -313,6 +357,7 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_ref TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_confirmed_at TIMESTAMPTZ;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS kitchen_release_at TIMESTAMPTZ;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS new_order_push_sent_at TIMESTAMPTZ;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS stock_decremented BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS refund_needed BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS refund_processed_at TIMESTAMPTZ;
@@ -376,8 +421,12 @@ CREATE TABLE IF NOT EXISTS app_config (
   is_buffet_visible  BOOLEAN NOT NULL DEFAULT FALSE,
   is_out_of_service  BOOLEAN NOT NULL DEFAULT FALSE,
   out_of_service_reason TEXT,
+  announcement_message  TEXT,
   CONSTRAINT single_row CHECK (id = 1)
 );
+ALTER TABLE app_config ADD COLUMN IF NOT EXISTS is_out_of_service BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE app_config ADD COLUMN IF NOT EXISTS out_of_service_reason TEXT;
+ALTER TABLE app_config ADD COLUMN IF NOT EXISTS announcement_message TEXT;
 INSERT INTO app_config (id, is_buffet_visible) VALUES (1, FALSE)
   ON CONFLICT (id) DO NOTHING;
 
@@ -423,7 +472,7 @@ CREATE TABLE IF NOT EXISTS buffet_bookings (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- booking lifecycle status: confirmed|cancelled
+-- booking lifecycle status: pending|confirmed|cancelled|expired (new bookings start as pending; admin confirms)
 ALTER TABLE buffet_bookings ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'confirmed';
 
 -- ---------------------------------------------------------------------
@@ -460,3 +509,50 @@ ON CONFLICT (slug) DO NOTHING;
 INSERT INTO spice_levels (name, sort_order) VALUES
   ('Mild', 1), ('Medium', 2), ('Hot', 3), ('Extra Hot', 4)
 ON CONFLICT (name) DO NOTHING;
+
+-- ---------------------------------------------------------------------
+-- Drinks sub-type (migration 008) and push notifications (migration 009)
+-- ---------------------------------------------------------------------
+ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS drink_type TEXT; -- beverage | cocktail | alcohol | other (drinks only)
+
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id          SERIAL PRIMARY KEY,
+  role        TEXT NOT NULL,
+  customer_id INTEGER,
+  endpoint    TEXT NOT NULL UNIQUE,
+  p256dh      TEXT NOT NULL,
+  auth        TEXT NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS push_config (
+  id          INTEGER PRIMARY KEY DEFAULT 1,
+  public_key  TEXT NOT NULL,
+  private_key TEXT NOT NULL
+);
+
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancelled_by TEXT; -- customer | staff | admin (migration 010)
+
+-- Failed-login lockout + email verification for admin/staff accounts (migration 014).
+-- Existing accounts default to verified; only newly created ones start unverified.
+ALTER TABLE admin_accounts ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE admin_accounts ADD COLUMN IF NOT EXISTS is_locked BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE admin_accounts ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE staff_accounts ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE staff_accounts ADD COLUMN IF NOT EXISTS is_locked BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE staff_accounts ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT TRUE;
+
+CREATE TABLE IF NOT EXISTS admin_email_verifications (
+  token       TEXT PRIMARY KEY,
+  admin_id    INTEGER NOT NULL REFERENCES admin_accounts(id) ON DELETE CASCADE,
+  expires_at  TIMESTAMPTZ NOT NULL,
+  used        BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS staff_email_verifications (
+  token       TEXT PRIMARY KEY,
+  staff_id    INTEGER NOT NULL REFERENCES staff_accounts(id) ON DELETE CASCADE,
+  expires_at  TIMESTAMPTZ NOT NULL,
+  used        BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

@@ -31,7 +31,7 @@ let deliveryFeeLoading = false;
 // Cart lines survive page navigation via localStorage - prices here are
 // only cosmetic; the server re-prices every line from the live DB at checkout.
 const CART_KEY = "fulude_cart";
-let cart = []; // [{lineId, itemId, name, price, quantity, spiceLevel, extras:[{id,name,price}]}]
+let cart = []; // [{lineId, itemId, name, price, quantity, spiceLevel, side:{id,name}|null, extras:[{id,name,price}]}]
 try {
   cart = JSON.parse(localStorage.getItem(CART_KEY) || "[]");
 } catch {
@@ -50,21 +50,107 @@ function saveCart() {
 // ---------------------------------------------------------------------
 // Load menu from the server
 // ---------------------------------------------------------------------
-async function loadMenu() {
+let lastMenuSignature = "";
+
+async function loadMenu(silent = false) {
   const grid = document.getElementById("orderItems");
   try {
-    const res = await fetch("/api/menu");
+    const res = await fetch("/api/menu", { cache: "no-store" });
     if (!res.ok) throw new Error("Menu request failed");
     const data = await res.json();
+    const signature = JSON.stringify([data.categories, data.items, data.spice_levels]);
+    const menuChanged = signature !== lastMenuSignature;
+    lastMenuSignature = signature;
+
     categories = data.categories || [];
     menuItems = data.items || [];
     spiceLevels = data.spice_levels || [];
-    renderCategoryTabs();
-    renderOrderItems();
-    renderSpecialsBar();
+
+    // Re-price anything already in the cart against the live menu, so a
+    // special that ended (price goes back up) or one that just started
+    // (price drops) is reflected before the customer pays.
+    const pricesChanged = repriceCart();
+
+    if (menuChanged || !silent) {
+      renderCategoryTabs();
+      renderOrderItems();
+      renderSpecialsBar();
+    }
+    if (pricesChanged) {
+      renderCart();
+      showCartToast("Prices in your cart were updated", "info");
+    }
   } catch (err) {
-    grid.innerHTML = `<p class="menu-empty">Sorry, we couldn't load the menu right now. Please refresh.</p>`;
+    if (!silent) {
+      grid.innerHTML = `<p class="menu-empty">Sorry, we couldn't load the menu right now. Please refresh.</p>`;
+    }
   }
+}
+
+/**
+ * Syncs every cart line's price with the item's current effective price
+ * (special price while a special is running, normal price otherwise).
+ * Returns true if any line's price changed.
+ */
+function repriceCart() {
+  let changed = false;
+  for (const line of cart) {
+    const item = menuItems.find((i) => i.id === line.itemId);
+    if (!item) continue;
+    const current = item.effective_price !== undefined && item.effective_price !== null ? item.effective_price : item.price;
+    if (Number(line.price) !== Number(current)) {
+      line.price = current;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+// Keep prices fresh while the page is open: poll every 30s, and refresh
+// when the customer returns to the tab.
+setInterval(() => {
+  if (!document.hidden) loadMenu(true);
+}, 30000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) loadMenu(true);
+});
+
+// ---------------------------------------------------------------------
+// Quick pop-up message (e.g. "Item added to cart")
+// ---------------------------------------------------------------------
+function showCartToast(message, kind = "success") {
+  let stack = document.getElementById("cartToastStack");
+  if (!stack) {
+    const style = document.createElement("style");
+    style.textContent = `
+      #cartToastStack{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:100000;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none;width:calc(100% - 32px);max-width:360px}
+      .cart-toast{background:#2b2b2b;color:#fff;padding:12px 18px;border-radius:10px;font-size:.95rem;box-shadow:0 6px 20px rgba(0,0,0,.25);opacity:0;transform:translateY(12px);transition:opacity .25s ease,transform .25s ease;display:flex;align-items:center;gap:8px}
+      .cart-toast.show{opacity:1;transform:translateY(0)}
+      .cart-toast .cart-toast-icon{color:#4caf50;font-weight:700}
+      .cart-toast.info .cart-toast-icon{color:#ffb300}
+    `;
+    document.head.appendChild(style);
+    stack = document.createElement("div");
+    stack.id = "cartToastStack";
+    stack.setAttribute("role", "status");
+    stack.setAttribute("aria-live", "polite");
+    document.body.appendChild(stack);
+  }
+  const el = document.createElement("div");
+  el.className = `cart-toast ${kind}`;
+  const icon = document.createElement("span");
+  icon.className = "cart-toast-icon";
+  icon.textContent = kind === "info" ? "ℹ" : "✓";
+  const text = document.createElement("span");
+  text.textContent = message;
+  el.appendChild(icon);
+  el.appendChild(text);
+  stack.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("show"));
+  setTimeout(() => {
+    el.classList.remove("show");
+    setTimeout(() => el.remove(), 300);
+  }, 1800);
 }
 
 function renderCategoryTabs() {
@@ -103,8 +189,66 @@ function renderCategoryTabs() {
   });
 }
 
+/** Category names that mean drinks (keep in sync with admin.js). */
+const DRINK_CATEGORY_RE = /drink|beverage|juice|soda|cocktail|alcohol|liquor|wine|beer|smoothie|shake|coffee|\btea\b/i;
+
+/** A drinks category: named like one, or holding items the admin gave a drink type. */
+function isDrinksCategory(cat) {
+  if (!cat) return false;
+  return DRINK_CATEGORY_RE.test(`${cat.slug} ${cat.name}`) || menuItems.some((i) => i.category_id === cat.id && i.drink_type);
+}
+
+/** Drinks never show a photo area anywhere on the customer menu. */
+function isDrinkItem(item) {
+  return Boolean(item.drink_type) || isDrinksCategory(categories.find((c) => c.id === item.category_id));
+}
+
+const DRINK_GROUPS = [
+  ["beverage", "Beverages"],
+  ["cocktail", "Cocktails"],
+  ["alcohol", "Alcohol"],
+  ["other", "Others"],
+];
+
+/** Drinks tab: a plain price list (no photos) grouped Beverages -> Cocktails -> Alcohol -> Others. */
+function renderDrinksList(grid, items) {
+  const byType = {};
+  for (const item of items) {
+    const type = DRINK_GROUPS.some(([key]) => key === item.drink_type) ? item.drink_type : "other";
+    (byType[type] || (byType[type] = [])).push(item);
+  }
+  grid.innerHTML = `<div class="drinks-list">${DRINK_GROUPS.filter(([key]) => byType[key])
+    .map(
+      ([key, label]) => `
+      <section class="drinks-group">
+        <h4 class="drinks-group-title">${label}</h4>
+        ${byType[key]
+          .map((item) => {
+            const priceHtml = item.is_on_special
+              ? `<span class="was-price">${money(item.price)}</span>${money(item.effective_price)}`
+              : money(item.price);
+            return `
+          <div class="drink-row${item.is_available ? "" : " sold-out"}" data-item="${item.id}">
+            <div class="drink-row-info">
+              <div class="order-card-header">
+                <span class="order-card-name">${item.name}</span>
+                <span class="order-card-dots" aria-hidden="true"></span>
+                <span class="order-card-price">${priceHtml}</span>
+              </div>
+              ${item.description ? `<p class="order-card-desc">${item.description}</p>` : ""}
+            </div>
+            <div class="order-card-footer" data-id="${item.id}">${cardControlsHtml(item)}</div>
+          </div>`;
+          })
+          .join("")}
+      </section>`,
+    )
+    .join("")}</div>`;
+}
+
 function renderOrderItems() {
   const grid = document.getElementById("orderItems");
+  grid.classList.remove("is-drinks");
 
   let items;
   if (searchQuery.trim()) {
@@ -116,31 +260,69 @@ function renderOrderItems() {
     }
   } else {
     const categoryBySlug = Object.fromEntries(categories.map((c) => [c.slug, c.id]));
+    // Drinks only appear under their own tab, never mixed into "All".
+    const drinkCategoryIds = new Set(categories.filter(isDrinksCategory).map((c) => c.id));
     items =
       activeCategorySlug === "all"
-        ? menuItems
+        ? menuItems.filter((item) => !drinkCategoryIds.has(item.category_id))
         : menuItems.filter((item) => item.category_id === categoryBySlug[activeCategorySlug]);
 
     if (items.length === 0) {
       grid.innerHTML = `<p class="menu-empty">No dishes in this category yet.</p>`;
       return;
     }
+    if (drinkCategoryIds.has(categoryBySlug[activeCategorySlug])) {
+      grid.classList.add("is-drinks");
+      renderDrinksList(grid, items);
+      return;
+    }
   }
 
   grid.innerHTML = items
     .map((item) => {
-      const photos = item.images && item.images.length > 0 ? item.images : (item.image_url ? [item.image_url] : []);
+      const photos = getPhotos(item);
       const onSpecial = item.is_on_special === true;
       const priceHtml = onSpecial
         ? `<span class="was-price">${money(item.price)}</span>${money(item.effective_price)}`
         : money(item.price);
+      if (isDrinkItem(item)) {
+        // e.g. a drink in search results: text-only card, no grey photo box
+        return `
+    <div class="order-card no-image${item.is_available ? "" : " sold-out"}" data-item="${item.id}">
+      <div class="order-card-body">
+        <div class="order-card-header">
+          <span class="order-card-name">${item.name}</span>
+          <span class="order-card-dots" aria-hidden="true"></span>
+          <span class="order-card-price">${priceHtml}</span>
+        </div>
+        <p class="order-card-desc">${item.description || ""}</p>
+        ${item.is_available ? "" : `<p class="order-card-desc"><strong>Sold out</strong></p>`}
+        <div class="order-card-footer" data-id="${item.id}">${cardControlsHtml(item)}</div>
+      </div>
+    </div>`;
+      }
       return `
-    <div class="order-card${item.is_available ? "" : " sold-out"}">
-      <div class="order-card-image" ${photos.length > 0 ? `data-id="${item.id}"` : ""}>
-        ${photos.length > 0 ? `<img src="${photos[0]}" alt="${item.name}" loading="lazy" />` : ""}
+    <div class="order-card${item.is_available ? "" : " sold-out"}" data-item="${item.id}">
+      <div class="order-card-image${photos.length > 1 ? " has-slides" : ""}">
+        ${
+          photos.length > 0
+            ? `<div class="slides-track" data-index="0">${photos
+                .map(
+                  (src, i) =>
+                    `<img src="${src}" alt="${item.name}${photos.length > 1 ? ` (photo ${i + 1} of ${photos.length})` : ""}" ${i === 0 ? "" : 'loading="lazy"'} draggable="false" />`,
+                )
+                .join("")}</div>`
+            : ""
+        }
         ${onSpecial ? `<span class="special-badge">Special</span>` : ""}
         ${item.is_available ? "" : `<span class="sold-out-badge">Sold Out</span>`}
-        ${photos.length > 1 ? `<span class="photo-count-badge"><i class="fas fa-images"></i> ${photos.length}</span>` : ""}
+        ${
+          photos.length > 1
+            ? `<button type="button" class="slide-arrow slide-prev" aria-label="Previous photo">&#10094;</button>
+               <button type="button" class="slide-arrow slide-next" aria-label="Next photo">&#10095;</button>
+               <span class="slide-counter">1 / ${photos.length}</span>`
+            : ""
+        }
       </div>
       <div class="order-card-body">
         <div class="order-card-header">
@@ -149,33 +331,122 @@ function renderOrderItems() {
           <span class="order-card-price">${priceHtml}</span>
         </div>
         <p class="order-card-desc">${item.description || ""}</p>
-        <div class="order-card-footer">
-          <button class="add-to-order-btn" data-id="${item.id}" ${item.is_available ? "" : "disabled"}>
-            ${item.is_available ? "Add to Order" : "Sold Out"}
-          </button>
-        </div>
+        <div class="order-card-footer" data-id="${item.id}">${cardControlsHtml(item)}</div>
       </div>
     </div>
   `;
     })
     .join("");
+}
 
-  grid.querySelectorAll(".add-to-order-btn:not([disabled])").forEach((btn) => {
-    btn.addEventListener("click", () => handleAddClick(parseInt(btn.dataset.id, 10)));
-  });
+function getPhotos(item) {
+  return item.images && item.images.length > 0 ? item.images : item.image_url ? [item.image_url] : [];
+}
 
-  grid.querySelectorAll(".order-card-image[data-id]").forEach((el) => {
-    el.addEventListener("click", () => openLightbox(parseInt(el.dataset.id, 10)));
+// ---------------------------------------------------------------------
+// Per-dish quantity controls. Each dish card owns its own "Add to Order"
+// button, which turns into a  -  2  +  stepper once the dish is in the
+// cart. (The Your Order panel only displays quantities.)
+// ---------------------------------------------------------------------
+function itemQuantityInCart(itemId) {
+  return cart.filter((l) => l.itemId === itemId).reduce((sum, l) => sum + l.quantity, 0);
+}
+
+function cardControlsHtml(item) {
+  if (!item.is_available) {
+    return `<button class="add-to-order-btn" disabled>Sold Out</button>`;
+  }
+  const qty = itemQuantityInCart(item.id);
+  if (qty === 0) {
+    return `<button class="add-to-order-btn" data-action="add" data-id="${item.id}">Add to Order</button>`;
+  }
+  return `
+    <div class="order-qty card-qty" role="group" aria-label="Quantity of ${item.name}">
+      <button type="button" class="qty-btn" data-action="minus" data-id="${item.id}" aria-label="Remove one ${item.name}">&minus;</button>
+      <span class="qty-value">${qty}</span>
+      <button type="button" class="qty-btn" data-action="plus" data-id="${item.id}" aria-label="Add one ${item.name}">+</button>
+    </div>`;
+}
+
+/** Refreshes only the quantity controls on the visible cards (keeps any photo the customer has slid to). */
+function syncCardControls() {
+  document.querySelectorAll("#orderItems .order-card-footer[data-id]").forEach((footer) => {
+    const item = menuItems.find((i) => i.id === parseInt(footer.dataset.id, 10));
+    if (item) footer.innerHTML = cardControlsHtml(item);
   });
 }
 
-/** Opens the shared lightbox (site.js) for a dish's photo set. */
-function openLightbox(itemId) {
-  const item = menuItems.find((i) => i.id === itemId);
-  if (!item) return;
-  const photos = item.images && item.images.length > 0 ? item.images : (item.image_url ? [item.image_url] : []);
-  openLightboxWithPhotos(photos, 0);
+/** Takes one unit off a dish. For dishes with several variants (spice/extras) it trims the most recently added one. */
+function decrementItem(itemId) {
+  for (let i = cart.length - 1; i >= 0; i--) {
+    if (cart[i].itemId === itemId) {
+      changeLineQuantity(cart[i].lineId, -1);
+      return;
+    }
+  }
 }
+
+// ---------------------------------------------------------------------
+// Photo slideshow inside each dish card - arrows + swipe, no full-screen
+// lightbox. The customer stays right where they are on the menu.
+// ---------------------------------------------------------------------
+function slideTo(imageEl, index) {
+  const track = imageEl.querySelector(".slides-track");
+  if (!track) return;
+  const count = track.children.length;
+  const next = ((index % count) + count) % count;
+  track.dataset.index = next;
+  track.style.transform = `translateX(-${next * 100}%)`;
+  const counter = imageEl.querySelector(".slide-counter");
+  if (counter) counter.textContent = `${next + 1} / ${count}`;
+}
+
+(function wireMenuGrid() {
+  const grid = document.getElementById("orderItems");
+
+  grid.addEventListener("click", (e) => {
+    const arrow = e.target.closest(".slide-arrow");
+    if (arrow) {
+      const imageEl = arrow.closest(".order-card-image");
+      const idx = parseInt(imageEl.querySelector(".slides-track").dataset.index, 10) || 0;
+      slideTo(imageEl, idx + (arrow.classList.contains("slide-next") ? 1 : -1));
+      return;
+    }
+    const btn = e.target.closest("[data-action]");
+    if (!btn || btn.disabled) return;
+    const id = parseInt(btn.dataset.id, 10);
+    if (btn.dataset.action === "minus") decrementItem(id);
+    else handleAddClick(id); // "add" and "plus"
+  });
+
+  // Swipe left/right on the photo (touch screens)
+  let startX = null;
+  let startY = null;
+  grid.addEventListener(
+    "touchstart",
+    (e) => {
+      const img = e.target.closest(".order-card-image.has-slides");
+      if (!img) return;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+    },
+    { passive: true },
+  );
+  grid.addEventListener(
+    "touchend",
+    (e) => {
+      if (startX === null) return;
+      const imageEl = e.target.closest(".order-card-image.has-slides");
+      const dx = e.changedTouches[0].clientX - startX;
+      const dy = e.changedTouches[0].clientY - startY;
+      startX = startY = null;
+      if (!imageEl || Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy)) return;
+      const idx = parseInt(imageEl.querySelector(".slides-track").dataset.index, 10) || 0;
+      slideTo(imageEl, idx + (dx < 0 ? 1 : -1));
+    },
+    { passive: true },
+  );
+})();
 
 // ---------------------------------------------------------------------
 // Specials - the red "Save on Meals" button + the modal listing every
@@ -207,7 +478,7 @@ function openSpecialsModal() {
         const photos = item.images && item.images.length > 0 ? item.images : (item.image_url ? [item.image_url] : []);
         return `
       <div class="specials-item">
-        ${photos.length > 0 ? `<img src="${photos[0]}" alt="${item.name}" />` : `<div class="specials-item-noimg"></div>`}
+        ${isDrinkItem(item) ? "" : photos.length > 0 ? `<img src="${photos[0]}" alt="${item.name}" />` : `<div class="specials-item-noimg"></div>`}
         <div class="specials-item-info">
           <span class="specials-item-name">${item.name}</span>
           <div class="specials-item-prices">
@@ -341,24 +612,27 @@ function handleAddClick(itemId) {
   const item = menuItems.find((i) => i.id === itemId);
   if (!item) return;
 
-  if (item.accepts_spice || (item.accepts_addons && item.addons.length > 0)) {
+  const hasSides = Array.isArray(item.sides) && item.sides.length > 0;
+  if (item.accepts_spice || hasSides || (item.accepts_addons && item.addons.length > 0)) {
     openCustomizeModal(item);
   } else {
-    addToCart(item, { spiceLevel: null, extras: [], quantity: 1 });
+    addToCart(item, { spiceLevel: null, side: null, extras: [], quantity: 1 });
   }
 }
 
-function addToCart(item, { spiceLevel, extras, quantity }) {
+function addToCart(item, { spiceLevel, side = null, extras, quantity }) {
   const extraIds = extras.map((e) => e.id).sort().join(",");
-  const lineId = `${item.id}|${spiceLevel || ""}|${extraIds}`;
+  const lineId = `${item.id}|${spiceLevel || ""}|${side ? side.id : ""}|${extraIds}`;
   const existing = cart.find((line) => line.lineId === lineId);
-  // Special price (when set) is the real selling price - the server
-  // re-checks and re-prices this from the live DB at checkout regardless,
-  // but reflecting it here keeps the cart total from looking wrong.
-  const effectivePrice = item.special_price !== null && item.special_price !== undefined ? item.special_price : item.price;
+  // effective_price is the special price only while the special is
+  // actually running (start/end dates respected); otherwise the normal
+  // price. The server re-prices from the live DB at checkout regardless.
+  const effectivePrice =
+    item.effective_price !== undefined && item.effective_price !== null ? item.effective_price : item.price;
 
   if (existing) {
     existing.quantity += quantity;
+    existing.price = effectivePrice;
   } else {
     cart.push({
       lineId,
@@ -367,9 +641,11 @@ function addToCart(item, { spiceLevel, extras, quantity }) {
       price: effectivePrice,
       quantity,
       spiceLevel: spiceLevel || null,
+      side,
       extras
     });
   }
+  showCartToast(`${item.name} added to cart`);
   renderCart();
 }
 
@@ -380,6 +656,9 @@ const customizeModal = document.getElementById("customizeModal");
 const customizeItemName = document.getElementById("customizeItemName");
 const customizeSpiceGroup = document.getElementById("customizeSpiceGroup");
 const customizeSpiceOptions = document.getElementById("customizeSpiceOptions");
+const customizeSideGroup = document.getElementById("customizeSideGroup");
+const customizeSideOptions = document.getElementById("customizeSideOptions");
+const customizeSideError = document.getElementById("customizeSideError");
 const customizeAddonsGroup = document.getElementById("customizeAddonsGroup");
 const customizeAddonOptions = document.getElementById("customizeAddonOptions");
 const customizeQtyValue = document.getElementById("customizeQtyValue");
@@ -403,6 +682,25 @@ function openCustomizeModal(item) {
   } else {
     customizeSpiceGroup.style.display = "none";
     customizeSpiceOptions.innerHTML = "";
+  }
+
+  // Free choice of side (only on dishes the cafe attached sides to) - must pick one
+  customizeSideError.style.display = "none";
+  if (Array.isArray(item.sides) && item.sides.length > 0) {
+    customizeSideGroup.style.display = "block";
+    customizeSideOptions.innerHTML = item.sides
+      .map((sd) => `<button type="button" class="pill-option" data-id="${sd.id}" data-name="${sd.name}">${sd.name}</button>`)
+      .join("");
+    customizeSideOptions.querySelectorAll(".pill-option").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        customizeSideOptions.querySelectorAll(".pill-option").forEach((b) => b.classList.remove("selected"));
+        btn.classList.add("selected");
+        customizeSideError.style.display = "none";
+      });
+    });
+  } else {
+    customizeSideGroup.style.display = "none";
+    customizeSideOptions.innerHTML = "";
   }
 
   if (item.accepts_addons && item.addons.length > 0) {
@@ -439,6 +737,11 @@ document.getElementById("customizeQtyPlus").addEventListener("click", () => {
 document.getElementById("customizeConfirmBtn").addEventListener("click", () => {
   if (!pendingCustomizeItem) return;
   const selectedSpice = customizeSpiceOptions.querySelector(".pill-option.selected");
+  const selectedSideBtn = customizeSideOptions.querySelector(".pill-option.selected");
+  if (customizeSideOptions.children.length > 0 && !selectedSideBtn) {
+    customizeSideError.style.display = "block";
+    return;
+  }
   const selectedExtras = [...customizeAddonOptions.querySelectorAll("input:checked")].map((input) => ({
     id: parseInt(input.value, 10),
     name: input.dataset.name,
@@ -448,6 +751,7 @@ document.getElementById("customizeConfirmBtn").addEventListener("click", () => {
 
   addToCart(pendingCustomizeItem, {
     spiceLevel: selectedSpice ? selectedSpice.dataset.name : null,
+    side: selectedSideBtn ? { id: parseInt(selectedSideBtn.dataset.id, 10), name: selectedSideBtn.dataset.name } : null,
     extras: selectedExtras,
     quantity
   });
@@ -461,6 +765,7 @@ document.getElementById("customizeConfirmBtn").addEventListener("click", () => {
 // ---------------------------------------------------------------------
 function renderCart() {
   saveCart();
+  syncCardControls();
 
   const cartItemsEl = document.getElementById("cartItems");
   const cartTotalEl = document.getElementById("cartTotal");
@@ -470,6 +775,7 @@ function renderCart() {
     cartItemsEl.innerHTML = `<p class="cart-empty">Your cart is empty</p>`;
     cartTotalEl.textContent = money(0);
     checkoutBtn.disabled = true;
+    updateMobileCartBar(0, 0);
     return;
   }
 
@@ -482,22 +788,26 @@ function renderCart() {
       const lineTotal = (line.price + extrasTotal) * line.quantity;
       total += lineTotal;
 
-      const optionBits = [];
-      if (line.spiceLevel) optionBits.push(line.spiceLevel);
-      if (line.extras.length > 0) optionBits.push(line.extras.map((e) => e.name).join(", "));
-      const optionsText = optionBits.join(" · ");
+      // Itemised: the dish, then each choice/extra with its own price (x quantity)
+      const rows = [];
+      if (line.spiceLevel) rows.push(`<li><span>${line.spiceLevel}</span><span class="cart-free">free</span></li>`);
+      if (line.side) rows.push(`<li><span>Side: ${line.side.name}</span><span class="cart-free">free</span></li>`);
+      line.extras.forEach((e) =>
+        rows.push(`<li><span>+ ${e.name}</span><span>${money(e.price * line.quantity)}</span></li>`)
+      );
 
       return `
       <div class="cart-item">
         <div class="cart-item-info">
-          <span class="cart-item-name">${line.name}</span>
-          ${optionsText ? `<div class="cart-item-options">${optionsText}</div>` : ""}
-          <div class="cart-item-qty">
-            <button class="cart-qty-minus" data-line="${line.lineId}">-</button>
-            <span>${line.quantity}</span>
-            <button class="cart-qty-plus" data-line="${line.lineId}">+</button>
+          <div class="cart-line-head">
+            <span class="cart-item-name">${line.name}${line.quantity > 1 ? ` <em>&times; ${line.quantity}</em>` : ""}</span>
+            <span class="cart-item-price">${money(line.price * line.quantity)}</span>
           </div>
-          <span class="cart-item-price">${money(lineTotal)}</span>
+          ${rows.length ? `<ul class="cart-breakdown">${rows.join("")}</ul>` : ""}
+          <div class="cart-line-foot">
+            <span class="cart-item-qty-label">Qty: ${line.quantity}</span>
+            <span class="cart-line-total">${rows.length ? `Item total ${money(lineTotal)}` : ""}</span>
+          </div>
         </div>
         <button class="cart-item-remove" data-line="${line.lineId}" aria-label="Remove item">&times;</button>
       </div>
@@ -544,13 +854,9 @@ function renderCart() {
   }
 
   cartTotalEl.textContent = money(total);
+  updateMobileCartBar(cart.reduce((n, l) => n + l.quantity, 0), total);
+  renderCheckoutSummary();
 
-  cartItemsEl.querySelectorAll(".cart-qty-minus").forEach((btn) => {
-    btn.addEventListener("click", () => changeLineQuantity(btn.dataset.line, -1));
-  });
-  cartItemsEl.querySelectorAll(".cart-qty-plus").forEach((btn) => {
-    btn.addEventListener("click", () => changeLineQuantity(btn.dataset.line, 1));
-  });
   cartItemsEl.querySelectorAll(".cart-item-remove").forEach((btn) => {
     btn.addEventListener("click", () => {
       cart = cart.filter((line) => line.lineId !== btn.dataset.line);
@@ -558,6 +864,114 @@ function renderCart() {
     });
   });
 }
+
+/**
+ * The "Order Summary" inside the checkout modal: every line with its
+ * choices and extras, then subtotal, delivery fee and the total to pay -
+ * so the customer sees exactly what they're paying for before Yoco.
+ */
+function renderCheckoutSummary() {
+  const el = document.getElementById("checkoutSummary");
+  if (!el) return;
+  if (cart.length === 0) {
+    el.innerHTML = `<p class="cart-empty">Your cart is empty</p>`;
+    return;
+  }
+  const row = (label, value, cls = "") =>
+    `<div class="cs-row ${cls}"><span class="cs-label">${label}</span><span class="cs-value">${value}</span></div>`;
+
+  let subtotal = 0;
+  const lines = cart
+    .map((line) => {
+      const extrasUnit = line.extras.reduce((s, e) => s + e.price, 0);
+      const lineTotal = (line.price + extrasUnit) * line.quantity;
+      subtotal += lineTotal;
+      const details = [];
+      if (line.spiceLevel) details.push(row(`Spice: ${line.spiceLevel}`, "free", "cs-sub"));
+      if (line.side) details.push(row(`Side: ${line.side.name}`, "free", "cs-sub"));
+      line.extras.forEach((e) =>
+        details.push(row(`+ ${e.name}${line.quantity > 1 ? ` (${line.quantity} &times; ${money(e.price)})` : ""}`, money(e.price * line.quantity), "cs-sub")),
+      );
+      return `<div class="cs-item">
+        ${row(`<strong>${line.quantity} &times; ${line.name}</strong>${line.quantity > 1 ? ` <small>(${money(line.price)} each)</small>` : ""}`, money(line.price * line.quantity))}
+        ${details.join("")}
+        ${details.length ? row("Item total", money(lineTotal), "cs-item-total") : ""}
+      </div>`;
+    })
+    .join("");
+
+  const type = orderTypeSelect?.value || "collection";
+  let fee = 0;
+  let deliveryRows = "";
+  let whereRow = "";
+  if (type === "delivery") {
+    let feeValue;
+    if (deliveryFeeLoading) feeValue = `<i class="fas fa-spinner fa-spin"></i> Calculating…`;
+    else if (deliveryTooFar) feeValue = "Not available (too far)";
+    else if (geocodedDeliveryLat !== null) {
+      fee = Number(deliveryFee) || 0;
+      feeValue = money(fee);
+    } else feeValue = `<em>Fill in your address and tap OK, or share your location</em>`;
+    const km = deliveryDistanceKm && !deliveryTooFar && geocodedDeliveryLat !== null ? ` (${deliveryDistanceKm} km)` : "";
+    deliveryRows = row(`Delivery fee${km}`, feeValue);
+    const address = composeDeliveryAddress() || geocodedDisplayAddress;
+    whereRow = `<div class="cs-where"><i class="fas fa-motorcycle"></i> Delivery${address ? ` to ${address.replace(/</g, "&lt;")}` : ""}${deliveryFromLocation ? " (your shared location)" : ""}</div>`;
+  } else if (type === "dine_in") {
+    whereRow = `<div class="cs-where"><i class="fas fa-utensils"></i> Dine in</div>`;
+  } else {
+    whereRow = `<div class="cs-where"><i class="fas fa-bag-shopping"></i> Collection at the cafe</div>`;
+  }
+
+  el.innerHTML = `${whereRow}
+    ${lines}
+    <div class="cs-totals">
+      ${row("Items subtotal", money(subtotal))}
+      ${deliveryRows}
+      ${row("Total to pay", money(subtotal + fee), "cs-grand")}
+    </div>`;
+}
+
+// ---------------------------------------------------------------------
+// Phones/tablets: "Your Order" lives on its own page instead of sitting at
+// the very bottom of a long menu. A bar fixed to the bottom of the screen
+// (the order nav bar) shows the item count + total and opens it in one tap;
+// the browser's Back button (or the Back arrow) returns to the menu.
+// ---------------------------------------------------------------------
+const cartPanelEl = document.querySelector(".cart-panel");
+const mobileCartBar = document.getElementById("mobileCartBar");
+const mobileCartCount = document.getElementById("mobileCartCount");
+const mobileCartTotal = document.getElementById("mobileCartTotal");
+const cartPageBack = document.getElementById("cartPageBack");
+
+function updateMobileCartBar(count, total) {
+  if (!mobileCartBar) return;
+  mobileCartCount.textContent = count;
+  mobileCartTotal.textContent = money(total);
+  mobileCartBar.classList.toggle("has-items", count > 0);
+}
+
+function openCartPage() {
+  if (cartPanelEl.classList.contains("cart-page-open")) return;
+  cartPanelEl.classList.add("cart-page-open");
+  document.body.classList.add("cart-page-active");
+  history.pushState({ cartPage: true }, "", "#your-order");
+  window.scrollTo(0, 0);
+}
+
+function closeCartPage({ fromPopState = false } = {}) {
+  if (!cartPanelEl.classList.contains("cart-page-open")) return;
+  cartPanelEl.classList.remove("cart-page-open");
+  document.body.classList.remove("cart-page-active");
+  if (!fromPopState && location.hash === "#your-order") history.back();
+}
+
+if (mobileCartBar) mobileCartBar.addEventListener("click", openCartPage);
+if (cartPageBack) cartPageBack.addEventListener("click", () => closeCartPage());
+window.addEventListener("popstate", () => closeCartPage({ fromPopState: true }));
+// Leaving the phone layout (e.g. rotating a tablet) drops the "page" state.
+window.matchMedia("(min-width: 901px)").addEventListener("change", (e) => {
+  if (e.matches) closeCartPage({ fromPopState: true });
+});
 
 function changeLineQuantity(lineId, delta) {
   const line = cart.find((l) => l.lineId === lineId);
@@ -589,7 +1003,21 @@ checkoutBtn.addEventListener("click", () => {
     openAuthModal("signin", "Please sign in or create an account to continue to checkout.");
     return;
   }
-  proceedToCheckout();
+  // Closed right now? No checkout (a pre-order for a booked table is allowed).
+  if (!isCafeOpenNow() && !getActiveReservation()) {
+    showOutOfServiceNotice(CLOSED_MESSAGE);
+    return;
+  }
+  // Out of service? Ask the server (not a cached copy) and stop here if so.
+  fetchStoreConfig().then((config) => {
+    if (config && config.is_out_of_service) {
+      showOutOfServiceNotice(config.out_of_service_reason);
+      return;
+    }
+    // Pull the latest prices first so a special that started/ended while the
+    // item sat in the cart is reflected before the customer pays.
+    loadMenu(true).finally(proceedToCheckout);
+  });
 });
 
 function updateCheckoutFieldVisibility() {
@@ -598,31 +1026,220 @@ function updateCheckoutFieldVisibility() {
   tableNumberField.style.display = orderTypeSelect.value === "dine_in" ? "block" : "none";
   dineInTimeField.style.display = orderTypeSelect.value === "dine_in" ? "block" : "none";
   preferredTimeField.style.display = orderTypeSelect.value === "dine_in" ? "none" : "block";
+  // The address fields are checked in submitOrderCheckout (a shared location
+  // can stand in for them), so they're not marked required here.
+}
 
-  const addressInput = document.getElementById("delivery-address");
-  if (addressInput) {
-    addressInput.required = isDelivery;
+let lastQuotedAddressInput = ""; // the exact text we last looked up
+let deliveryTooFar = false;
+let deliveryFromLocation = false; // priced from the phone's shared location (GPS), not the typed address
+
+function resetDeliveryQuote() {
+  deliveryFee = 0;
+  deliveryDistanceKm = 0;
+  geocodedDeliveryLat = null;
+  geocodedDeliveryLng = null;
+  geocodedDisplayAddress = "";
+  deliveryFeeLoading = false;
+  deliveryTooFar = false;
+  lastQuotedAddressInput = "";
+  deliveryFromLocation = false;
+  setLocationStatus("");
+}
+
+// ---- Structured delivery address: street, unit (optional), suburb, town/city, postal code, province ----
+const addrField = (id) => document.getElementById(id);
+function addressParts() {
+  const v = (id) => (addrField(id)?.value || "").trim();
+  return {
+    street: v("addr-street"),
+    unit: v("addr-unit"),
+    suburb: v("addr-suburb"),
+    city: v("addr-city"),
+    postal: v("addr-postal"),
+    province: v("addr-province"),
+  };
+}
+
+/** The full address saved on the order (what the driver reads). */
+function composeDeliveryAddress() {
+  const a = addressParts();
+  return [a.unit, a.street, a.suburb, a.city, a.postal, a.province].filter(Boolean).join(", ");
+}
+
+/** Labels of the required parts still empty (unit number is optional). */
+function missingAddressParts() {
+  const a = addressParts();
+  return [
+    [a.street, "street address"],
+    [a.suburb, "suburb"],
+    [a.city, "town/city"],
+    [a.postal, "postal code"],
+    [a.province, "province"],
+  ]
+    .filter(([value]) => !value)
+    .map(([, label]) => label);
+}
+
+function syncDeliveryAddressInput() {
+  const hidden = addrField("delivery-address");
+  if (hidden) hidden.value = composeDeliveryAddress() || geocodedDisplayAddress;
+}
+
+/** Picks the matching province option ("Limpopo Province" -> "Limpopo"). */
+function setProvince(name) {
+  const select = addrField("addr-province");
+  if (!select || !name) return;
+  const match = [...select.options].find((o) => o.value && name.toLowerCase().includes(o.value.toLowerCase()));
+  if (match) select.value = match.value;
+}
+
+function fillAddressFields(parts) {
+  if (parts.street !== undefined) addrField("addr-street").value = parts.street;
+  if (parts.unit !== undefined) addrField("addr-unit").value = parts.unit;
+  if (parts.suburb !== undefined) addrField("addr-suburb").value = parts.suburb;
+  if (parts.city !== undefined) addrField("addr-city").value = parts.city;
+  if (parts.postal !== undefined) addrField("addr-postal").value = parts.postal;
+  if (parts.province !== undefined) setProvince(parts.province);
+  syncDeliveryAddressInput();
+}
+
+/** Splits a saved one-line address ("12 Main Rd, Sibasa, Thohoyandou, 0950, Limpopo") into the fields. */
+function fillFromSavedAddress(saved) {
+  const bits = String(saved || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const parts = { street: "", unit: "", suburb: "", city: "", postal: "", province: "" };
+  const rest = [];
+  for (const bit of bits) {
+    if (/^\d{4}$/.test(bit)) parts.postal = bit;
+    else if (/limpopo|gauteng|mpumalanga|north west|kwazulu|natal|free state|eastern cape|western cape|northern cape/i.test(bit)) parts.province = bit;
+    else if (!/^south africa$/i.test(bit)) rest.push(bit);
+  }
+  if (rest.length && /^(unit|flat|apt|apartment|no\.?)\s*\w+$/i.test(rest[0]) && rest.length > 1) parts.unit = rest.shift();
+  parts.street = rest.shift() || "";
+  parts.city = rest.pop() || "";
+  parts.suburb = rest.join(", ");
+  fillAddressFields(parts);
+}
+
+function setLocationStatus(text, kind = "info") {
+  const el = addrField("locationStatus");
+  if (!el) return;
+  el.style.display = text ? "block" : "none";
+  el.className = `address-status ${kind}`;
+  el.innerHTML = text;
+}
+
+/** Shares the phone's location: coordinates price the delivery, the address fields get filled for the driver. */
+async function useMyLocation() {
+  if (!navigator.geolocation) {
+    showCheckoutError("Your browser can't share your location - please type your address instead.");
+    return;
+  }
+  const btn = addrField("useMyLocationBtn");
+  btn.disabled = true;
+  setLocationStatus('<i class="fas fa-spinner fa-spin"></i> Getting your location…');
+  checkoutError.style.display = "none";
+  let position;
+  try {
+    position = await new Promise((resolve, reject) =>
+      navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 20000, maximumAge: 60000 }),
+    );
+  } catch (err) {
+    btn.disabled = false;
+    setLocationStatus("");
+    showCheckoutError(
+      err && err.code === 1
+        ? "Location permission was denied. Allow location for this site in your phone settings, or type your address below."
+        : "We couldn't get your location. Please try again outside/with GPS on, or type your address below.",
+    );
+    return;
+  }
+  const lat = position.coords.latitude;
+  const lng = position.coords.longitude;
+  resetDeliveryQuote();
+  deliveryFromLocation = true;
+  deliveryFeeLoading = true;
+  renderCart();
+  try {
+    const geoRes = await fetch("/api/delivery/geocode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lat, lng }),
+      signal: AbortSignal.timeout(20000),
+    });
+    const geo = await safeJson(geoRes);
+    if (geo.address) {
+      const a = geo.address;
+      // Keep anything the customer already typed that the lookup doesn't know (e.g. unit number).
+      fillAddressFields({
+        street: a.street || addressParts().street,
+        suburb: a.suburb || addressParts().suburb,
+        city: a.city || addressParts().city,
+        postal: a.postal_code || addressParts().postal,
+        province: a.province || addressParts().province,
+      });
+    }
+    const feeRes = await fetch("/api/delivery/fee", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lat, lng }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const feeData = await safeJson(feeRes);
+    if (!feeRes.ok) throw new Error(feeData.error || "Failed to calculate delivery fee");
+    geocodedDeliveryLat = lat;
+    geocodedDeliveryLng = lng;
+    geocodedDisplayAddress = geo.display_name || "";
+    deliveryDistanceKm = feeData.distance_km;
+    syncDeliveryAddressInput();
+    if (feeData.too_far) {
+      deliveryFee = 0;
+      deliveryTooFar = true;
+      showCheckoutError(`${feeData.message} You're about ${feeData.distance_km} km away. Call ${feeData.cafe_phone} or email ${feeData.cafe_email}.`);
+    } else {
+      deliveryFee = Number(feeData.fee) || 0;
+    }
+    setLocationStatus(
+      `<i class="fas fa-location-dot"></i> Using your current location (${feeData.distance_km} km away). Check the address below for the driver, and add a unit number if you have one. <button type="button" class="link-btn" id="useTypedAddressBtn">Use a typed address instead</button>`,
+      "ok",
+    );
+    addrField("useTypedAddressBtn")?.addEventListener("click", () => {
+      resetDeliveryQuote();
+      setLocationStatus('Check your address below, then tap OK.');
+      renderCart();
+    });
+  } catch (err) {
+    resetDeliveryQuote();
+    showCheckoutError(
+      err.name === "TimeoutError"
+        ? "Working out the delivery fee is taking too long. Please try again or type your address."
+        : err.message || "We couldn't price delivery to your location. Please type your address instead.",
+    );
+  } finally {
+    deliveryFeeLoading = false;
+    btn.disabled = false;
+    renderCart();
   }
 }
 
-/** Sets up geocoding on blur for the delivery address field. */
-function setupDeliveryGeocoding(addressInput) {
-  if (!addressInput) return;
-
-  // Remove any existing blur listener to avoid duplicates
-  addressInput.removeEventListener("blur", handleDeliveryAddressBlur);
-  addressInput.addEventListener("blur", handleDeliveryAddressBlur);
-}
-
+/**
+ * Looks the typed address up (geocode -> distance -> fee). Runs when the
+ * address field loses focus, when a saved address is filled in, and once
+ * more at submit time if there is still no quote - so a delivery order is
+ * never sent without coordinates.
+ */
 async function handleDeliveryAddressBlur() {
-  const addressInput = document.getElementById("delivery-address");
-  const address = addressInput?.value?.trim();
-  if (!address) return;
+  syncDeliveryAddressInput();
+  if (deliveryFromLocation) return; // already priced from the phone's location
+  // Every field the customer filled in (unit number included) is used for the lookup.
+  const address = composeDeliveryAddress();
+  if (!address || missingAddressParts().length || orderTypeSelect.value !== "delivery") return;
 
-  // Don't re-geocode the same address
-  if (address === geocodedDisplayAddress && geocodedDeliveryLat !== null) return;
+  // Don't re-look-up the same text
+  if (address === lastQuotedAddressInput && geocodedDeliveryLat !== null) return;
 
   deliveryFeeLoading = true;
+  deliveryTooFar = false;
   renderCart(); // show loading state
 
   try {
@@ -630,50 +1247,112 @@ async function handleDeliveryAddressBlur() {
     const geoRes = await fetch("/api/delivery/geocode", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ address }),
+      body: JSON.stringify({ parts: addressParts() }),
+      signal: AbortSignal.timeout(30000),
     });
-    const geoData = await geoRes.json();
+    const geoData = await safeJson(geoRes);
 
     if (!geoRes.ok || !geoData.lat || !geoData.lng) {
-      throw new Error(geoData.error || "Could not find that address");
+      throw new Error(geoData.error || "We couldn't find that address.");
     }
-
-    geocodedDeliveryLat = geoData.lat;
-    geocodedDeliveryLng = geoData.lng;
-    geocodedDisplayAddress = geoData.display_name;
 
     // Step 2: Calculate delivery fee
     const feeRes = await fetch("/api/delivery/fee", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ lat: geoData.lat, lng: geoData.lng }),
+      signal: AbortSignal.timeout(15000),
     });
-    const feeData = await feeRes.json();
+    const feeData = await safeJson(feeRes);
 
     if (!feeRes.ok) {
       throw new Error(feeData.error || "Failed to calculate delivery fee");
     }
 
+    geocodedDeliveryLat = geoData.lat;
+    geocodedDeliveryLng = geoData.lng;
+    geocodedDisplayAddress = geoData.display_name;
+    lastQuotedAddressInput = address;
+
     if (feeData.too_far) {
       deliveryFee = 0;
       deliveryDistanceKm = feeData.distance_km;
+      deliveryTooFar = true;
+      setLocationStatus("");
       showCheckoutError(
-        `${feeData.message} Call ${feeData.cafe_phone} or email ${feeData.cafe_email}.`
+        `${feeData.message} We found "${geoData.display_name}" (about ${feeData.distance_km} km away). If that's not the right place, add your suburb or village to the address. Otherwise call ${feeData.cafe_phone} or email ${feeData.cafe_email}.`
       );
     } else {
-      deliveryFee = feeData.fee;
+      deliveryFee = Number(feeData.fee) || 0;
       deliveryDistanceKm = feeData.distance_km;
+      checkoutError.style.display = "none";
+      setLocationStatus(
+        geoData.approximate
+          ? `<i class="fas fa-circle-info"></i> We couldn't pin your exact street, so the fee is for your area: ${geoData.display_name} (${feeData.distance_km} km). Delivery fee ${money(deliveryFee)}.`
+          : `<i class="fas fa-circle-check"></i> Address found (${feeData.distance_km} km away). Delivery fee ${money(deliveryFee)}.`,
+        "ok",
+      );
     }
   } catch (err) {
-    deliveryFee = 0;
-    deliveryDistanceKm = 0;
-    geocodedDeliveryLat = null;
-    geocodedDeliveryLng = null;
-    geocodedDisplayAddress = "";
-    // Don't show error for geocoding failures - let user correct address
-    console.warn("Delivery geocoding/fee failed:", err.message);
+    resetDeliveryQuote();
+    showCheckoutError(
+      err.name === "TimeoutError"
+        ? "Looking up that address is taking too long. Please check your connection and try again."
+        : err.message || "We couldn't find that address. Please check it and try again.",
+    );
   } finally {
     deliveryFeeLoading = false;
+    renderCart();
+  }
+}
+
+/**
+ * Wires the address fields once. Nothing is looked up while the customer
+ * types - they tap OK when their details are complete (or share their
+ * location); editing afterwards clears the fee until they tap OK again.
+ */
+let deliveryFieldsWired = false;
+function setupDeliveryGeocoding() {
+  if (deliveryFieldsWired) return;
+  deliveryFieldsWired = true;
+  ["addr-street", "addr-unit", "addr-suburb", "addr-city", "addr-postal", "addr-province"].forEach((id) => {
+    const el = addrField(id);
+    if (!el) return;
+    el.addEventListener("input", invalidateQuoteOnEdit);
+    el.addEventListener("change", invalidateQuoteOnEdit);
+  });
+  addrField("useMyLocationBtn")?.addEventListener("click", useMyLocation);
+  addrField("addressOkBtn")?.addEventListener("click", confirmTypedAddress);
+}
+
+/** The OK button: check every required field is filled in, then find the address and price the delivery. */
+async function confirmTypedAddress() {
+  checkoutError.style.display = "none";
+  const missing = missingAddressParts();
+  if (missing.length) {
+    showCheckoutError(`Please add your ${missing.join(", ")}, then tap OK.`);
+    return;
+  }
+  const btn = addrField("addressOkBtn");
+  btn.disabled = true;
+  if (deliveryFromLocation) resetDeliveryQuote(); // they chose to type it instead
+  setLocationStatus('<i class="fas fa-spinner fa-spin"></i> Finding your address and working out the delivery fee…');
+  try {
+    await handleDeliveryAddressBlur();
+    if (geocodedDeliveryLat === null && !deliveryFeeLoading) setLocationStatus("");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function invalidateQuoteOnEdit() {
+  syncDeliveryAddressInput();
+  renderCheckoutSummary();
+  // A shared location stays - the fields are just the driver's description of it.
+  if (deliveryFromLocation) return;
+  if (composeDeliveryAddress() !== lastQuotedAddressInput && geocodedDeliveryLat !== null) {
+    resetDeliveryQuote();
+    setLocationStatus('<i class="fas fa-pen"></i> Address changed - tap OK to update the delivery fee.');
     renderCart();
   }
 }
@@ -681,38 +1360,57 @@ async function handleDeliveryAddressBlur() {
 /** Opens the checkout modal, prefilling the name field from the account (still editable, e.g. ordering for someone else). */
 function proceedToCheckout() {
   checkoutError.style.display = "none";
+  const dupPanel = document.getElementById("duplicateOrderPanel");
+  if (dupPanel) dupPanel.style.display = "none";
   checkoutForm.reset();
+  const preorder = getActiveReservation();
+  orderTypeSelect.disabled = Boolean(preorder);
+  const arrivalInput = document.getElementById("dine-in-arrival-time");
+  arrivalInput.readOnly = Boolean(preorder);
+  let preorderNote = document.getElementById("checkoutPreorderNote");
+  if (preorder) {
+    // Pre-order for a table booking: dine-in is fixed and the booking's details are filled in.
+    orderTypeSelect.value = "dine_in";
+    arrivalInput.value = preorder.time || "";
+    if (!preorderNote) {
+      preorderNote = document.createElement("p");
+      preorderNote.id = "checkoutPreorderNote";
+      preorderNote.className = "auth-hint";
+      checkoutForm.parentNode.insertBefore(preorderNote, checkoutForm);
+    }
+    preorderNote.textContent = `Pre-order for your table: ${formatReservationWhen(preorder.date, preorder.time)}${preorder.party ? ` · ${preorder.party} guest${preorder.party > 1 ? "s" : ""}` : ""}. Order type is set to Dine In.`;
+    preorderNote.style.display = "block";
+  } else if (preorderNote) {
+    preorderNote.style.display = "none";
+  }
   updateCheckoutFieldVisibility();
 
   const nameInput = document.getElementById("customer-name");
   const phoneInput = document.getElementById("customer-phone");
-  const addressInput = document.getElementById("delivery-address");
+  resetDeliveryQuote();
+  fillAddressFields({ street: "", unit: "", suburb: "", city: "", postal: "", province: "" });
 
-  // Reset delivery fee state
-  deliveryFee = 0;
-  deliveryDistanceKm = 0;
-  geocodedDeliveryLat = null;
-  geocodedDeliveryLng = null;
-  geocodedDisplayAddress = "";
-  deliveryFeeLoading = false;
-
-  if (currentCustomer) {
+  if (preorder) {
+    nameInput.value = preorder.name || (currentCustomer && currentCustomer.name) || "";
+    phoneInput.value = preorder.phone || (currentCustomer && currentCustomer.phone_number) || "";
+  } else if (currentCustomer) {
     if (!nameInput.value.trim()) {
       nameInput.value = currentCustomer.name || "";
     }
 
     const hasSavedProfile = currentCustomer.phone_number || currentCustomer.delivery_address;
-    if (hasSavedProfile && !phoneInput.value.trim() && !addressInput.value.trim()) {
+    if (hasSavedProfile && !phoneInput.value.trim() && !composeDeliveryAddress()) {
       const shouldUseSaved = window.confirm("Use your saved contact details for this order?");
       if (shouldUseSaved) {
         phoneInput.value = currentCustomer.phone_number || "";
-        addressInput.value = currentCustomer.delivery_address || "";
+        fillFromSavedAddress(currentCustomer.delivery_address || "");
+        // Not looked up yet - the customer checks it and taps OK.
       }
     }
   }
 
-  // Set up delivery address geocoding on blur
-  setupDeliveryGeocoding(addressInput);
+  // Set up delivery address geocoding + "use my location"
+  setupDeliveryGeocoding();
 
   checkoutModal.classList.add("active");
   renderCart(); // refresh to show/hide delivery fee line
@@ -725,12 +1423,8 @@ checkoutModal.addEventListener("click", (e) => {
 orderTypeSelect.addEventListener("change", () => {
   updateCheckoutFieldVisibility();
   // Reset delivery fee state when order type changes
-  deliveryFee = 0;
-  deliveryDistanceKm = 0;
-  geocodedDeliveryLat = null;
-  geocodedDeliveryLng = null;
-  geocodedDisplayAddress = "";
-  deliveryFeeLoading = false;
+  resetDeliveryQuote();
+  checkoutError.style.display = "none";
   renderCart();
 });
 
@@ -755,7 +1449,6 @@ async function submitOrderCheckout(event) {
 
   const nameInput = document.getElementById("customer-name");
   const phoneInput = document.getElementById("customer-phone");
-  const addressInput = document.getElementById("delivery-address");
   const tableInput = document.getElementById("table-number");
   const pickupSelect = document.getElementById("pickup-time-slot");
   const dineInTimeInput = document.getElementById("dine-in-arrival-time");
@@ -764,8 +1457,14 @@ async function submitOrderCheckout(event) {
   const customerName = nameInput.value.trim();
   const customerPhone = phoneInput.value.trim();
   const orderType = orderTypeSelect.value;
-  const deliveryAddress = addressInput.value.trim();
+  syncDeliveryAddressInput();
+  const deliveryAddress = composeDeliveryAddress() || geocodedDisplayAddress;
 
+  if (!isCafeOpenNow() && !getActiveReservation()) {
+    checkoutModal.classList.remove("active");
+    showOutOfServiceNotice(CLOSED_MESSAGE);
+    return;
+  }
   if (!currentCustomer) {
     // Session must have expired between opening checkout and submitting it.
     checkoutModal.classList.remove("active");
@@ -777,13 +1476,29 @@ async function submitOrderCheckout(event) {
     showCheckoutError("Please enter your name and cell number.");
     return;
   }
+  if (orderType === "delivery" && !deliveryFromLocation && missingAddressParts().length) {
+    showCheckoutError(`Please add your ${missingAddressParts().join(", ")} - or tap "Use my current location".`);
+    return;
+  }
   if (orderType === "delivery" && !deliveryAddress) {
-    showCheckoutError("Please enter a delivery address.");
+    showCheckoutError("Please enter a delivery address or use your current location.");
     return;
   }
   if (cart.length === 0) {
     showCheckoutError("Your cart is empty.");
     return;
+  }
+
+  // Delivery: make sure the address has been located and priced (the
+  // customer may tap "Continue" straight after typing, before the field
+  // has lost focus).
+  if (orderType === "delivery") {
+    if (!deliveryFromLocation && (geocodedDeliveryLat === null || composeDeliveryAddress() !== lastQuotedAddressInput)) {
+      await handleDeliveryAddressBlur();
+    }
+    if (deliveryFeeLoading) return;
+    if (geocodedDeliveryLat === null) return; // error already shown by the lookup
+    if (deliveryTooFar) return; // message already shown - don't send an order we can't deliver
   }
 
   const pickupTime =
@@ -803,10 +1518,12 @@ async function submitOrderCheckout(event) {
     table_number: orderType === "dine_in" ? tableInput.value.trim() : "",
     pickup_time: pickupTime,
     special_instructions: instructionsInput.value.trim(),
+    reservation_id: getActiveReservation()?.id,
     cart_items: cart.map((line) => ({
       id: line.itemId,
       quantity: line.quantity,
       spice_level: line.spiceLevel,
+      side: line.side ? line.side.id : undefined,
       extras: line.extras.map((e) => e.id)
     }))
   };
@@ -821,8 +1538,30 @@ async function submitOrderCheckout(event) {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${customerToken}` },
       body: JSON.stringify(payload)
     });
-    const result = await res.json();
+    const result = await safeJson(res);
 
+    if (res.status === 503 && result.closed) {
+      checkoutModal.classList.remove("active");
+      showOutOfServiceNotice(result.error);
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Continue to Payment";
+      return;
+    }
+    if (res.status === 503 && result.out_of_service) {
+      // Admin switched Out of Service on while the customer was checking out.
+      checkoutModal.classList.remove("active");
+      showOutOfServiceNotice(result.reason || result.error);
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Continue to Payment";
+      return;
+    }
+    if (res.status === 409 && result.duplicate_order) {
+      // Same order already waiting for payment - pay that one or edit, no second ticket.
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Continue to Payment";
+      showDuplicateOrderChoice(result.duplicate_order);
+      return;
+    }
     if (!res.ok || !result.success) {
       throw new Error(result.error || "Something went wrong placing your order.");
     }
@@ -832,6 +1571,7 @@ async function submitOrderCheckout(event) {
     // since the order itself exists regardless of payment outcome.
     cart = [];
     saveCart();
+    localStorage.removeItem(ACTIVE_RES_KEY); // pre-order done - this booking no longer drives checkout
     redirectToYoco(result.payment);
   } catch (err) {
     showCheckoutError(err.message);
@@ -840,22 +1580,86 @@ async function submitOrderCheckout(event) {
   }
 }
 
-/** Builds a hidden form and submits it to send the browser to the hosted Yoco checkout. */
-function redirectToYoco(payment) {
-  const form = document.createElement("form");
-  form.method = "POST";
-  form.action = payment.action_url;
-
-  for (const [key, value] of Object.entries(payment.fields)) {
-    const input = document.createElement("input");
-    input.type = "hidden";
-    input.name = key;
-    input.value = value;
-    form.appendChild(input);
+/**
+ * Checkout found an identical unpaid order: let the customer pay that
+ * existing ticket, or remove it and go back to edit their cart.
+ */
+function showDuplicateOrderChoice(existing) {
+  checkoutError.style.display = "none";
+  let panel = document.getElementById("duplicateOrderPanel");
+  if (!panel) {
+    panel = document.createElement("div");
+    panel.id = "duplicateOrderPanel";
+    panel.className = "duplicate-order-panel";
+    // Below the "Continue to Payment" button, where the customer is looking.
+    checkoutForm.after(panel);
   }
+  const placed = new Date(existing.created_at).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" });
+  panel.innerHTML = `
+    <strong><i class="fas fa-receipt"></i> You already have this order</strong>
+    <p>Order #${existing.id} (placed at ${placed}) has exactly the same items and details and hasn't been paid yet - ${money(existing.total_amount)}.</p>
+    <div class="duplicate-order-actions">
+      <button type="button" class="btn btn-primary" id="dupPayBtn">Pay order #${existing.id}</button>
+      <button type="button" class="btn dup-edit-btn" id="dupEditBtn">Edit my order</button>
+    </div>
+    <p class="form-error" id="dupError" style="display:none"></p>`;
+  panel.style.display = "block";
+  panel.scrollIntoView({ behavior: "smooth", block: "end" });
+  const fail = (message) => {
+    const el = document.getElementById("dupError");
+    el.textContent = message;
+    el.style.display = "block";
+  };
 
-  document.body.appendChild(form);
-  form.submit();
+  const payBtn = document.getElementById("dupPayBtn");
+  const editBtn = document.getElementById("dupEditBtn");
+  payBtn.addEventListener("click", async () => {
+    document.getElementById("dupError").style.display = "none";
+    payBtn.disabled = true;
+    payBtn.textContent = "Redirecting to payment…";
+    try {
+      const res = await fetch("/api/order/retry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${customerToken}` },
+        body: JSON.stringify({ id: existing.id }),
+      });
+      const data = await safeJson(res);
+      if (!res.ok || !(data.payment?.redirect_url || data.payment?.action_url)) throw new Error(data.error || "Couldn't start the payment.");
+      cart = [];
+      saveCart();
+      localStorage.removeItem(ACTIVE_RES_KEY);
+      redirectToYoco(data.payment);
+    } catch (err) {
+      fail(`${err.message} You can tap "Edit my order" to change it instead.`);
+      payBtn.disabled = false;
+      payBtn.textContent = `Pay order #${existing.id}`;
+    }
+  });
+
+  editBtn.addEventListener("click", async () => {
+    editBtn.disabled = true;
+    try {
+      const res = await fetch("/api/order/discard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${customerToken}` },
+        body: JSON.stringify({ id: existing.id }),
+      });
+      const data = await safeJson(res);
+      if (!res.ok || !data.success) throw new Error(data.error || "Couldn't remove the old order.");
+      panel.style.display = "none";
+      checkoutModal.classList.remove("active");
+      if (window.matchMedia("(max-width: 900px)").matches) openCartPage();
+      showCartToast(`Order #${existing.id} removed - edit your cart, then check out again.`, "info");
+    } catch (err) {
+      fail(err.message);
+      editBtn.disabled = false;
+    }
+  });
+}
+
+/** Hands the browser to the Yoco payment page (see goToYocoPayment in site.js). */
+function redirectToYoco(payment) {
+  goToYocoPayment(payment);
 }
 
 function showCheckoutError(message) {
@@ -868,5 +1672,52 @@ checkoutForm.addEventListener("submit", submitOrderCheckout);
 // ---------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------
+// ---------------------------------------------------------------------
+// Pre-order for a table reservation: cart items are kept and editable,
+// checkout is dine-in with the booking's details, and the "Book
+// Reservation" button is hidden (they already have one).
+// ---------------------------------------------------------------------
+function refreshPreorderUI() {
+  const r = getActiveReservation();
+  const resBtn = document.getElementById("menuReservationBtn");
+  if (resBtn) resBtn.style.display = r ? "none" : "";
+  let banner = document.getElementById("preorderBanner");
+  if (!r) {
+    if (banner) banner.remove();
+    return;
+  }
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "preorderBanner";
+    banner.className = "auth-hint";
+    banner.style.cssText = "background:#fff8e6;border:1px solid #f0d78a;border-radius:6px;padding:10px 12px;margin-bottom:12px";
+    const panel = cartPanelEl;
+    const back = document.getElementById("cartPageBack");
+    if (back) back.after(banner); else panel.prepend(banner);
+  }
+  banner.innerHTML = `<strong>Pre-order for your table</strong><br>${escapeHtml(formatReservationWhen(r.date, r.time))}${r.party ? ` · ${r.party} guest${r.party > 1 ? "s" : ""}` : ""}<br>Dine In is set for you. Add, edit or remove items, then check out. <button type="button" id="preorderCancelBtn" class="auth-link-btn" style="display:inline">Not pre-ordering? Remove</button>`;
+  document.getElementById("preorderCancelBtn").addEventListener("click", () => {
+    localStorage.removeItem(ACTIVE_RES_KEY);
+    refreshPreorderUI();
+  });
+}
+
+function showPreorderCart() {
+  refreshPreorderUI();
+  if (window.matchMedia("(max-width: 900px)").matches) openCartPage();
+  else cartPanelEl.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+window.addEventListener("fulude:preorder", showPreorderCart);
+
 loadMenu();
 renderCart(); // restore any cart carried over from a previous visit
+refreshPreorderUI();
+if (location.hash === "#your-order" && window.matchMedia("(max-width: 900px)").matches) {
+  // Page was refreshed while viewing the cart - stay on the cart.
+  cartPanelEl.classList.add("cart-page-open");
+  document.body.classList.add("cart-page-active");
+}
+if (new URLSearchParams(location.search).get("preorder") === "1") {
+  history.replaceState({}, "", location.pathname + location.hash);
+  if (getActiveReservation()) showPreorderCart();
+}

@@ -6,6 +6,7 @@
  * ----------------------------------------------------------------------- */
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { hashPassword } from "../../_lib/password.js";
+import { ensureLockoutColumns } from "../../_lib/accountLockout.js";
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -30,16 +31,30 @@ export async function onRequest(context) {
   }
 
   try {
-    const result = await runQuery(env, "SELECT id, admin_id, expires_at, used FROM admin_password_resets WHERE token = $1;", [token]);
+    const result = await runQuery(
+      env,
+      `SELECT r.admin_id, r.expires_at, r.used, a.permissions, a.is_active
+       FROM admin_password_resets r
+       JOIN admin_accounts a ON a.id = r.admin_id
+       WHERE r.token = $1;`,
+      [token],
+    );
     const reset = result.rows[0];
 
     if (!reset || reset.used || new Date(reset.expires_at) < new Date()) {
       return jsonResponse({ error: "This reset link is invalid or has expired. Please request a new one." }, 400);
     }
+    if (!reset.is_active || !reset.permissions || !reset.permissions.all) {
+      return jsonResponse(
+        { error: "Please contact admin for assistance with password changes." },
+        403,
+      );
+    }
 
+    await ensureLockoutColumns(env, "admin_accounts");
     const { hash, salt } = await hashPassword(newPassword);
-    await runQuery(env, "UPDATE admin_accounts SET password_hash = $1, password_salt = $2, updated_at = NOW() WHERE id = $3;", [hash, salt, reset.admin_id]);
-    await runQuery(env, "UPDATE admin_password_resets SET used = TRUE WHERE id = $1;", [reset.id]);
+    await runQuery(env, "UPDATE admin_accounts SET password_hash = $1, password_salt = $2, failed_login_attempts = 0, is_locked = FALSE, updated_at = NOW() WHERE id = $3;", [hash, salt, reset.admin_id]);
+    await runQuery(env, "UPDATE admin_password_resets SET used = TRUE WHERE token = $1;", [token]);
 
     return jsonResponse({ success: true });
   } catch (err) {

@@ -11,10 +11,9 @@ import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { hashPassword, generateToken } from "../../_lib/password.js";
 import { sendEmail } from "../../_lib/email.js";
 import { checkRateLimit } from "../../_lib/rateLimit.js";
-import { getRequestIp, sanitizeText } from "../../_lib/security.js";
+import { getRequestIp, sanitizeText, isValidEmail, isValidName, normalizePhone, VALIDATION_MESSAGES } from "../../_lib/security.js";
 import { ensureCustomerProfileColumns } from "../../_lib/customerAuth.js";
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -54,7 +53,8 @@ export async function onRequestPost(context) {
       400,
     );
   }
-  if (!EMAIL_RE.test(email)) {
+  if (!isValidName(name)) return jsonResponse({ error: VALIDATION_MESSAGES.name }, 400);
+  if (!isValidEmail(email)) {
     return jsonResponse({ error: "Please enter a valid email address." }, 400);
   }
   if (password.length < 8) {

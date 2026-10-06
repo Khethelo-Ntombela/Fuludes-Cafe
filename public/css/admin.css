@@ -1364,6 +1364,14 @@
   margin-top: 3px;
 }
 
+.kds-card-total {
+  display: inline-block;
+  margin-top: 4px;
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: var(--sa-text);
+}
+
 /* The timer dominates the card - readable before anything else */
 .kds-timer {
   flex-shrink: 0;
@@ -1563,6 +1571,12 @@
   flex: 1;
 }
 
+.kds-row .kds-row-total {
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .kds-row .kds-row-age {
   font-size: 0.72rem;
   font-weight: 700;
@@ -1699,6 +1713,18 @@
   background: var(--sa-gold-soft);
   color: var(--sa-gold);
   border-color: transparent;
+}
+
+/* "Unlock" button shown beside Edit/Delete on a locked admin/staff account. */
+.admin-mini-btn.unlock {
+  background: var(--sa-gold-soft);
+  color: var(--sa-gold);
+  border-color: var(--sa-gold);
+}
+
+.admin-mini-btn.unlock:hover {
+  background: var(--sa-gold);
+  color: #fff;
 }
 
 .admin-mini-btn.stock-low {
@@ -2487,3 +2513,1040 @@
     display: none;
   }
 }
+
+/* =====================================================================
+   Place Customer Order (staff orders on behalf of a customer)
+   ===================================================================== */
+.place-order-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 20px;
+  align-items: start;
+}
+.po-search {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--sa-border-strong);
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  margin-bottom: 10px;
+}
+.po-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+.po-chip {
+  flex: 0 0 auto;
+  padding: 6px 14px;
+  border-radius: 100px;
+  border: 1px solid var(--sa-border-strong);
+  background: var(--sa-card);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--sa-text);
+  cursor: pointer;
+}
+.po-chip.active {
+  background: var(--sa-text);
+  border-color: var(--sa-text);
+  color: #fff;
+}
+.admin-menu-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+}
+.admin-menu-item {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px;
+  background: var(--sa-card);
+  border: 1px solid var(--sa-border);
+  border-radius: 12px;
+}
+.admin-menu-item.sold-out {
+  opacity: 0.55;
+}
+.admin-menu-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.admin-menu-item-info small {
+  color: var(--sa-muted);
+  line-height: 1.4;
+}
+.admin-menu-item-price {
+  color: var(--sa-gold);
+  font-weight: 700;
+}
+.admin-menu-item-price s {
+  color: var(--sa-faint);
+  font-weight: 400;
+}
+.admin-menu-item-actions .admin-mini-btn {
+  width: 100%;
+  padding: 9px 12px;
+}
+.place-order-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: sticky;
+  top: 80px;
+}
+.admin-cart-panel,
+.admin-form-card {
+  background: var(--sa-card);
+  border: 1px solid var(--sa-border);
+  border-radius: 12px;
+  padding: 16px;
+}
+.admin-cart-header h3,
+.admin-form-card h3 {
+  font-size: 1rem;
+  margin-bottom: 10px;
+}
+.admin-cart-empty {
+  color: var(--sa-faint);
+  font-size: 0.88rem;
+  padding: 8px 0;
+}
+.admin-cart-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--sa-border);
+}
+.admin-cart-item-info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  flex: 1;
+}
+.admin-cart-item-info strong {
+  flex: 1 1 100%;
+  font-size: 0.9rem;
+}
+.admin-cart-item-qty {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.admin-cart-item-price {
+  margin-left: auto;
+  font-weight: 700;
+}
+.admin-cart-total {
+  margin-top: 10px;
+  font-weight: 700;
+  font-size: 1.05rem;
+  text-align: right;
+}
+.payment-link-card {
+  border: 1px solid var(--sa-green);
+  background: var(--sa-green-soft);
+  border-radius: 10px;
+  padding: 12px;
+}
+.payment-link-info {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.payment-link-url-wrap {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.payment-link-url-wrap input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--sa-border-strong);
+  border-radius: 8px;
+  font-size: 0.8rem;
+}
+/* Desktop: the order sidebar scrolls on its own, so the menu beside it
+   never has to be scrolled away to reach the cart or the pay-link button. */
+@media (min-width: 901px) {
+  .place-order-sidebar {
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 4px;
+    scrollbar-width: thin;
+  }
+}
+.admin-cart-list {
+  max-height: 38vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.po-cancel-btn {
+  margin-top: 8px;
+  background: transparent;
+  color: var(--sa-red);
+  border: 1.5px solid var(--sa-red);
+}
+.po-cancel-btn:hover {
+  background: var(--sa-red);
+  color: #fff;
+}
+/* Phones: floating button that jumps straight to the order panel */
+.po-jump-btn {
+  display: none;
+}
+/* Both columns may shrink to the screen: without min-width 0 the one-line
+   row of category chips stretches the menu column wider than the phone,
+   and everything past the screen edge gets cut off. */
+.place-order-main,
+.place-order-sidebar {
+  min-width: 0;
+}
+@media (max-width: 900px) {
+  .place-order-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .place-order-sidebar {
+    position: static;
+  }
+  .po-jump-btn {
+    display: flex;
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 120;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 18px;
+    border: none;
+    border-radius: 999px;
+    background: var(--sa-gold, #c9a96e);
+    color: #111;
+    font-weight: 700;
+    font-family: inherit;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+    cursor: pointer;
+  }
+}
+
+/* =====================================================================
+   Dashboard: clickable "Pending Orders" card + awaiting-payment panel
+   ===================================================================== */
+button.kpi-card {
+  font-family: inherit;
+  color: inherit;
+  text-align: left;
+  width: 100%;
+}
+.kpi-clickable {
+  cursor: pointer;
+  border-color: var(--sa-gold);
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+.kpi-clickable:hover {
+  box-shadow: 0 6px 18px rgba(168, 139, 74, 0.25);
+  transform: translateY(-1px);
+}
+.kpi-sub {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--sa-faint);
+  text-transform: lowercase;
+}
+.kpi-hint {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--sa-gold);
+}
+.sa-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(16, 24, 40, 0.55);
+  display: none;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 5vh 16px;
+  overflow-y: auto;
+}
+.sa-modal-overlay.active {
+  display: flex;
+}
+.sa-modal {
+  background: var(--sa-card);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 720px;
+  padding: 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+.sa-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.sa-modal-head h3 {
+  flex: 1;
+  font-size: 1.05rem;
+}
+.sa-mini-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.sa-mini-stat {
+  background: var(--sa-bg);
+  border: 1px solid var(--sa-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sa-mini-stat span {
+  font-size: 0.72rem;
+  color: var(--sa-muted);
+}
+.sa-mini-stat strong {
+  font-size: 1.1rem;
+}
+
+/* --- Place Order: options picker, itemised cart, totals --- */
+.po-tags {
+  color: var(--sa-gold);
+  font-weight: 600;
+}
+.po-line-head,
+.po-total-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.po-line-head em {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--sa-muted);
+}
+.po-breakdown {
+  list-style: none;
+  margin: 4px 0;
+  padding: 0 0 0 10px;
+  border-left: 2px solid var(--sa-gold-soft);
+  font-size: 0.82rem;
+  color: var(--sa-muted);
+}
+.po-breakdown li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 1px 0;
+}
+.po-free {
+  font-style: italic;
+  color: var(--sa-faint);
+}
+.po-line-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+}
+.admin-cart-total {
+  margin-top: 10px;
+  border-top: 1px solid var(--sa-border);
+  padding-top: 8px;
+  text-align: left;
+  font-weight: 500;
+}
+.po-total-row {
+  padding: 2px 0;
+  font-size: 0.9rem;
+}
+.po-total-row.po-grand {
+  font-size: 1.1rem;
+  font-weight: 700;
+  border-top: 1px solid var(--sa-border);
+  margin-top: 4px;
+  padding-top: 6px;
+}
+.po-total-row.po-warn {
+  color: var(--sa-red);
+}
+.po-opt-group {
+  margin-bottom: 14px;
+}
+.po-opt-group > label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.85rem;
+  margin-bottom: 6px;
+}
+.po-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.po-pill {
+  padding: 7px 14px;
+  border-radius: 100px;
+  border: 1px solid var(--sa-border-strong);
+  background: var(--sa-card);
+  font-family: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.po-pill.selected {
+  background: var(--sa-text);
+  border-color: var(--sa-text);
+  color: #fff;
+}
+.place-order-sidebar select,
+.place-order-sidebar input[type="text"],
+.place-order-sidebar input[type="tel"],
+.place-order-sidebar input[type="email"] {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--sa-border-strong);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+.wa-btn {
+  background: #25d366 !important;
+  border-color: #25d366 !important;
+  color: #fff !important;
+}
+.res-new-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+  background: var(--sa-card);
+  border: 1px solid var(--sa-border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.res-new-form .form-group input,
+.res-new-form .form-group select,
+.res-new-form .form-group textarea {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--sa-border-strong);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+.res-new-form .res-full {
+  grid-column: 1 / -1;
+}
+
+/* ---------------- Out of Service banner + store status ---------------- */
+.oos-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--sa-red);
+  color: #fff;
+  padding: 10px 20px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+.oos-banner .oos-banner-short {
+  display: none;
+}
+.oos-banner-btn {
+  margin-left: auto;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 8px;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.oos-banner-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+@media (max-width: 720px) {
+  .oos-banner .oos-banner-full {
+    display: none;
+  }
+  .oos-banner .oos-banner-short {
+    display: inline;
+  }
+}
+.oos-reason-row {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--sa-red-soft);
+  border: 1px solid #fecdca;
+  border-radius: 10px;
+}
+.oos-reason-text {
+  color: var(--sa-red);
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin: 4px 0 8px;
+  word-break: break-word;
+}
+.store-status-card input[type="text"],
+#oosReasonInput {
+  width: 100%;
+  border: 1px solid var(--sa-border-strong);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  background: var(--sa-card);
+  font-family: inherit;
+}
+
+/* ---------------- Readable audit log ---------------- */
+#auditTable .audit-action-tag {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  background: var(--sa-gold-soft);
+  color: var(--sa-gold);
+  margin-bottom: 4px;
+  white-space: nowrap;
+}
+#auditTable .audit-action-tag.danger {
+  background: var(--sa-red-soft);
+  color: var(--sa-red);
+}
+#auditTable .audit-action-tag.good {
+  background: var(--sa-green-soft);
+  color: var(--sa-green-deep);
+}
+#auditTable .audit-summary {
+  display: block;
+  color: var(--sa-text);
+  line-height: 1.4;
+}
+#auditTable td.audit-changes {
+  font-family: inherit;
+  max-width: none;
+  white-space: normal;
+  cursor: pointer;
+}
+#auditTable td.audit-changes:hover {
+  text-decoration: none;
+}
+.audit-change-line {
+  display: block;
+  padding: 2px 0;
+}
+.audit-change-line b {
+  font-weight: 600;
+}
+.audit-from {
+  color: var(--sa-muted);
+  text-decoration: line-through;
+}
+.audit-to {
+  color: var(--sa-green-deep);
+  font-weight: 600;
+}
+#auditTable thead th:nth-child(2),
+#auditTable tbody td:nth-child(2) {
+  width: 300px;
+}
+
+/* Dashboard KPI "Clear" button (Pending / Delivery / Reservations Today) */
+.kpi-card { position: relative; }
+.kpi-clear-btn {
+  align-self: flex-start;
+  margin-top: 8px;
+  background: transparent;
+  border: 1px solid var(--sa-border, #d0d5dd);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: inherit;
+  cursor: pointer;
+}
+.kpi-clear-btn:hover { background: rgba(0, 0, 0, 0.06); }
+.kpi-clears { display:block; margin-top:6px; font-size:0.7rem; font-style:italic; color: var(--sa-faint, #667085); }
+
+/* "Today's stats reset at 12:00 am (in …)" under the kitchen strip / reservation cards */
+.kds-reset-note {
+  margin: 4px 0 12px;
+  font-size: 0.78rem;
+  color: var(--sa-faint, #888);
+}
+
+/* Phone-notification toggle (admin topbar / kitchen header) */
+.push-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.push-toggle-btn.is-on {
+  color: var(--sa-gold);
+}
+@media (max-width: 600px) {
+  .push-toggle-btn span {
+    display: none;
+  }
+}
+
+/* Buffet page: event form beside the events list (stacked on phones) */
+.buffet-admin-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.buffet-admin-layout .sa-card h3,
+#buffetBookingsCard h3 {
+  font-size: 1rem;
+  margin-bottom: 12px;
+}
+.buffet-admin-form-card .admin-form-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+@media (max-width: 900px) {
+  .buffet-admin-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Order History: refund buttons on "Refund needed" orders */
+.refund-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.refund-actions .refund-yoco-btn {
+  background: var(--sa-gold);
+  border-color: var(--sa-gold);
+  color: #fff;
+}
+.refund-error {
+  flex-basis: 100%;
+  color: var(--sa-red);
+  font-size: 0.8rem;
+}
+
+/* Category chips: small delete (x) button */
+.chip-remove {
+  border: none;
+  background: transparent;
+  color: var(--sa-faint, #888);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+}
+.chip-remove:hover {
+  color: var(--sa-red);
+}
+
+/* Photo picker thumbnails (buffet event photos, marketing email images) */
+.picker-thumb {
+  position: relative;
+  display: inline-block;
+  margin: 6px 8px 0 0;
+}
+.picker-thumb img {
+  width: 84px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--sa-border);
+  display: block;
+}
+.picker-thumb button {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: var(--sa-red);
+  color: #fff;
+  line-height: 18px;
+  cursor: pointer;
+}
+.picker-new {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  background: var(--sa-gold);
+  color: #fff;
+  font-size: 0.65rem;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.picker-count {
+  display: inline-block;
+  vertical-align: bottom;
+  font-size: 0.78rem;
+  color: var(--sa-faint, #888);
+  margin-left: 4px;
+}
+
+/* Order details window: finish a collection/delivery order */
+.kds-complete-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 16px;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 10px;
+  background: var(--sa-green-deep, #1a7f37);
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.kds-complete-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+/* Reviews tab: inline edit form */
+.review-edit-form {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px dashed var(--sa-border-strong);
+  border-radius: 8px;
+}
+
+/* =====================================================================
+   Responsive admin (phones + tablets): nothing is cut off or pushed off
+   the screen - wide things scroll sideways inside their own box.
+   ===================================================================== */
+/* Top bar: on tablets the quick buttons show just their icon (title on hover),
+   and if space is still short they wrap instead of widening the page. */
+.admin-topbar,
+.topbar-search,
+.topbar-actions {
+  min-width: 0;
+}
+.topbar-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 6px;
+}
+@media (max-width: 1280px) {
+  .topbar-quick-btn > span {
+    display: none;
+  }
+  .topbar-quick-btn {
+    padding: 8px 10px;
+  }
+}
+@media (max-width: 1000px) {
+  .admin-topbar {
+    height: auto;
+    min-height: 56px;
+    flex-wrap: wrap;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  /* Kitchen board: one column per row, each scrolls on its own */
+  .kds-board {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .kds-col,
+  .kds-col-list,
+  .kds-card {
+    min-width: 0;
+  }
+  /* Buffet page: form above the events list */
+  .buffet-admin-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* No form field or card can force its column wider than the screen */
+.admin-main .form-row > *,
+.admin-main .form-group,
+.admin-main .sa-card,
+.admin-main .admin-form-card,
+.admin-main .admin-item-card,
+.admin-main .admin-item-info {
+  min-width: 0;
+}
+.admin-main input,
+.admin-main select,
+.admin-main textarea {
+  max-width: 100%;
+}
+.admin-main .admin-item-info,
+.admin-main .sa-list-main,
+.admin-main .admin-order-meta {
+  overflow-wrap: anywhere;
+}
+/* Tables and long rows scroll sideways (with a visible bar) instead of being cut off */
+@media (max-width: 900px) {
+  .admin-main table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .settings-tabs,
+  .po-chips,
+  .admin-tabs-strip {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+  .settings-tabs > *,
+  .po-chips > * {
+    flex-shrink: 0;
+  }
+}
+.admin-main ::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+.admin-main ::-webkit-scrollbar-thumb {
+  background: var(--sa-border-strong);
+  border-radius: 6px;
+}
+/* Sidebar: size to the visible screen on phones (browser toolbars can hide
+   the bottom of a 100vh menu) and scroll so every section can be reached. */
+.admin-sidebar {
+  height: 100dvh;
+  overscroll-behavior: contain;
+}
+
+/* Place Order - Order panel rows: each part of a row (name + price, the
+   choices list, quantity + item total) takes the full width instead of
+   squeezing side by side; the remove button stays at the top right. */
+.admin-cart-item {
+  align-items: flex-start;
+}
+.admin-cart-item-info > * {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+.admin-cart-item-info .po-line-head strong {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.po-line-head > span {
+  white-space: nowrap;
+}
+.po-line-foot {
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.po-line-foot .admin-cart-item-price {
+  white-space: nowrap;
+}
+.remove-from-cart-btn {
+  flex-shrink: 0;
+  min-width: 32px;
+  min-height: 32px;
+}
+@media (max-width: 900px) {
+  /* The whole order is visible - the page scrolls, not a small box */
+  .admin-cart-list {
+    max-height: none;
+    overflow: visible;
+  }
+  /* Room at the bottom so the floating "Order" button never covers the last fields */
+  #tab-placeorder {
+    padding-bottom: 90px;
+  }
+  /* Payment link: the link on its own line, Copy underneath - nothing squeezed */
+  .payment-link-url-wrap {
+    flex-wrap: wrap;
+  }
+  .payment-link-url-wrap input,
+  .payment-link-url-wrap .btn {
+    flex: 1 1 100%;
+  }
+  .payment-link-url-wrap input {
+    font-size: 0.8rem;
+  }
+}
+
+/* Shown when a new order arrives but the browser is still blocking sound */
+.order-sound-banner {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100vw - 32px);
+  padding: 14px 20px;
+  border: none;
+  border-radius: 999px;
+  background: var(--sa-gold, #c9a96e);
+  color: #111;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  animation: order-sound-pulse 1.2s ease-in-out infinite;
+}
+@keyframes order-sound-pulse {
+  50% {
+    box-shadow: 0 8px 32px rgba(201, 169, 110, 0.8);
+  }
+}
+
+/* ---------------- Order info (⋮ > Order info) ---------------- */
+.kds-row-actions {
+  margin-left: 2px;
+}
+.kds-row-actions .kds-menu-btn {
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  font-size: 0.9rem;
+}
+.kds-row-actions .kds-menu {
+  z-index: 250;
+  min-width: 180px;
+}
+.kds-menu button i {
+  width: 16px;
+  margin-right: 6px;
+  color: var(--sa-muted);
+}
+.kds-detail-section {
+  margin-top: 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sa-gold);
+}
+.kds-detail-rows .row span:last-child {
+  overflow-wrap: anywhere;
+}
+.kds-detail-rows .row a {
+  color: inherit;
+  font-weight: 600;
+}
+.kds-address {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--sa-border);
+  border-radius: 10px;
+  background: var(--sa-bg);
+  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.kds-map-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--sa-text);
+  text-decoration: underline;
+}
+.kds-detail-rows ul.kds-detail-items {
+  padding: 0;
+  margin: 0;
+}
+.kds-detail-items li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--sa-border);
+}
+.kds-detail-items li span:last-child {
+  white-space: nowrap;
+  font-weight: 600;
+}
+.kds-detail-note {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff7e6;
+  color: #7a4b00;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* Fixed fields (e.g. an account's email once it exists) */
+input[readonly] {
+  background: #f1f1f1;
+  color: #666;
+  cursor: not-allowed;
+}
+
+/* Settings > Payments: wrap long text instead of cutting it off (phones) */
+#settings-payments .sa-card {
+  max-width: 100% !important;
+  box-sizing: border-box;
+}
+#settings-payments .sa-list-item {
+  align-items: flex-start;
+}
+#settings-payments .sa-list-title,
+#settings-payments .sa-list-sub {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+#settings-payments .sa-list-sub + .sa-list-sub {
+  margin-top: 2px;
+}
+#settings-payments .btn,
+#settings-payments .admin-mini-btn {
+  max-width: 100%;
+  white-space: normal;
+}
+@media (max-width: 600px) {
+  #settings-payments .sa-card {
+    padding: 12px;
+  }
+  #settings-payments .sa-card > div[style*="flex"] > * {
+    flex: 1 1 100%;
+  }
+}
+
+/* "Delivered" tick on delivery orders in Order History */
+.admin-delivered-tick { display:flex; align-items:center; gap:8px; margin:8px 0; font-weight:600; cursor:pointer; }
+.admin-delivered-tick input { width:18px; height:18px; }

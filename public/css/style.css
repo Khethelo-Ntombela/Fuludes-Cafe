@@ -294,19 +294,109 @@ body {
 }
 
 /* Buffet teaser */
+/* White section with black text, so it stands apart from the dark "Our Menu" band after it */
 .buffet {
-  background: var(--black);
-  color: var(--white);
+  background: var(--white);
+  color: var(--black);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 
-.buffet .section-title,
-.buffet .section-text {
-  color: var(--white);
+.buffet .section-title {
+  color: var(--black);
 }
 
 .buffet .section-text {
-  color: rgba(255, 255, 255, 0.75);
-  margin-bottom: 0;
+  color: var(--charcoal);
+  margin-bottom: 24px;
+}
+
+.buffet .buffet-card {
+  background: var(--white);
+  color: var(--black);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+.buffet .buffet-card .admin-hint {
+  color: var(--gray);
+  font-size: 0.85rem;
+}
+
+.buffet #buffetContent > p {
+  color: var(--charcoal);
+  text-align: center;
+}
+
+/* Buffet event cards: everything centred, every action button the same size */
+.buffet-card,
+.buffet-card p,
+.buffet-card div,
+.buffet-card .sa-card-title,
+.buffet-card .admin-hint {
+  text-align: center;
+}
+.buffet-card {
+  margin: 0 auto 24px;
+  max-width: 640px;
+}
+.buffet-card .sa-card-title {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.buffet-card-photos {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  margin-bottom: 10px;
+  justify-content: center;
+}
+.buffet-actions {
+  display: flex;
+  justify-content: center;
+  margin: 12px 0 16px;
+}
+/* "Book" and "Check My Booking" are exactly the same size */
+.buffet-actions .btn.btn-buffet {
+  display: inline-block;
+  width: 260px;
+  max-width: 100%;
+  padding: 16px 20px;
+  text-align: center;
+  box-sizing: border-box;
+}
+.btn-gold {
+  background: var(--gold);
+  color: var(--black);
+  border: 1.5px solid var(--gold);
+}
+.btn-gold:hover {
+  background: var(--gold-dark);
+  border-color: var(--gold-dark);
+  color: var(--white);
+}
+.buffet-receipt {
+  margin: 8px 0;
+  font-size: 0.92rem;
+}
+.buffet-receipt div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+}
+.buffet-receipt .buffet-receipt-total {
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+  margin-top: 4px;
+  padding-top: 6px;
+  font-weight: 700;
 }
 
 /* About */
@@ -797,6 +887,48 @@ body {
   cursor: not-allowed;
 }
 
+/* Drinks tab: a single-column price list instead of photo cards */
+.order-grid.is-drinks {
+  grid-template-columns: 1fr;
+}
+.drinks-list {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 20px 16px;
+}
+.drinks-group-title {
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 1.15rem;
+  color: var(--gold-dark);
+  margin: 16px 0 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.drink-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--light-gray);
+}
+.drink-row:last-child {
+  border-bottom: none;
+}
+.drink-row-info {
+  flex: 1;
+  min-width: 0;
+}
+.drink-row .order-card-desc {
+  margin-bottom: 0;
+}
+.drink-row .order-card-footer {
+  flex: 0 0 auto;
+}
+.drink-row.sold-out .drink-row-info {
+  opacity: 0.55;
+}
+
 /* Cart */
 .cart-panel {
   background: var(--white);
@@ -1223,6 +1355,12 @@ body {
   min-height: 100px;
 }
 
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear,
+input[type="text"]::-ms-reveal {
+  display: none;
+}
+
 .password-input-wrapper {
   position: relative;
 }
@@ -1240,10 +1378,9 @@ body {
   background: transparent;
   color: var(--charcoal);
   cursor: pointer;
-  font: inherit;
-  font-size: 0.8rem;
-  font-weight: 600;
-  padding: 4px;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 6px;
 }
 
 .password-visibility-toggle:hover,
@@ -1251,13 +1388,28 @@ body {
   color: var(--gold);
 }
 
+/* Same look as .site-notice: soft cream fill, gold outline, charcoal text. */
 .form-error {
-  background: #fdecea;
-  color: var(--danger);
+  background: #fbf6ec;
+  border: 1px solid var(--gold);
+  color: var(--charcoal);
   padding: 12px 16px;
   border-radius: 4px;
-  font-size: 0.88rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
   margin-bottom: 18px;
+}
+
+/* Shown on the admin/staff login screens when the account is locked. */
+.form-error.is-locked {
+  border-left: 4px solid var(--danger);
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-align: center;
+}
+.form-error.is-locked::before {
+  content: "\f47a  ";
+  font-family: "bootstrap-icons";
 }
 
 .form-success {
@@ -1387,6 +1539,26 @@ body {
   max-height: 520px;
   overflow-y: auto;
   padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--gold-dark) var(--cream);
+}
+
+/* Visible sliding scrollbar so a long reviews list is obviously scrollable */
+.reviews-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.reviews-list::-webkit-scrollbar-track {
+  background: var(--cream);
+}
+
+.reviews-list::-webkit-scrollbar-thumb {
+  background: var(--gold-dark);
+  border-radius: 3px;
+}
+
+.reviews-list::-webkit-scrollbar-thumb:hover {
+  background: var(--gold);
 }
 
 .review-card {
@@ -1738,12 +1910,33 @@ body {
 
 .faq-item.active .faq-answer {
   max-height: 300px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--gold-dark) var(--cream);
 }
 
 .faq-answer p {
   padding: 0 24px 20px;
   color: var(--gray);
   line-height: 1.7;
+}
+
+/* Scrollable sliding bar for long FAQ / Policy answers (e.g. Refund Policy) */
+.faq-answer::-webkit-scrollbar {
+  width: 6px;
+}
+
+.faq-answer::-webkit-scrollbar-track {
+  background: var(--cream);
+}
+
+.faq-answer::-webkit-scrollbar-thumb {
+  background: var(--gold-dark);
+  border-radius: 3px;
+}
+
+.faq-answer::-webkit-scrollbar-thumb:hover {
+  background: var(--gold);
 }
 
 /* Contact */
@@ -2457,4 +2650,869 @@ textarea:focus-visible {
   .catering-card h3 {
     font-size: 0.92rem;
   }
+}
+
+/* =====================================================================
+   Menu: per-dish photo slideshow, per-dish quantity stepper,
+   quantity-only cart lines, and the phone "Your Order" page + bar
+   ===================================================================== */
+
+/* --- Photo slideshow inside the dish card (no full-screen lightbox) --- */
+.order-card .order-card-image {
+  cursor: default;
+}
+
+.order-card-image .slides-track {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  transition: transform 0.35s ease;
+}
+
+.order-card-image .slides-track img {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* keep the hover zoom off the slideshow - it fights with sliding */
+.order-card:hover .order-card-image .slides-track img {
+  transform: none;
+}
+
+.slide-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(10, 10, 10, 0.6);
+  color: var(--white);
+  font-size: 0.85rem;
+  cursor: pointer;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.slide-arrow:hover {
+  background: rgba(10, 10, 10, 0.85);
+}
+
+.slide-prev {
+  left: 8px;
+}
+
+.slide-next {
+  right: 8px;
+}
+
+.slide-counter {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  z-index: 2;
+  background: rgba(10, 10, 10, 0.75);
+  color: var(--white);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 100px;
+}
+
+/* --- Quantity stepper on the dish card --- */
+.card-qty {
+  gap: 14px;
+}
+
+.card-qty .qty-value {
+  font-size: 1.05rem;
+}
+
+/* --- Your Order shows quantity only --- */
+.cart-item-qty-label {
+  display: inline-block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 100px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: rgba(255, 255, 255, 0.8);
+  margin-right: 10px;
+}
+
+/* --- Phone / tablet: Your Order becomes its own page --- */
+.mobile-cart-bar,
+.cart-page-back {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .order-layout .cart-panel {
+    display: none;
+  }
+
+  .order-layout .cart-panel.cart-page-open {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 150;
+    overflow-y: auto;
+    border-radius: 0;
+    border: none;
+    padding: 20px 20px 48px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .cart-page-open .cart-items {
+    max-height: none;
+  }
+
+  .cart-page-open .cart-page-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: none;
+    border: none;
+    color: var(--gold);
+    font-family: inherit;
+    font-size: 0.95rem;
+    font-weight: 600;
+    padding: 8px 0 16px;
+    cursor: pointer;
+  }
+
+  .mobile-cart-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 120;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 20px calc(14px + env(safe-area-inset-bottom, 0px));
+    background: var(--black);
+    color: var(--white);
+    border: none;
+    border-top: 2px solid var(--gold-dark);
+    font-family: inherit;
+    font-size: 0.98rem;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.25);
+  }
+
+  .mobile-cart-bar.has-items {
+    display: flex;
+  }
+
+  .mobile-cart-bar .mcb-left {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .mobile-cart-bar .mcb-count {
+    min-width: 24px;
+    height: 24px;
+    padding: 0 7px;
+    border-radius: 100px;
+    background: var(--gold);
+    color: var(--black);
+    font-size: 0.8rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .mobile-cart-bar .mcb-total {
+    color: var(--gold);
+  }
+
+  body.cart-page-active {
+    overflow: hidden;
+  }
+
+  body.cart-page-active .mobile-cart-bar {
+    display: none;
+  }
+
+  /* room so the bar never hides the last dishes */
+  .section.order {
+    padding-bottom: 96px;
+  }
+}
+
+/* --- Settings modal --- */
+.settings-danger-zone {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-danger-zone h4 {
+  font-size: 0.95rem;
+  color: var(--danger);
+  margin-bottom: 4px;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: var(--white);
+  border: 1px solid var(--danger);
+  margin-top: 12px;
+}
+
+.btn-danger:hover {
+  background: #8f1f14;
+  border-color: #8f1f14;
+}
+
+.legal-consent {
+  font-size: 0.78rem;
+  color: var(--gray);
+  text-align: center;
+  margin-top: 14px;
+  line-height: 1.5;
+}
+
+.legal-consent a {
+  color: var(--gold-dark);
+  text-decoration: underline;
+}
+
+/* --- Menu photos: show the WHOLE picture (no zoomed-in crop) and a bit larger --- */
+.order-card .order-card-image {
+  height: auto;
+  aspect-ratio: 4 / 3;
+  background: #efebe5;
+}
+
+.order-card .order-card-image img,
+.order-card-image .slides-track img {
+  object-fit: contain;
+  background: #efebe5;
+}
+
+.order-card:hover .order-card-image img {
+  transform: none;
+}
+
+/* --- Your Order: itemised lines (dish, then each choice/extra with its price) --- */
+.cart-line-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+.cart-line-head .cart-item-name em {
+  font-style: normal;
+  font-weight: 500;
+  opacity: 0.7;
+}
+.cart-line-head .cart-item-price {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.cart-breakdown {
+  list-style: none;
+  margin: 6px 0 4px;
+  padding: 0 0 0 10px;
+  border-left: 2px solid rgba(201, 169, 110, 0.35);
+  font-size: 0.82rem;
+}
+.cart-breakdown li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 0;
+  color: rgba(255, 255, 255, 0.72);
+}
+.cart-free {
+  color: rgba(255, 255, 255, 0.45);
+  font-style: italic;
+}
+.cart-line-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+}
+.cart-line-total {
+  font-size: 0.8rem;
+  color: var(--gold);
+  font-weight: 600;
+}
+
+
+/* ---------------------------------------------------------------------
+   Site notices - ONE style for every "heads up" message (sign-in prompt,
+   account not found, out of service, session expired ...). Gold outline,
+   soft cream fill, charcoal text - same look as .auth-intro.
+   --------------------------------------------------------------------- */
+.site-notice,
+#signInError,
+#signUpError,
+#forgotPasswordError {
+  background: #fbf6ec;
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+  padding: 12px 16px;
+  font-size: 0.85rem;
+  color: var(--charcoal);
+  margin-bottom: 18px;
+  line-height: 1.5;
+}
+.site-notice strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+/* Out-of-service box: red background, white text. Scoped to these two
+   specific out-of-service elements only, so the shared .site-notice look
+   (sign-in prompt, account errors, etc.) is untouched. */
+#heroServiceNotice,
+.service-banner {
+  background: #d92d20;
+  border-color: #d92d20;
+  color: #fff;
+}
+
+/* Out-of-service message in the hero, above the buttons */
+.hero .site-notice {
+  max-width: 520px;
+  margin: 0 auto 26px;
+  text-align: center;
+}
+
+/* Give the hero note text room to breathe above the out-of-service box on
+   wider (desktop) screens, where it can otherwise look cramped; phone view
+   already looks fine so this is scoped to desktop widths only. */
+@media (min-width: 901px) {
+  .hero .site-notice {
+    margin-top: 28px;
+  }
+}
+
+/* Out-of-service message on the menu page */
+.service-banner {
+  max-width: 1100px;
+  margin: 16px auto 0;
+  text-align: center;
+}
+
+/* Admin announcement: white rounded bar under the hero buttons, red text.
+   Only exists in the DOM while the admin has a message set. */
+.hero-announcement {
+  display: inline-block;
+  max-width: 560px;
+  margin: 26px auto 0;
+  padding: 10px 26px;
+  background: #ffffff;
+  color: #d92d20;
+  border-radius: 999px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.4;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+.hero-announcement-wrap {
+  text-align: center;
+}
+
+/* My Account modal - Settings button: solid black, clearly visible, with
+   breathing room below the "View My Orders" button. */
+.btn-account-settings {
+  background: #000;
+  color: #fff;
+  border: 1.5px solid #000;
+  margin-top: 16px;
+  margin-bottom: 8px;
+}
+.btn-account-settings:hover {
+  background: #222;
+  border-color: #222;
+}
+.btn-account-settings i {
+  margin-right: 6px;
+}
+#viewMyOrdersFromAccountBtn {
+  margin-bottom: 0;
+}
+
+/* Checkout modal: itemised order summary so customers see what they pay for */
+.checkout-summary {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--cream);
+  padding: 12px 14px;
+  font-size: 0.9rem;
+}
+.cs-where {
+  font-size: 0.85rem;
+  color: var(--charcoal);
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  line-height: 1.5;
+}
+.cs-where i {
+  color: var(--gold-dark);
+  margin-right: 4px;
+}
+.cs-item {
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--light-gray);
+}
+.cs-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 2px 0;
+}
+.cs-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cs-value {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.cs-row small {
+  color: var(--gray);
+}
+.cs-sub {
+  padding-left: 14px;
+  font-size: 0.82rem;
+  color: var(--gray);
+}
+.cs-item-total {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.cs-totals {
+  padding-top: 8px;
+}
+.cs-grand {
+  border-top: 1px solid var(--border);
+  margin-top: 6px;
+  padding-top: 8px;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+/* Checkout delivery address: location button + separate fields */
+.address-fields .form-group {
+  margin-bottom: 12px;
+}
+.btn.location-btn {
+  background: var(--black);
+  color: var(--white);
+  border: 1.5px solid var(--black);
+  padding: 12px 16px;
+}
+.btn.location-btn:hover {
+  background: var(--charcoal);
+  border-color: var(--charcoal);
+}
+.btn.location-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+.address-ok-btn {
+  margin-top: 4px;
+}
+.address-status {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--charcoal);
+}
+.address-status.ok {
+  color: #1a7f37;
+}
+.address-status .link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--gold-dark);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+.address-or {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+  color: var(--gray);
+  font-size: 0.8rem;
+}
+.address-or::before,
+.address-or::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+
+/* Drinks outside the Drinks tab (e.g. search results): text-only card */
+.order-card.no-image .order-card-body {
+  padding-top: 20px;
+}
+
+/* Checkout: "you already have this unpaid order" choice */
+.duplicate-order-panel {
+  display: none;
+  border: 1.5px solid var(--gold-dark);
+  background: var(--cream);
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin-top: 16px;
+  font-size: 0.9rem;
+}
+.duplicate-order-panel p {
+  margin: 6px 0 12px;
+  line-height: 1.5;
+}
+.duplicate-order-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.duplicate-order-actions .btn {
+  flex: 1 1 160px;
+  padding: 12px 16px;
+  text-align: center;
+}
+.btn.dup-edit-btn {
+  background: var(--white);
+  color: var(--black);
+  border: 1.5px solid var(--black);
+}
+.btn.dup-edit-btn:hover {
+  background: var(--black);
+  color: var(--white);
+}
+
+/* Reservation window: thank-you / cancellation note on a booking */
+.reservation-note {
+  margin: 6px 0 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #ecfdf3;
+  color: #14532d;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+.reservation-note.is-cancelled {
+  background: #fef3f2;
+  color: #7a271a;
+}
+
+/* Buffet event card: text wraps inside the card, one detail per line */
+.buffet .buffet-card {
+  width: 100%;
+  overflow: hidden;
+}
+.buffet .buffet-card,
+.buffet .buffet-card * {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.buffet .buffet-card .sa-card-title {
+  font-size: 1.3rem;
+}
+.buffet-when {
+  color: var(--gray);
+  font-size: 0.9rem;
+  margin-bottom: 10px;
+}
+.buffet-desc {
+  margin: 0 auto 12px;
+  max-width: 520px;
+  line-height: 1.6;
+  color: var(--charcoal);
+  font-family: "Times New Roman", Times, serif;
+}
+.buffet-details {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+  line-height: 1.8;
+}
+
+/* My Orders: completed order thank-you + review button */
+.order-thanks {
+  margin: 10px 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #ecfdf3;
+  color: #14532d;
+  text-align: center;
+}
+.order-thanks p {
+  margin: 0 0 8px;
+}
+.order-thanks-done {
+  font-size: 0.88rem;
+  margin: 0 !important;
+}
+.order-review-btn {
+  background: var(--gold-dark);
+  color: var(--white);
+  border: none;
+  border-radius: 999px;
+  padding: 9px 18px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.order-review-btn:hover {
+  background: var(--black);
+}
+
+/* Review pop-up */
+.order-review-modal h3 {
+  text-align: center;
+}
+.order-review-stars {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin: 12px 0 16px;
+}
+.order-review-star {
+  background: none;
+  border: none;
+  font-size: 2rem;
+  line-height: 1;
+  color: var(--light-gray);
+  cursor: pointer;
+  padding: 0 2px;
+}
+.order-review-star.on,
+.order-review-star:hover {
+  color: var(--gold);
+}
+
+/* Reviews page: what the reviewer ordered */
+.review-card-ordered {
+  margin-top: 8px;
+  font-size: 0.82rem;
+  color: var(--gray);
+}
+.review-card-ordered i {
+  color: var(--gold-dark);
+  margin-right: 4px;
+}
+
+/* Header: "Orders" link to the left of the account/profile link */
+.nav-orders-link {
+  color: var(--charcoal);
+  font-weight: 500;
+  font-size: 0.85rem;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.2s;
+}
+.nav-orders-link:hover {
+  color: var(--gold-dark);
+}
+@media (max-width: 480px) {
+  .nav-orders-link {
+    font-size: 0.78rem;
+  }
+}
+
+/* =====================================================================
+   Phones: keep the page rigid - exactly the screen's width, no sideways
+   drift, no zoom-in when a form field is tapped.
+   ===================================================================== */
+html {
+  -webkit-text-size-adjust: 100%; /* iPhone: don't enlarge text on rotate */
+  text-size-adjust: 100%;
+}
+@media (max-width: 900px) {
+  html,
+  body {
+    overflow-x: clip; /* nothing can make the page wider than the screen (header stays sticky) */
+    overscroll-behavior-x: none; /* no sideways bounce */
+  }
+  /* iPhones zoom into any field under 16px and the page then "floats" */
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+  /* Header on one line: logo, Orders, account, menu button */
+  .nav-container {
+    gap: 10px;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .logo {
+    min-width: 0;
+    gap: 8px;
+    flex-shrink: 1;
+  }
+  .logo img {
+    height: 42px;
+  }
+  .logo h4 {
+    margin: 0;
+    font-size: 0.98rem;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .header-actions {
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  .nav-account-btn {
+    min-width: 0;
+    font-size: 0.75rem;
+    gap: 6px;
+  }
+  .nav-account-btn span {
+    max-width: 70px;
+  }
+  .nav-orders-link {
+    font-size: 0.75rem;
+  }
+  .nav .nav-link {
+    white-space: nowrap;
+  }
+}
+/* Very small phones: logo picture only */
+@media (max-width: 380px) {
+  .logo h4 {
+    display: none;
+  }
+  .header-actions {
+    gap: 10px;
+  }
+}
+
+/* "Sign in / Create account with Google" button: Google G logo */
+.btn-google {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.google-g-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #fff;
+  flex-shrink: 0;
+}
+.google-g {
+  display: block;
+}
+.btn-google span:last-child {
+  white-space: nowrap;
+}
+@media (max-width: 480px) {
+  .btn-google {
+    font-size: 0.86rem;
+    letter-spacing: 0.2px;
+  }
+}
+
+.auth-google .btn-google {
+  padding: 8px 14px;
+  min-height: 44px;
+}
+
+/* Reservation window: "Your reservations" heading + Clear history */
+.reservation-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.reservation-clear-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid #b42318;
+  border-radius: 999px;
+  background: transparent;
+  color: #b42318;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.reservation-clear-btn:hover {
+  background: #b42318;
+  color: #fff;
+}
+.reservation-clear-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.catering-sent-note {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  border: 1px solid #e8d5b7;
+  background: #fbf6ea;
+  color: #3d3320;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+.catering-sent-note a {
+  color: #7a5f24;
+  font-weight: 600;
+}
+.catering-sent-note p {
+  margin: 0 0 10px;
+}
+.catering-sent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+}
+.catering-sent-actions .btn {
+  min-width: 96px;
+  padding: 10px 22px;
+}
+.catering-sent-wa {
+  font-size: 0.85rem;
+}
+
+/* Estimated delivery / collection time under the order tracker */
+.order-eta {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fff8e6;
+  color: #8a6d1d;
+  font-size: 0.9rem;
+}
+.order-eta .order-eta-clock {
+  opacity: 0.85;
+  white-space: nowrap;
 }

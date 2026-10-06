@@ -18,6 +18,7 @@ function requiredPermission(pathname, role) {
     return "orders";
   }
 
+  if (pathname.endsWith("/admin/me")) return null; // any signed-in admin may read their own permissions
   if (pathname.includes("/admin/accounts")) return "admin_accounts";
   if (pathname.includes("/admin/customers")) return "customers";
   if (pathname.includes("/admin/marketing")) return "marketing";
@@ -34,6 +35,7 @@ function requiredPermission(pathname, role) {
   if (pathname.includes("/admin/review")) return "reviews";
   if (
     pathname.includes("/admin/config") ||
+    pathname.includes("/admin/yoco") ||
     pathname.includes("/admin/password") ||
     pathname.includes("/admin/staff")
   ) {
@@ -61,26 +63,39 @@ async function requireRole(request, env, { tokenEnvVar, label }) {
   if (permissions.error) return permissions.error;
 
   const required = requiredPermission(new URL(request.url).pathname, role);
-  if (!(permissions.value.all || permissions.value[required])) {
-    return jsonResponse({ error: "Unauthorized. Please log in again." }, 401);
+  if (required && !(permissions.value.all || permissions.value[required])) {
+    // Signed in, just not allowed here - 403, so the page doesn't treat it as an expired session.
+    return jsonResponse({ error: "You don't have access to this section.", forbidden: true }, 403);
   }
 
   env.__actorId = permissions.value.__actorId;
+  env.__actorName = permissions.value.__actorName;
   env.__actorRole = role;
   env.__actorPermissions = permissions.value;
   return null;
+}
+
+let adminUsernameColumnReady = false;
+async function ensureAdminUsernameColumn(env) {
+  if (adminUsernameColumnReady) return;
+  await runQuery(env, "ALTER TABLE admin_accounts ADD COLUMN IF NOT EXISTS username TEXT;");
+  adminUsernameColumnReady = true;
 }
 
 async function requireDatabaseRole(env, token, isAdmin) {
   const sessionTable = isAdmin ? "admin_sessions" : "staff_sessions";
   const accountTable = isAdmin ? "admin_accounts" : "staff_accounts";
   const accountId = isAdmin ? "admin_id" : "staff_id";
+  // Admins are identified by a username in the audit log; staff already
+  // had a "name" field, which is what's used for them (see 013_audit_actor_name.sql).
+  const nameColumn = isAdmin ? "a.username" : "a.name";
+  if (isAdmin) await ensureAdminUsernameColumn(env);
 
   try {
     const result = await runQuery(
       env,
       `
-        SELECT a.id, a.email, a.permissions
+        SELECT a.id, a.email, a.permissions, ${nameColumn} AS actor_name
         FROM ${sessionTable} s
         JOIN ${accountTable} a ON a.id = s.${accountId}
         WHERE s.token = $1 AND s.expires_at > NOW() AND a.is_active = TRUE;
@@ -94,7 +109,10 @@ async function requireDatabaseRole(env, token, isAdmin) {
     const permissions = account.permissions && typeof account.permissions === "object"
       ? account.permissions
       : {};
-    return { value: { ...permissions, __actorId: account.id } };
+    // Admins without a username set yet fall back to their email, so the
+    // audit log is never blank for older accounts.
+    const actorName = account.actor_name || (isAdmin ? account.email : null);
+    return { value: { ...permissions, __actorId: account.id, __actorName: actorName } };
   } catch (err) {
     return { error: jsonResponse({ error: "Authentication service unavailable.", message: err.message }, 503) };
   }

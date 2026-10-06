@@ -61,13 +61,44 @@ export async function onRequest(context) {
     return jsonResponse({ error: "Email is required." }, 400);
   }
 
+  const configuredStaffEmail = String(env.STAFF_EMAIL || "").trim().toLowerCase();
+  if (configuredStaffEmail && email === configuredStaffEmail) {
+    return jsonResponse(
+      { error: "Please contact admin for assistance with password changes." },
+      403,
+    );
+  }
+
+  const staffResult = await runQuery(
+    env,
+    "SELECT id FROM staff_accounts WHERE LOWER(email) = $1 AND is_active = TRUE LIMIT 1;",
+    [email],
+  ).catch(() => ({ rows: [] }));
+  const legacyStaffResult = await runQuery(
+    env,
+    "SELECT 1 FROM users WHERE LOWER(email) = $1 AND LOWER(role) = 'staff' LIMIT 1;",
+    [email],
+  ).catch(() => ({ rows: [] }));
+  if (staffResult.rows[0] || legacyStaffResult.rows[0]) {
+    return jsonResponse(
+      { error: "Please contact admin for assistance with password changes." },
+      403,
+    );
+  }
+
   const genericSuccess = () => jsonResponse({ success: true, message: "If that email has an admin account, a reset link is on its way." });
 
   try {
-    const result = await runQuery(env, "SELECT id, email FROM admin_accounts WHERE email = $1 AND is_active = TRUE LIMIT 1;", [email]);
+    const result = await runQuery(env, "SELECT id, email, permissions FROM admin_accounts WHERE email = $1 AND is_active = TRUE LIMIT 1;", [email]);
     const account = result.rows[0];
     if (!account) {
       return genericSuccess();
+    }
+    if (!account.permissions || !account.permissions.all) {
+      return jsonResponse(
+        { error: "Please contact admin for assistance with password changes." },
+        403,
+      );
     }
 
     const token = generateToken();
@@ -85,7 +116,7 @@ export async function onRequest(context) {
     });
 
     const origin = new URL(request.url).origin;
-    const resetLink = `${origin}/admin.html?reset_token=${token}`;
+    const resetLink = `${origin}/home?reset_token=${token}`;
     await sendEmail(env, {
       to: email,
       subject: "Reset your Fulude's Cafe admin password",

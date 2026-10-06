@@ -4,7 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Fulude's Cafe | Bold Flavors, Fresh Meals in Thohoyandou</title>
-
+<link rel="icon" href="/favicon.ico?v=2" sizes="any">
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png?v=2">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#000000">
     <!-- ============================= SEO ============================= -->
     <meta
       name="description"
@@ -35,31 +39,132 @@
     <meta name="twitter:card" content="summary_large_image" />
     <!-- ================================================================ -->
 
-    <link rel="stylesheet" href="css/style.css" />
+    <link rel="stylesheet" href="css/style.css?v=25" />
     <link
+      rel="preload"
+      as="style"
       href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap"
-      rel="stylesheet"
+      onload="this.onload=null;this.rel='stylesheet'"
     />
     <link
-      rel="stylesheet"
+      rel="preload"
+      as="style"
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+      onload="this.onload=null;this.rel='stylesheet'"
     />
     <link
-      rel="stylesheet"
+      rel="preload"
+      as="style"
       href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css"
+      onload="this.onload=null;this.rel='stylesheet'"
     />
+    <noscript>
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap"
+      />
+      <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+      />
+      <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css"
+      />
+    </noscript>
     <meta name="google-client-id" content="633808599246-vluj9dv2qigabk9cpn1sb7qflnaucie0.apps.googleusercontent.com" />
+    <style>
+      /* First-load splash - shown only while home.html's real assets/CSS
+         finish loading, so visitors see the brand instead of a blank
+         black screen. Purely additive; removes itself once ready. */
+      #appSplash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background: #000;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        transition: opacity 0.4s ease;
+      }
+      #appSplash.is-hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #appSplash .app-splash-logo {
+        width: 84px;
+        height: 84px;
+        border-radius: 50%;
+        object-fit: cover;
+        box-shadow: 0 0 0 2px rgba(201, 169, 110, 0.55);
+      }
+      #appSplash .app-splash-name {
+        font-family: "Playfair Display", serif;
+        font-size: 1.35rem;
+        font-weight: 600;
+        color: #fff;
+        letter-spacing: 0.4px;
+      }
+      #appSplash .app-splash-dots {
+        display: flex;
+        gap: 8px;
+      }
+      #appSplash .app-splash-dots span {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #c9a96e;
+        animation: appSplashBounce 1.1s infinite ease-in-out both;
+      }
+      #appSplash .app-splash-dots span:nth-child(1) {
+        animation-delay: -0.28s;
+      }
+      #appSplash .app-splash-dots span:nth-child(2) {
+        animation-delay: -0.14s;
+      }
+      #appSplash .app-splash-dots span:nth-child(3) {
+        animation-delay: 0s;
+      }
+      @keyframes appSplashBounce {
+        0%,
+        80%,
+        100% {
+          transform: scale(0.6);
+          opacity: 0.5;
+        }
+        40% {
+          transform: scale(1);
+          opacity: 1;
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="appSplash" aria-hidden="true">
+      <img
+        src="data:image/jpeg;base64,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"
+        alt="Fulude's Cafe"
+        class="app-splash-logo"
+      />
+      <p class="app-splash-name">Fulude's Cafe</p>
+      <div class="app-splash-dots">
+        <span></span><span></span><span></span>
+      </div>
+    </div>
+    <script>
+      // Only the first time this browser session enters the app - skip the
+      // splash on later visits (e.g. clicking Home in the navbar).
+      if (sessionStorage.getItem("fuludesSplashSeen_home")) {
+        document.getElementById("appSplash").style.display = "none";
+      }
+    </script>
+
     <header class="header">
       <div class="container nav-container">
-        <script
-          src="https://accounts.google.com/gsi/client"
-          async
-          defer
-        ></script>
         <a href="home.html" class="logo">
-          <img src="images/logo.jpeg" alt="Fulude's Cafe Logo" />
+          <img src="images/logo-transparent.png" alt="Fulude's Cafe Logo" />
           <h4>Fulude's Cafe</h4>
         </a>
         <nav class="nav" id="navbar">
@@ -81,14 +186,21 @@
           >
             <i class="bi bi-person-circle"></i>
             <span id="accountNavLabel">Sign In</span>
-          </button>
-          <button
-            type="button"
-            class="nav-link"
-            id="myBuffetBtn"
-            style="display: none; margin-left: 8px"
-          >
-            Buffet
+            <script>
+              // Show the cached name immediately (if we have one) so the
+              // nav doesn't flash "Sign In" for a signed-in customer while
+              // we re-confirm the token with the server in the background.
+              (function () {
+                try {
+                  if (localStorage.getItem("fulude_customer_token")) {
+                    var cachedName = localStorage.getItem("fulude_customer_name");
+                    if (cachedName) {
+                      document.getElementById("accountNavLabel").textContent = cachedName;
+                    }
+                  }
+                } catch (e) {}
+              })();
+            </script>
           </button>
           <button
             class="mobile-toggle"
@@ -112,6 +224,8 @@
           Want to dine-in, Did you know you can book reservation and order
           online before your arrival to reduce waiting time?
         </p>
+        <!-- Out-of-service message (filled + shown by site.js only when admin turns it on) -->
+        <div class="site-notice" id="heroServiceNotice" style="display: none" role="status"></div>
         <div class="hero-actions">
           <a href="menu.html" class="btn btn-primary">View Menu &amp; Order</a>
           <button
@@ -123,6 +237,10 @@
           </button>
           <a href="catering.html" class="btn btn-secondary">Book Catering</a>
         </div>
+        <!-- Admin announcement bar (only rendered by site.js when a message is set) -->
+        <div class="hero-announcement-wrap" id="heroAnnouncementWrap" style="display: none">
+          <span class="hero-announcement" id="heroAnnouncement"></span>
+        </div>
       </div>
     </section>
 
@@ -131,7 +249,7 @@
       <div class="container">
         <h2 class="section-title">Upcoming Buffets</h2>
         <p class="section-text">
-          Join us for our scheduled buffets — book a seat below.
+          Join us for our scheduled buffets, book a seat below.
         </p>
         <div id="buffetContent">
           <p class="menu-loading">Loading…</p>
@@ -140,7 +258,7 @@
     </section>
 
     <!-- Buffet booking modal -->
-    <div class="modal-overlay" id="buffetBookingModal" style="display: none">
+    <div class="modal-overlay" id="buffetBookingModal">
       <div class="modal">
         <button class="modal-close" id="buffetBookingClose">&times;</button>
         <h3 id="buffetModalTitle">Book Buffet</h3>
@@ -155,7 +273,7 @@
             ><input id="buffetEmail" type="email" required />
           </div>
           <div class="form-group">
-            <label for="buffetPhone">Phone</label><input id="buffetPhone" />
+            <label for="buffetPhone">WhatsApp number</label><input id="buffetPhone" type="tel" required />
           </div>
           <div class="form-group">
             <label for="buffetSeats">Seats</label
@@ -186,7 +304,7 @@
     </div>
 
     <!-- My Buffet Bookings modal (customer) -->
-    <div class="modal-overlay" id="myBuffetModal" style="display: none">
+    <div class="modal-overlay" id="myBuffetModal">
       <div class="modal">
         <button class="modal-close" id="myBuffetClose">&times;</button>
         <h3>My Buffet Bookings</h3>
@@ -275,7 +393,7 @@
      
         <a href="home.html" class="logo"> <div class="container footer-content">
          <div class="footer-brand">
-        <img src="images/logo2.jpeg" alt="Fulude's Cafe Logo" />
+        <img src="images/logo2-transparent.png" alt="Fulude's Cafe Logo" />
       </div>Fulude's Cafe</a>
         <p>Made with passion in South Africa.</p>
         <div class="social">
@@ -292,7 +410,8 @@
           ></a>
         </div>
         <p class="footer-policy-link">
-          <a href="contact.html#policies">Privacy &amp; Refund Policy</a>
+          <a href="privacy.html">Privacy Policy</a> &middot;
+          <a href="contact.html#policies">Refund Policy</a>
         </p>
         <p class="copyright">© 2026 Fulude's Cafe. All rights reserved.</p>
       </div>
@@ -411,7 +530,7 @@
       </div>
     </div>
 
-    <!-- My Orders: every order ever placed on this account -->
+    <!-- My Orders: orders from the last 24 hours -->
     <div class="modal-overlay" id="myOrdersModal">
       <div class="modal">
         <button class="modal-close" id="myOrdersModalClose">&times;</button>
@@ -478,11 +597,10 @@
             Create Account
           </button>
           <div class="auth-divider">or</div>
-          <div class="auth-google">
+          <div class="auth-google" style="position: relative;">
             <button type="button" id="googleSignInBtn" class="btn btn-google">
               Sign in with Google
             </button>
-            <div id="googleSignInContainer" style="display: none"></div>
           </div>
         </form>
 
@@ -511,6 +629,10 @@
             Back to Sign In
           </button>
         </form>
+        <p class="legal-consent">
+          By signing in or creating an account you agree to our
+          <a href="privacy.html">Privacy Policy</a>.
+        </p>
       </div>
     </div>
 
@@ -550,41 +672,46 @@
         <button class="modal-close" id="accountModalClose">&times;</button>
         <h3>My Account</h3>
         <p id="accountWelcome" class="auth-hint"></p>
-        <label
-          ><input type="checkbox" id="marketingEmailOptIn" /> Email
-          marketing</label
-        >
-        <label
-          ><input type="checkbox" id="marketingSmsOptIn" /> SMS marketing</label
-        >
         <button
           type="button"
-          class="btn btn-secondary btn-block"
-          id="saveMarketingPreferencesBtn"
+          class="btn btn-block btn-account-settings"
+          id="openSettingsBtn"
         >
-          Save preferences
-        </button>
-        <button
-          type="button"
-          class="btn btn-primary btn-block"
-          id="viewMyOrdersFromAccountBtn"
-        >
-          View My Orders
+          <i class="fas fa-gear"></i> Settings
         </button>
         <button type="button" class="auth-link-btn" id="logoutBtn">
           Log Out
         </button>
-        <button
-          type="button"
-          class="auth-link-btn danger"
-          id="deleteAccountBtn"
-        >
-          Delete Account
-        </button>
       </div>
     </div>
 
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script src="js/site.js"></script>
-  </body>
+    <script src="js/form-validation.js?v=1"></script>
+    <script src="js/site.js?v=28"></script>
+  <script>
+  if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+</script>
+  <script>
+    (function () {
+      var splash = document.getElementById("appSplash");
+      if (!splash) return;
+      var shownAt = Date.now();
+      var minVisible = 500; // keep the bubbles on screen briefly so they don't just flash
+      function hideSplash() {
+        sessionStorage.setItem("fuludesSplashSeen_home", "1");
+        var wait = Math.max(0, minVisible - (Date.now() - shownAt));
+        setTimeout(function () {
+          splash.classList.add("is-hidden");
+          setTimeout(function () {
+            splash.remove();
+          }, 450);
+        }, wait);
+      }
+      if (document.readyState === "complete") {
+        hideSplash();
+      } else {
+        window.addEventListener("load", hideSplash);
+      }
+    })();
+  </script>
+</body>
 </html>

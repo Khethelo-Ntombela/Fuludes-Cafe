@@ -10,7 +10,10 @@
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { getRequestIp } from "../../_lib/security.js";
+import { queueOrderStatusPush } from "../../_lib/push.js";
+import { ensureCancelledByColumn, restoreOrderStock } from "../../_lib/orderCancel.js";
 import { logAudit } from "../../_lib/audit.js";
+import { ensureScheduleColumns } from "../../_lib/scheduledOrders.js";
 
 const ALLOWED_STATUSES = [
   "New",
@@ -152,11 +155,16 @@ export async function onRequestPost(context) {
       );
     }
 
+    await ensureCancelledByColumn(env);
+    await ensureScheduleColumns(env);
     const updateResult = await runQuery(
       env,
       `
         UPDATE orders
         SET status = $1,
+            preparing_at = CASE WHEN $1 = 'Preparing' AND preparing_at IS NULL THEN NOW() ELSE preparing_at END,
+            out_for_delivery_at = CASE WHEN $1 = 'Delivery' AND out_for_delivery_at IS NULL THEN NOW() ELSE out_for_delivery_at END,
+            cancelled_by = CASE WHEN $1 = 'Cancelled' THEN 'admin' ELSE cancelled_by END,
             order_type = CASE
               WHEN $1 IN ('Collection', 'Delivery') THEN $4
               ELSE order_type
@@ -166,7 +174,7 @@ export async function onRequestPost(context) {
               ELSE refund_needed
             END
         WHERE id = $2 AND status = $3
-        RETURNING id, status, order_type, delivery_address;
+        RETURNING id, status, order_type, delivery_address, customer_id;
       `,
       [nextStatus, orderId, currentStatus, nextOrderType],
     );
@@ -179,25 +187,33 @@ export async function onRequestPost(context) {
     }
 
     const updatedOrder = updateResult.rows[0];
-    await logAudit(env, {
-      actor_type: "admin",
-      actor_role: "admin",
-      actor_ip: requestIp,
-      action: "order_status_changed",
-      target_type: "order",
-      target_id: orderId,
-      details: {
-        previousStatus: currentStatus,
-        status: nextStatus,
-        orderType: updatedOrder.order_type,
-        fulfillmentMode:
-          nextStatus === "Collection"
-            ? "collection"
-            : nextStatus === "Delivery"
-              ? "delivery"
-              : null,
-      },
-    });
+    // A cancelled order's items go back into stock.
+    if (nextStatus === "Cancelled") await restoreOrderStock(env, orderId);
+    // Only the two outcomes that matter for an audit trail get logged -
+    // the in-between moves (Preparing/Ready/Collection/Delivery) don't.
+    if (nextStatus === "Completed") {
+      await logAudit(env, {
+        actor_type: "admin",
+        actor_role: "admin",
+        actor_ip: requestIp,
+        action: "order_completed",
+        target_type: "order",
+        target_id: orderId,
+        details: {},
+      });
+    } else if (nextStatus === "Cancelled") {
+      await logAudit(env, {
+        actor_type: "admin",
+        actor_role: "admin",
+        actor_ip: requestIp,
+        action: "order_cancelled",
+        target_type: "order",
+        target_id: orderId,
+        details: { previousStatus: currentStatus },
+      });
+    }
+
+    queueOrderStatusPush(context, updatedOrder.customer_id, updatedOrder.id, updatedOrder.status);
 
     return jsonResponse({
       success: true,

@@ -12,7 +12,7 @@
     <meta name="robots" content="index, follow" />
     <link rel="canonical" href="https://fuludescafe.co.za/menu" />
 
-    <link rel="stylesheet" href="css/style.css" />
+    <link rel="stylesheet" href="css/style.css?v=25" />
     <link
       href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap"
       rel="stylesheet"
@@ -26,12 +26,17 @@
       href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css"
     />
     <meta name="google-client-id" content="633808599246-vluj9dv2qigabk9cpn1sb7qflnaucie0.apps.googleusercontent.com" />
+    <link rel="icon" href="/favicon.ico?v=2" sizes="any">
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png?v=2">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#000000">
   </head>
   <body>
     <header class="header">
       <div class="container nav-container">
         <a href="home.html" class="logo">
-          <img src="images/logo.jpeg" alt="Fulude's Cafe Logo" />
+          <img src="images/logo-transparent.png" alt="Fulude's Cafe Logo" />
           <h4>Fulude's Cafe</h4>
         </a>
         <nav class="nav" id="navbar">
@@ -53,6 +58,21 @@
           >
             <i class="bi bi-person-circle"></i>
             <span id="accountNavLabel">Sign In</span>
+            <script>
+              // Show the cached name immediately (if we have one) so the
+              // nav doesn't flash "Sign In" for a signed-in customer while
+              // we re-confirm the token with the server in the background.
+              (function () {
+                try {
+                  if (localStorage.getItem("fulude_customer_token")) {
+                    var cachedName = localStorage.getItem("fulude_customer_name");
+                    if (cachedName) {
+                      document.getElementById("accountNavLabel").textContent = cachedName;
+                    }
+                  }
+                } catch (e) {}
+              })();
+            </script>
           </button>
           <button
             class="mobile-toggle"
@@ -125,6 +145,9 @@
           </div>
 
           <div class="cart-panel">
+            <button type="button" class="cart-page-back" id="cartPageBack">
+              <i class="fas fa-arrow-left"></i> Back to menu
+            </button>
             <h3>Your Order</h3>
             <div class="cart-items" id="cartItems">
               <p class="cart-empty">Your cart is empty</p>
@@ -136,23 +159,25 @@
             <button class="btn btn-primary btn-block" id="checkoutBtn" disabled>
               Proceed to Checkout
             </button>
-            <button
-              type="button"
-              class="btn btn-secondary btn-block"
-              id="reservationBtn"
-            >
-              Book Reservation
-            </button>
           </div>
         </div>
       </div>
     </section>
 
+    <!-- Phones: fixed bar that opens Your Order as its own page -->
+    <button type="button" class="mobile-cart-bar" id="mobileCartBar" aria-label="View your order">
+      <span class="mcb-left">
+        <i class="fas fa-shopping-bag"></i> Your Order
+        <span class="mcb-count" id="mobileCartCount">0</span>
+      </span>
+      <span class="mcb-total" id="mobileCartTotal">R0.00</span>
+    </button>
+
     <footer class="footer">
       <div class="container footer-content">
         <a href="home.html" class="logo"
           ><div class="footer-brand">
-            <img src="images/logo2.jpeg" alt="Fulude's Cafe Logo" />
+            <img src="images/logo2-transparent.png" alt="Fulude's Cafe Logo" />
           </div>
           Fulude's Cafe</a
         >
@@ -171,7 +196,8 @@
           ></a>
         </div>
         <p class="footer-policy-link">
-          <a href="contact.html#policies">Privacy &amp; Refund Policy</a>
+          <a href="privacy.html">Privacy Policy</a> &middot;
+          <a href="contact.html#policies">Refund Policy</a>
         </p>
         <p class="copyright">© 2026 Fulude's Cafe. All rights reserved.</p>
       </div>
@@ -208,6 +234,11 @@
         <div id="customizeSpiceGroup" class="form-group" style="display: none">
           <label>Spice Level</label>
           <div class="pill-options" id="customizeSpiceOptions"></div>
+        </div>
+        <div id="customizeSideGroup" class="form-group" style="display: none">
+          <label>Choose your side <small>(free)</small></label>
+          <div class="pill-options" id="customizeSideOptions"></div>
+          <p class="form-error" id="customizeSideError" style="display: none">Please choose a side.</p>
         </div>
         <div id="customizeAddonsGroup" class="form-group" style="display: none">
           <label>Extras</label>
@@ -265,9 +296,56 @@
               <option value="dine_in">Dine In</option>
             </select>
           </div>
-          <div class="form-group" id="addressField" style="display: none">
-            <label for="delivery-address">Delivery Address</label>
-            <input type="text" id="delivery-address" />
+          <div class="form-group address-fields" id="addressField" style="display: none">
+            <label>Delivery Address</label>
+            <button type="button" class="btn btn-secondary btn-block location-btn" id="useMyLocationBtn">
+              <i class="fas fa-location-crosshairs"></i> Use my current location
+            </button>
+            <p class="address-or"><span>or type your address</span></p>
+            <div class="form-group">
+              <label for="addr-street">Street address</label>
+              <input type="text" id="addr-street" placeholder="e.g. 12 Mvelaphanda Street" autocomplete="address-line1" />
+            </div>
+            <div class="form-group">
+              <label for="addr-unit">Unit / flat number <small>(optional)</small></label>
+              <input type="text" id="addr-unit" placeholder="e.g. Unit 4" autocomplete="address-line2" />
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="addr-suburb">Suburb</label>
+                <input type="text" id="addr-suburb" autocomplete="address-level3" />
+              </div>
+              <div class="form-group">
+                <label for="addr-city">Town / City</label>
+                <input type="text" id="addr-city" autocomplete="address-level2" />
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="addr-postal">Postal code</label>
+                <input type="text" id="addr-postal" inputmode="numeric" maxlength="4" autocomplete="postal-code" />
+              </div>
+              <div class="form-group">
+                <label for="addr-province">Province</label>
+                <select id="addr-province" autocomplete="address-level1">
+                  <option value="">Choose…</option>
+                  <option>Limpopo</option>
+                  <option>Gauteng</option>
+                  <option>Mpumalanga</option>
+                  <option>North West</option>
+                  <option>KwaZulu-Natal</option>
+                  <option>Free State</option>
+                  <option>Eastern Cape</option>
+                  <option>Western Cape</option>
+                  <option>Northern Cape</option>
+                </select>
+              </div>
+            </div>
+            <button type="button" class="btn btn-primary btn-block address-ok-btn" id="addressOkBtn">
+              OK - calculate delivery fee
+            </button>
+            <p class="address-status" id="locationStatus" style="display: none"></p>
+            <input type="hidden" id="delivery-address" />
           </div>
           <div class="form-group" id="tableNumberField" style="display: none">
             <label for="table-number">Table Number (optional)</label>
@@ -291,6 +369,10 @@
           <div class="form-group">
             <label for="special-instructions">Special Instructions</label>
             <textarea id="special-instructions" rows="3"></textarea>
+          </div>
+          <div class="form-group">
+            <label>Order Summary</label>
+            <div id="checkoutSummary" class="checkout-summary"></div>
           </div>
           <div class="form-group">
             <label>Payment</label>
@@ -401,7 +483,7 @@
       </div>
     </div>
 
-    <!-- My Orders: every order ever placed on this account -->
+    <!-- My Orders: orders from the last 24 hours -->
     <div class="modal-overlay" id="myOrdersModal">
       <div class="modal">
         <button class="modal-close" id="myOrdersModalClose">&times;</button>
@@ -468,11 +550,10 @@
             Create Account
           </button>
           <div class="auth-divider">or</div>
-          <div class="auth-google">
+          <div class="auth-google" style="position: relative;">
             <button type="button" id="googleSignInBtn" class="btn btn-google">
               Sign in with Google
             </button>
-            <div id="googleSignInContainer" style="display: none"></div>
           </div>
         </form>
 
@@ -501,6 +582,10 @@
             Back to Sign In
           </button>
         </form>
+        <p class="legal-consent">
+          By signing in or creating an account you agree to our
+          <a href="privacy.html">Privacy Policy</a>.
+        </p>
       </div>
     </div>
 
@@ -540,42 +625,24 @@
         <button class="modal-close" id="accountModalClose">&times;</button>
         <h3>My Account</h3>
         <p id="accountWelcome" class="auth-hint"></p>
-        <label
-          ><input type="checkbox" id="marketingEmailOptIn" /> Email
-          marketing</label
-        >
-        <label
-          ><input type="checkbox" id="marketingSmsOptIn" /> SMS marketing</label
-        >
         <button
           type="button"
-          class="btn btn-secondary btn-block"
-          id="saveMarketingPreferencesBtn"
+          class="btn btn-block btn-account-settings"
+          id="openSettingsBtn"
         >
-          Save preferences
-        </button>
-        <button
-          type="button"
-          class="btn btn-primary btn-block"
-          id="viewMyOrdersFromAccountBtn"
-        >
-          View My Orders
+          <i class="fas fa-gear"></i> Settings
         </button>
         <button type="button" class="auth-link-btn" id="logoutBtn">
           Log Out
         </button>
-        <button
-          type="button"
-          class="auth-link-btn danger"
-          id="deleteAccountBtn"
-        >
-          Delete Account
-        </button>
       </div>
     </div>
 
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script src="js/site.js"></script>
-    <script src="js/menu.js"></script>
-  </body>
+    <script src="js/form-validation.js?v=1"></script>
+    <script src="js/site.js?v=28"></script>
+    <script src="js/menu.js?v=12"></script>
+  <script>
+  if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+</script>
+</body>
 </html>

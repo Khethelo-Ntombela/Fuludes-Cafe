@@ -14,25 +14,32 @@
  * payment_status to 'paid' once the gateway confirms it, and the order
  * appears here on the next poll.
  *
- * Kept deliberately kitchen-focused: prices/totals are stripped out since
- * staff don't need them to cook, matching the "staff only sees the order
- * board, nothing else" boundary from the admin dashboard.
+ * Includes item prices/subtotals and the order total (same shape as
+ * functions/api/admin/pending-orders.js) so staff can see what a ticket
+ * is worth, e.g. for cash handling, spotting mis-rung items, or bagging
+ * the right combo for a big order.
  * -----------------------------------------------------------------------
  */
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireStaff } from "../../_lib/auth.js";
+import { queueDueNewOrderPushes } from "../../_lib/push.js";
+import { ensureScheduleColumns } from "../../_lib/scheduledOrders.js";
 
 export async function onRequestGet(context) {
   const { request, env } = context;
   const authError = await requireStaff(request, env);
   if (authError) return authError;
 
+  // Sends the "new paid order" notification for orders whose 2-minute window just ended.
+  queueDueNewOrderPushes(context);
   try {
+    await ensureScheduleColumns(env);
     const ordersResult = await runQuery(
       env,
       `
             SELECT id, customer_name, customer_phone, order_type, delivery_address, table_number,
                pickup_time, special_instructions, total_amount, payment_status,
+               delivery_fee, delivery_distance_km, delivery_lat, delivery_lng, payment_confirmed_at, kitchen_release_at, scheduled_for, preparing_at,
                CASE WHEN status = 'Out for Delivery' THEN 'Delivery' ELSE status END AS status,
                created_at
       FROM orders
@@ -49,7 +56,7 @@ export async function onRequestGet(context) {
       const itemsResult = await runQuery(
         env,
         `
-        SELECT order_id, item_name, quantity, spice_level, extras
+        SELECT order_id, item_name, item_price, quantity, spice_level, extras, subtotal
         FROM order_items WHERE order_id = ANY($1::int[]) ORDER BY id ASC;
       `,
         [orderIds],
@@ -63,10 +70,24 @@ export async function onRequestGet(context) {
 
     const orders = ordersResult.rows.map((order) => ({
       ...order,
+      total_amount: parseFloat(order.total_amount),
       items: itemsByOrder[order.id] || [],
     }));
 
-    return jsonResponse({ orders });
+    // When the next paid order leaves its 2-minute cancel window, so the board
+    // can fetch at that exact moment and ring straight away (not on the next 5s poll).
+    const next = await runQuery(
+      env,
+      `SELECT MIN(kitchen_release_at) AS next_release_at, NOW() AS server_now
+         FROM orders
+        WHERE payment_status = 'paid' AND status = 'New' AND kitchen_release_at > NOW();`,
+    );
+
+    return jsonResponse({
+      orders,
+      next_release_at: next.rows[0]?.next_release_at || null,
+      server_now: next.rows[0]?.server_now || null,
+    });
   } catch (err) {
     return jsonResponse(
       { error: "Failed to load kitchen board.", message: err.message },

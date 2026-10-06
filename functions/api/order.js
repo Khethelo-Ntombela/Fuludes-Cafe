@@ -39,21 +39,26 @@
  *
  * PUT /api/order  { id }  (Authorization: Bearer <customer session token>)
  * Customer self-service cancel - only for an order that belongs to the
- * signed-in customer, only while it's still "New" (nobody's started
- * preparing it yet), and only during the short hold before the order is
- * released to the kitchen. Paid orders use kitchen_release_at, which is
- * set by the payment webhook to two minutes after payment confirmation.
+ * signed-in customer, only while it's still "New", and only once it's paid
+ * (an unpaid order has nothing to refund). Paid orders only within
+ * the 2-minute window that starts when the payment is CONFIRMED
+ * (kitchen_release_at = payment_confirmed_at + 2 min, set by the payment
+ * webhook) - cancelling then refunds automatically through Yoco.
  * -----------------------------------------------------------------------
  */
 import { runQuery, jsonResponse } from "../_lib/db.js";
-import { buildYocoCheckout } from "../_lib/yoco.js";
+import { createYocoCheckout } from "../_lib/yoco.js";
 import { refundYocoCheckout } from "../_lib/yocoRefund.js";
 import {
   requireCustomer,
   ensureCustomerProfileColumns,
 } from "../_lib/customerAuth.js";
-import { sanitizeText, getRequestIp } from "../_lib/security.js";
+import { sanitizeText, getRequestIp, isValidEmail, isValidName, normalizePhone, VALIDATION_MESSAGES } from "../_lib/security.js";
 import { logAudit } from "../_lib/audit.js";
+import { isOpenNow, CLOSED_MESSAGE } from "../_lib/hours.js";
+import { ensureCancelledByColumn, restoreOrderStock } from "../_lib/orderCancel.js";
+import { MAX_DELIVERY_KM } from "../_lib/delivery.js";
+import { ensureScheduleColumns, scheduledForFromPickup, scheduledForFromReservation } from "../_lib/scheduledOrders.js";
 
 const CUSTOMER_CANCEL_WINDOW_MS = 2 * 60 * 1000; // keep in sync with CUSTOMER_CANCEL_WINDOW_MS in public/js/main.js
 const ROAD_BUFFER = 1.3; // straight-line * 1.3 ≈ road distance
@@ -92,8 +97,8 @@ async function calculateDeliveryFee(env, deliveryLat, deliveryLng) {
     env,
     `SELECT up_to_km, fee FROM delivery_fee_bands ORDER BY sort_order;`
   );
-  const bands = bandsRes.rows || [];
-  const matchedBand = bands.find((b) => roadKm <= b.up_to_km);
+  const bands = (bandsRes.rows || []).filter((b) => Number(b.up_to_km) <= MAX_DELIVERY_KM);
+  const matchedBand = bands.find((b) => roadKm <= Number(b.up_to_km));
 
   if (!matchedBand) {
     return { fee: 0, distance_km: Math.round(roadKm * 100) / 100, too_far: true };
@@ -128,7 +133,7 @@ export async function onRequestPut(context) {
   try {
     const orderResult = await runQuery(
       env,
-      "SELECT id, status, created_at, customer_id, payment_status, kitchen_release_at, payment_ref, total_amount FROM orders WHERE id = $1;",
+      "SELECT id, status, created_at, customer_id, payment_status, payment_confirmed_at, kitchen_release_at, payment_ref, total_amount FROM orders WHERE id = $1;",
       [orderId],
     );
     const order = orderResult.rows[0];
@@ -146,10 +151,20 @@ export async function onRequestPut(context) {
       );
     }
 
+    // Cancelling is the refund route, so it only applies to paid orders.
+    if (order.payment_status !== "paid") {
+      return jsonResponse({ error: "This order hasn't been paid, so there's nothing to cancel or refund." }, 400);
+    }
+
+    // The refund window only exists once the order is paid, and runs from
+    // the payment confirmation - not from when the order was created.
+    const paidAt = order.payment_confirmed_at ? new Date(order.payment_confirmed_at).getTime() : null;
     const releaseAtMs = order.kitchen_release_at
       ? new Date(order.kitchen_release_at).getTime()
-      : new Date(order.created_at).getTime() + CUSTOMER_CANCEL_WINDOW_MS;
-    if (Date.now() > releaseAtMs) {
+      : paidAt !== null
+        ? paidAt + CUSTOMER_CANCEL_WINDOW_MS
+        : Infinity;
+    if (order.payment_status === "paid" && Date.now() > releaseAtMs) {
       return jsonResponse(
         {
           error:
@@ -167,10 +182,11 @@ export async function onRequestPut(context) {
     // fails or isn't configured, refund_needed stays TRUE so a human can
     // still catch it via the existing manual admin/refund.js flow - the
     // refund is never silently lost either way.
+    await ensureCancelledByColumn(env);
     const cancelQuery =
       order.payment_status === "paid"
-        ? `UPDATE orders SET status = 'Cancelled', refund_needed = TRUE WHERE id = $1 AND customer_id = $2 AND status = 'New' RETURNING id;`
-        : `UPDATE orders SET status = 'Cancelled' WHERE id = $1 AND customer_id = $2 AND status = 'New' RETURNING id;`;
+        ? `UPDATE orders SET status = 'Cancelled', cancelled_by = 'customer', refund_needed = TRUE WHERE id = $1 AND customer_id = $2 AND status = 'New' RETURNING id;`
+        : `UPDATE orders SET status = 'Cancelled', cancelled_by = 'customer' WHERE id = $1 AND customer_id = $2 AND status = 'New' RETURNING id;`;
     const cancelResult = await runQuery(env, cancelQuery, [
       orderId,
       customer.id,
@@ -185,6 +201,9 @@ export async function onRequestPut(context) {
         400,
       );
     }
+
+    // The items go back into stock.
+    await restoreOrderStock(env, orderId);
 
     // Customer-initiated cancellation itself is not written to audit_logs
     // (audit reserved for admin/staff actions) - but the refund below is a
@@ -246,6 +265,64 @@ export async function onRequestPut(context) {
   }
 }
 
+/** Everything that makes two orders "the same": type, address/table, timing, note and every line with its options. */
+function orderSignature({ orderType, deliveryAddress, tableNumber, pickupTime, specialInstructions, totalAmount, lines }) {
+  const norm = (v) => String(v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  const items = lines
+    .map((li) =>
+      [
+        li.menu_item_id,
+        li.quantity,
+        norm(li.spice_level),
+        (Array.isArray(li.extras) ? li.extras : JSON.parse(li.extras || "[]")).map((e) => norm(e.name)).sort().join("+"),
+      ].join("|"),
+    )
+    .sort();
+  return JSON.stringify([
+    orderType,
+    orderType === "delivery" ? norm(deliveryAddress) : "",
+    orderType === "dine_in" ? norm(tableNumber) : "",
+    norm(pickupTime),
+    norm(specialInstructions),
+    Number(totalAmount).toFixed(2),
+    items,
+  ]);
+}
+
+/** The customer's newest unpaid, uncancelled order from the last 24h that matches this one exactly. */
+async function findUnpaidDuplicate(env, customerId, draft) {
+  const unpaid = await runQuery(
+    env,
+    `SELECT id, order_type, delivery_address, table_number, pickup_time, special_instructions, total_amount, created_at
+       FROM orders
+      WHERE customer_id = $1 AND payment_status IN ('awaiting', 'failed') AND status <> 'Cancelled'
+        AND created_at > NOW() - INTERVAL '24 hours'
+      ORDER BY created_at DESC LIMIT 10;`,
+    [customerId],
+  );
+  if (!unpaid.rows.length) return null;
+  const items = await runQuery(
+    env,
+    "SELECT order_id, menu_item_id, quantity, spice_level, extras FROM order_items WHERE order_id = ANY($1::int[]);",
+    [unpaid.rows.map((o) => o.id)],
+  );
+  const target = orderSignature({ ...draft, lines: draft.lineItems });
+  return (
+    unpaid.rows.find(
+      (o) =>
+        orderSignature({
+          orderType: o.order_type,
+          deliveryAddress: o.delivery_address,
+          tableNumber: o.table_number,
+          pickupTime: o.pickup_time,
+          specialInstructions: o.special_instructions,
+          totalAmount: o.total_amount,
+          lines: items.rows.filter((i) => i.order_id === o.id),
+        }) === target,
+    ) || null
+  );
+}
+
 export async function onRequestPost(context) {
   const { request, env } = context;
   const { customer, error } = await requireCustomer(request, env);
@@ -262,7 +339,7 @@ export async function onRequestPost(context) {
     if (cfg && cfg.is_out_of_service) {
       const reason =
         cfg.out_of_service_reason || "Checkout is temporarily unavailable.";
-      return jsonResponse({ error: reason }, 503);
+      return jsonResponse({ error: reason, out_of_service: true, reason }, 503);
     }
   } catch (cfgErr) {
     // don't fail hard on config read problems; let normal validation continue
@@ -276,7 +353,8 @@ export async function onRequestPost(context) {
   }
 
   const customerName = sanitizeText(orderData.customer_name || "", 100);
-  const phoneNumber = sanitizeText(orderData.phone_number || "", 50);
+  const phoneInput = sanitizeText(orderData.phone_number || "", 50);
+  const phoneNumber = normalizePhone(phoneInput) || "";
   const orderType = ["delivery", "dine_in"].includes(orderData.order_type)
     ? orderData.order_type
     : "collection";
@@ -290,12 +368,19 @@ export async function onRequestPost(context) {
     orderData.special_instructions || "",
     500,
   );
+  // Closed? No new orders - except a pre-order tied to a table reservation (for a later time).
+  if (!isOpenNow() && !(orderType === "dine_in" && Number.isInteger(parseInt(orderData.reservation_id, 10)))) {
+    return jsonResponse({ error: CLOSED_MESSAGE, closed: true }, 503);
+  }
+
   const paymentMethod = "online"; // payment is strictly online - no pay-at-pickup/delivery path
   const cartItems = Array.isArray(orderData.cart_items)
     ? orderData.cart_items
     : [];
 
   // ---- Strict validation ----
+  if (customerName && !isValidName(customerName)) return jsonResponse({ error: VALIDATION_MESSAGES.name }, 400);
+  if (phoneInput && !phoneNumber) return jsonResponse({ error: VALIDATION_MESSAGES.phone }, 400);
   if (!customerName || !phoneNumber || cartItems.length === 0) {
     return jsonResponse(
       { error: "Incomplete order details or empty cart." },
@@ -308,7 +393,7 @@ export async function onRequestPost(context) {
       400,
     );
   }
-  if (!env.YOCO_PAYMENT_URL && !env.YOCO_CHECKOUT_URL) {
+  if (!env.YOCO_SECRET_KEY && !env.YOCO_PAYMENT_URL && !env.YOCO_CHECKOUT_URL) {
     // Fail before touching the database - never create an order we can't
     // actually collect payment for. Online payment is the only path now,
     // so a misconfigured server means nobody can check out at all.
@@ -339,6 +424,19 @@ export async function onRequestPost(context) {
 
     if (itemIds.length === 0) {
       return jsonResponse({ error: "Cart contains no valid items." }, 400);
+    }
+
+    // Free choice-of-side: which sides each dish actually offers (checked below).
+    const sideLinkResult = await runQuery(
+      env,
+      `SELECT mis.menu_item_id, s.id, s.name
+         FROM menu_item_sides mis JOIN sides s ON s.id = mis.side_id
+        WHERE s.is_active = TRUE AND mis.menu_item_id = ANY($1::int[]);`,
+      [itemIds],
+    ).catch(() => ({ rows: [] })); // sides table not created yet (migration 006)
+    const sidesByItem = {};
+    for (const row of sideLinkResult.rows) {
+      (sidesByItem[row.menu_item_id] || (sidesByItem[row.menu_item_id] = [])).push(row);
     }
 
     const menuResult = await runQuery(
@@ -425,6 +523,20 @@ export async function onRequestPost(context) {
         }
       }
 
+      // Free side: required when the dish offers sides; stored as a R0 extra
+      // so the kitchen, receipts and order history all show it with no other changes.
+      const offeredSides = sidesByItem[menuItem.id] || [];
+      if (offeredSides.length > 0) {
+        const chosen = offeredSides.find((sd) => sd.id === parseInt(cartItem.side, 10));
+        if (!chosen) {
+          return jsonResponse(
+            { error: `Please choose a side for "${menuItem.name}".` },
+            400,
+          );
+        }
+        extras.unshift({ name: `Side: ${chosen.name}`, price: 0 });
+      }
+
       // Special price applies only when currently scheduled as active.
       const now = new Date();
       const starts = menuItem.special_starts_at
@@ -462,33 +574,76 @@ export async function onRequestPost(context) {
     let tooFar = false;
 
     if (orderType === "delivery") {
-      // The client should have sent geocoded coordinates; if not, we can't calculate
-      // but we still allow the order through with 0 fee (client will show warning)
-      const clientLat = Number(orderData.delivery_lat);
-      const clientLng = Number(orderData.delivery_lng);
-      if (Number.isFinite(clientLat) && Number.isFinite(clientLng)) {
-        const feeCalc = await calculateDeliveryFee(env, clientLat, clientLng);
-        deliveryFee = feeCalc.fee;
-        deliveryDistanceKm = feeCalc.distance_km;
-        deliveryLat = clientLat;
-        deliveryLng = clientLng;
-        tooFar = feeCalc.too_far;
-        if (tooFar) {
-          return jsonResponse(
-            {
-              error: "Delivery address is too far. Please contact us first.",
-              too_far: true,
-              distance_km: deliveryDistanceKm,
-              cafe_phone: (await runQuery(env, "SELECT cafe_phone FROM app_config WHERE id = 1;")).rows[0]?.cafe_phone,
-              cafe_email: (await runQuery(env, "SELECT cafe_email FROM app_config WHERE id = 1;")).rows[0]?.cafe_email,
-            },
-            400
-          );
-        }
+      // Coordinates come from the checkout's address lookup. Without them we
+      // can't price the delivery, so don't let the order through at R0.
+      // (Number(null) is 0, which would read as "middle of the ocean" - so
+      // treat null/blank as missing rather than as zero.)
+      const hasCoords =
+        orderData.delivery_lat != null &&
+        orderData.delivery_lng != null &&
+        orderData.delivery_lat !== "" &&
+        orderData.delivery_lng !== "";
+      const clientLat = hasCoords ? Number(orderData.delivery_lat) : NaN;
+      const clientLng = hasCoords ? Number(orderData.delivery_lng) : NaN;
+      if (!Number.isFinite(clientLat) || !Number.isFinite(clientLng)) {
+        return jsonResponse(
+          {
+            error:
+              "We couldn't locate your delivery address. Please check it (add your suburb or village) and try again.",
+          },
+          400
+        );
+      }
+      const feeCalc = await calculateDeliveryFee(env, clientLat, clientLng);
+      deliveryFee = feeCalc.fee;
+      deliveryDistanceKm = feeCalc.distance_km;
+      deliveryLat = clientLat;
+      deliveryLng = clientLng;
+      tooFar = feeCalc.too_far;
+      if (tooFar) {
+        const contact = (
+          await runQuery(env, "SELECT cafe_phone, cafe_email FROM app_config WHERE id = 1;")
+        ).rows[0];
+        return jsonResponse(
+          {
+            error: "Delivery address is too far. Please contact us first.",
+            too_far: true,
+            distance_km: deliveryDistanceKm,
+            cafe_phone: contact?.cafe_phone,
+            cafe_email: contact?.cafe_email,
+          },
+          400
+        );
       }
     }
 
     const totalAmount = lineItems.reduce((sum, li) => sum + li.subtotal, 0) + deliveryFee;
+
+    // ---- Same order already waiting for payment? Offer that one instead of a new ticket ----
+    if (!orderData.force_new) {
+      const duplicate = await findUnpaidDuplicate(env, customer.id, {
+        orderType,
+        deliveryAddress,
+        tableNumber,
+        pickupTime,
+        specialInstructions,
+        totalAmount,
+        lineItems,
+      });
+      if (duplicate) {
+        return jsonResponse(
+          {
+            error: `You already have an unpaid order #${duplicate.id} with exactly these items.`,
+            duplicate_order: {
+              id: duplicate.id,
+              total_amount: parseFloat(duplicate.total_amount),
+              created_at: duplicate.created_at,
+            },
+          },
+          409,
+        );
+      }
+    }
 
     // ---- Create the order ----
     await runQuery(
@@ -503,13 +658,21 @@ export async function onRequestPost(context) {
       [customerName, phoneNumber, deliveryAddress, customer.id],
     );
 
+    await ensureScheduleColumns(env);
+    const reservationRef = parseInt(orderData.reservation_id, 10);
+    let scheduledFor = null;
+    if (orderType === "dine_in" && Number.isInteger(reservationRef)) {
+      scheduledFor = await scheduledForFromReservation(env, reservationRef, customer.id);
+    }
+    if (!scheduledFor) scheduledFor = scheduledForFromPickup(pickupTime);
+
     const initialPaymentStatus = "awaiting"; // every order is online-paid; kitchen won't treat it as confirmed until the payment gateway callback fires
     const orderInsert = await runQuery(
       env,
       `
       INSERT INTO orders
-        (customer_id, customer_name, customer_phone, order_type, delivery_address, delivery_lat, delivery_lng, delivery_distance_km, delivery_fee, table_number, pickup_time, special_instructions, total_amount, status, payment_method, payment_status, stock_decremented)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'New', $14, $15, FALSE)
+        (customer_id, customer_name, customer_phone, order_type, delivery_address, delivery_lat, delivery_lng, delivery_distance_km, delivery_fee, table_number, pickup_time, special_instructions, total_amount, status, payment_method, payment_status, stock_decremented, scheduled_for)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'New', $14, $15, FALSE, $16)
       RETURNING id, created_at;
     `,
       [
@@ -528,6 +691,7 @@ export async function onRequestPost(context) {
         totalAmount,
         paymentMethod,
         initialPaymentStatus,
+        scheduledFor ? scheduledFor.toISOString() : null,
       ],
     );
 
@@ -563,19 +727,43 @@ export async function onRequestPost(context) {
       throw itemError;
     }
 
+    // ---- Pre-order for a table reservation: link this order to it ----
+    const reservationId = parseInt(orderData.reservation_id, 10);
+    if (orderType === "dine_in" && Number.isInteger(reservationId)) {
+      await runQuery(
+        env,
+        `UPDATE customer_reservations SET advance_order_id = $1 WHERE id = $2 AND customer_id = $3;`,
+        [newOrderId, reservationId, customer.id],
+      ).catch(() => {});
+    }
+
     // ---- Hand back the Yoco checkout redirect payload ----
     const origin = new URL(request.url).origin;
-    const payment = buildYocoCheckout(env, {
+    let payment;
+    try {
+      payment = await createYocoCheckout(env, {
       orderId: newOrderId,
       amount: totalAmount,
       itemName: `Fulude's Cafe Order #${newOrderId}`,
       customerName,
       customerEmail: customer.email,
       customerPhone: phoneNumber,
-      returnUrl: `${origin}/?payment=success&order_id=${newOrderId}`,
-      cancelUrl: `${origin}/?payment=cancelled&order_id=${newOrderId}`,
+      returnUrl: `${origin}/home.html?payment=success&order_id=${newOrderId}`,
+      cancelUrl: `${origin}/home.html?payment=cancelled&order_id=${newOrderId}`,
       notifyUrl: `${origin}/api/payment/notify`,
-    });
+      });
+    } catch (yocoErr) {
+      // Yoco refused the payment (e.g. an amount below its minimum). Don't leave
+      // an unpayable ticket behind - and tell the customer the real reason.
+      await runQuery(env, "DELETE FROM orders WHERE id = $1 AND payment_status = 'awaiting';", [newOrderId]).catch(() => {});
+      return jsonResponse(
+        {
+          error: `The payment couldn't be started: ${yocoErr.message}`,
+          payment_error: true,
+        },
+        502,
+      );
+    }
 
     return jsonResponse({
       success: true,

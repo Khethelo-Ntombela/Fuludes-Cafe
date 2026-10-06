@@ -36,7 +36,7 @@ export async function onRequest(context) {
   }
 
   try {
-    const [categoriesResult, itemsResult, addonLinksResult, spiceResult, imagesResult] = await Promise.all([
+    const [categoriesResult, itemsResult, addonLinksResult, spiceResult, imagesResult, sideLinksResult] = await Promise.all([
       runQuery(context.env, `
         SELECT DISTINCT c.id, c.name, c.slug, c.sort_order
         FROM categories c
@@ -45,11 +45,17 @@ export async function onRequest(context) {
       `),
       runQuery(context.env, `
         SELECT id, category_id, name, description, price, special_price, special_starts_at, special_ends_at, image_url,
+                 is_available, accepts_spice, accepts_addons, sort_order, drink_type
+        FROM menu_items
+        WHERE is_visible = TRUE
+        ORDER BY sort_order ASC, name ASC;
+      `).catch(() => runQuery(context.env, `
+        SELECT id, category_id, name, description, price, special_price, special_starts_at, special_ends_at, image_url,
                  is_available, accepts_spice, accepts_addons, sort_order
         FROM menu_items
         WHERE is_visible = TRUE
         ORDER BY sort_order ASC, name ASC;
-      `),
+      `)), // drink_type column not created yet (migration 008)
       runQuery(context.env, `
         SELECT mia.menu_item_id, a.id, a.name, a.price
         FROM menu_item_addons mia
@@ -58,8 +64,21 @@ export async function onRequest(context) {
         ORDER BY a.name ASC;
       `),
       runQuery(context.env, "SELECT id, name FROM spice_levels ORDER BY sort_order ASC, name ASC;"),
-      runQuery(context.env, "SELECT menu_item_id, image_url FROM menu_item_images ORDER BY sort_order ASC, id ASC;")
+      runQuery(context.env, "SELECT menu_item_id, image_url FROM menu_item_images ORDER BY sort_order ASC, id ASC;"),
+      runQuery(context.env, `
+        SELECT mis.menu_item_id, s.id, s.name
+        FROM menu_item_sides mis
+        JOIN sides s ON s.id = mis.side_id
+        WHERE s.is_active = TRUE
+        ORDER BY s.name ASC;
+      `).catch(() => ({ rows: [] })) // sides table not created yet (migration 006)
     ]);
+
+    // Free choice-of-side options per dish.
+    const sidesByItem = {};
+    for (const row of sideLinksResult.rows) {
+      (sidesByItem[row.menu_item_id] || (sidesByItem[row.menu_item_id] = [])).push({ id: row.id, name: row.name });
+    }
 
     // Group addons by menu_item_id so each item carries its own addon list.
     const addonsByItem = {};
@@ -91,6 +110,7 @@ export async function onRequest(context) {
         is_on_special: isOnSpecial,
         effective_price: isOnSpecial ? specialPrice : price,
         addons: addonsByItem[item.id] || [],
+        sides: sidesByItem[item.id] || [],
         images: imagesByItem[item.id] || (item.image_url ? [item.image_url] : [])
       };
     });
@@ -99,7 +119,7 @@ export async function onRequest(context) {
       categories: categoriesResult.rows,
       items,
       spice_levels: spiceResult.rows
-    });
+    }, 200, { "Cache-Control": "no-store, max-age=0" });
   } catch (err) {
     return jsonResponse({ error: "Failed to load menu.", message: err.message }, 500);
   }
