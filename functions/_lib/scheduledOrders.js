@@ -5,6 +5,9 @@ export async function ensureScheduleColumns(env) {
   if (ready) return;
   await runQuery(env, "ALTER TABLE orders ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMPTZ;");
   await runQuery(env, "ALTER TABLE orders ADD COLUMN IF NOT EXISTS preparing_at TIMESTAMPTZ;");
+  // Delivery ETA: when the order left the kitchen, and when the cafe ticked it as delivered.
+  await runQuery(env, "ALTER TABLE orders ADD COLUMN IF NOT EXISTS out_for_delivery_at TIMESTAMPTZ;");
+  await runQuery(env, "ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ;");
   ready = true;
 }
 

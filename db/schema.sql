@@ -342,6 +342,8 @@ CREATE TABLE IF NOT EXISTS orders (
   kitchen_release_at TIMESTAMPTZ,
   scheduled_for     TIMESTAMPTZ,                       -- when a pre-order / timed order is due (migration 015)
   preparing_at      TIMESTAMPTZ,                       -- when the kitchen pressed Start Preparing (migration 015)
+  out_for_delivery_at TIMESTAMPTZ,                     -- when the order left for delivery (migration 016)
+  delivered_at      TIMESTAMPTZ,                       -- when the cafe ticked it Delivered (migration 016)
   stock_decremented BOOLEAN NOT NULL DEFAULT FALSE,
 refund_needed     BOOLEAN NOT NULL DEFAULT FALSE,     -- true when a paid order is cancelled and a manual refund is still owed
   refund_processed_at TIMESTAMPTZ,                      -- set when a refund has been completed outside the app

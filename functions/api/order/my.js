@@ -15,6 +15,7 @@ import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireCustomer } from "../../_lib/customerAuth.js";
 import { ensureCancelledByColumn } from "../../_lib/orderCancel.js";
 import { queueDueNewOrderPushes } from "../../_lib/push.js";
+import { ensureScheduleColumns } from "../../_lib/scheduledOrders.js";
 
 const MAX_ORDERS = 100;
 
@@ -27,12 +28,13 @@ export async function onRequestGet(context) {
   queueDueNewOrderPushes(context);
   try {
     await ensureCancelledByColumn(env);
+    await ensureScheduleColumns(env);
     const ordersResult = await runQuery(env, `
       SELECT id, customer_name, customer_phone, order_type, delivery_address, table_number,
              pickup_time, special_instructions, total_amount, delivery_fee, delivery_distance_km,
              CASE WHEN status = 'Out for Delivery' THEN 'Delivery' ELSE status END AS status,
              payment_method, payment_status, refund_needed, refund_processed_at,
-             payment_confirmed_at, kitchen_release_at, created_at, cancelled_by, cancel_reason,
+             payment_confirmed_at, kitchen_release_at, created_at, cancelled_by, cancel_reason, out_for_delivery_at, delivered_at,
              EXISTS (SELECT 1 FROM reviews rv WHERE rv.order_id = orders.id) AS reviewed
       FROM orders
       WHERE customer_id = $1

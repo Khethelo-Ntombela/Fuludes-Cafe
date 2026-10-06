@@ -3546,3 +3546,7 @@ input[readonly] {
     flex: 1 1 100%;
   }
 }
+
+/* "Delivered" tick on delivery orders in Order History */
+.admin-delivered-tick { display:flex; align-items:center; gap:8px; margin:8px 0; font-weight:600; cursor:pointer; }
+.admin-delivered-tick input { width:18px; height:18px; }

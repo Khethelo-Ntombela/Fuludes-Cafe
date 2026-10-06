@@ -856,11 +856,30 @@ function renderOrderHistory(orders) {
                 : ""
           }
         </div>
+        ${
+          order.order_type === "delivery" && ["Delivery", "Completed"].includes(order.status)
+            ? `<label class="admin-delivered-tick"><input type="checkbox" data-delivered-order="${order.id}" ${order.delivered_at ? "checked" : ""}> Delivered${order.delivered_at ? ` · ${new Date(order.delivered_at).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit", hour12: false })}` : ""}</label>`
+            : ""
+        }
         <ul class="admin-order-items">${itemsHtml}</ul>
       </div>
     `;
     })
     .join("");
+
+  list.querySelectorAll("[data-delivered-order]").forEach((box) =>
+    box.addEventListener("change", async () => {
+      box.disabled = true;
+      const response = await adminFetch("/api/admin/order-delivered", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_id: Number(box.dataset.deliveredOrder), delivered: box.checked }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) alert(data.error || "Couldn't update the delivered tick.");
+      loadOrderHistory(true);
+    }),
+  );
 
   list.querySelectorAll(".refund-yoco-btn").forEach((button) =>
     button.addEventListener("click", async () => {

@@ -169,6 +169,7 @@ export async function onRequestPost(context) {
         UPDATE orders
         SET status = $1,
             preparing_at = CASE WHEN $1 = 'Preparing' AND preparing_at IS NULL THEN NOW() ELSE preparing_at END,
+            out_for_delivery_at = CASE WHEN $1 = 'Delivery' AND out_for_delivery_at IS NULL THEN NOW() ELSE out_for_delivery_at END,
             cancelled_by = CASE WHEN $1 = 'Cancelled' THEN 'staff' ELSE cancelled_by END,
             order_type = CASE
               WHEN $1 IN ('Collection', 'Delivery') THEN $4
