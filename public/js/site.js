@@ -1745,7 +1745,7 @@ function cancelledMessage(order) {
 
 /**
  * ETA settings - change numbers here only.
- * Delivery: kitchen prep + drive time. Collection: kitchen prep only.
+ * Preparation time applies to every order. Drive time is only shown once a delivery order is out for delivery.
  */
 const ETA_CONFIG = {
   prepMin: 30,
@@ -1772,12 +1772,9 @@ function driveRange(order) {
   return { minDrive: Math.round(maxDrive * ETA_CONFIG.minDriveRatio), maxDrive };
 }
 
-/** { min, max } total minutes (prep + drive for delivery, prep only otherwise), or null. */
-function calcOrderEta(order) {
-  const c = ETA_CONFIG;
-  if (order.order_type !== "delivery") return { min: c.prepMin, max: c.prepMax };
-  const d = driveRange(order);
-  return d ? { min: c.prepMin + d.minDrive, max: c.prepMax + d.maxDrive } : null;
+/** { min, max } kitchen preparation minutes. Same for collection and delivery orders. */
+function calcPrepEta() {
+  return { min: ETA_CONFIG.prepMin, max: ETA_CONFIG.prepMax };
 }
 
 /** If staff forget to tick Delivered, the delivery line disappears this long after the order left. */
@@ -1788,30 +1785,38 @@ function etaBox(html) {
 }
 
 /**
- * ETA line for the order tracker (ASAP orders only - scheduled orders show their own time).
- *  - Collection: prep range while New / Preparing.
- *  - Delivery before it leaves: prep + drive range.
- *  - Out for delivery: countdown -> "Arriving any moment" -> "Sorry, we are running late",
- *    stays until the cafe ticks Delivered (admin History), then "Delivered";
- *    it also disappears by itself ETA_HIDE_AFTER_MIN after the order left.
+ * ETA line for the order tracker.
+ *  - Collection: preparation time while New / Preparing, "ready" message once Ready.
+ *  - Delivery before it leaves the cafe: preparation time only.
+ *  - Delivery out for delivery: drive-time countdown -> "Arriving any moment" ->
+ *    "Sorry, we are running late"; "Delivered" once the cafe ticks it (admin History);
+ *    disappears by itself ETA_HIDE_AFTER_MIN after the order left.
+ *  - Scheduled orders (not "As soon as possible"): shown once the kitchen starts preparing.
  */
 function renderOrderEta(order) {
   if (order.status === "Cancelled" || order.order_type === "dine_in") return "";
-  if (!/as soon as possible/i.test(String(order.pickup_time || ""))) return "";
+  // Nothing to estimate until payment has gone through.
+  if (order.payment_method === "online" && ["awaiting", "failed"].includes(order.payment_status)) return "";
+
   const isDelivery = order.order_type === "delivery";
+  const isAsap = /as soon as possible/i.test(String(order.pickup_time || ""));
 
   if (isDelivery && order.delivered_at) {
     return etaBox('<i class="fas fa-circle-check"></i> <strong>Delivered.</strong> Enjoy your meal!');
   }
 
+  // Out for delivery: show delivery (drive) time.
   const handedOver = isDelivery && ["Delivery", "Completed"].includes(order.status);
   if (handedOver) {
+    const icon = '<i class="fas fa-motorcycle"></i>';
     const d = driveRange(order);
     const outMs = order.out_for_delivery_at ? new Date(order.out_for_delivery_at).getTime() : NaN;
-    if (!d || !Number.isFinite(outMs)) return "";
+    if (!d) return etaBox(`${icon} <strong>Your order is on its way.</strong>`);
+    if (!Number.isFinite(outMs)) {
+      return etaBox(`${icon} Estimated delivery time: <strong>${d.minDrive} - ${d.maxDrive} mins</strong>`);
+    }
     const elapsed = (Date.now() - outMs) / 60000;
     if (elapsed >= ETA_HIDE_AFTER_MIN) return "";
-    const icon = '<i class="fas fa-motorcycle"></i>';
     if (elapsed > d.maxDrive) return etaBox(`${icon} <strong>Sorry, we are running late.</strong>`);
     const leftMin = Math.ceil(d.minDrive - elapsed);
     const leftMax = Math.ceil(d.maxDrive - elapsed);
@@ -1819,17 +1824,32 @@ function renderOrderEta(order) {
     return etaBox(`${icon} Arriving in about <strong>${leftMin} - ${leftMax} mins</strong>`);
   }
 
+  // Collection order that is ready: no more waiting.
+  if (!isDelivery && order.status === "Ready") {
+    return etaBox('<i class="fas fa-bag-shopping"></i> <strong>Your order is ready for collection.</strong>');
+  }
+
+  // Preparation time (delivery before it leaves, and collection).
   const active = isDelivery ? ["New", "Preparing", "Ready"] : ["New", "Preparing"];
   if (!active.includes(order.status)) return "";
-  const eta = calcOrderEta(order);
-  if (!eta) return "";
-  const startMs = new Date(order.kitchen_release_at || order.payment_confirmed_at || order.created_at).getTime();
+  if (!isAsap && order.status !== "Preparing") return "";
+
+  const eta = calcPrepEta();
+  const startMs = new Date(
+    (!isAsap && order.preparing_at) || order.kitchen_release_at || order.payment_confirmed_at || order.created_at
+  ).getTime();
   const clock = (mins) =>
     new Date(startMs + mins * 60000).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit", hour12: false });
-  const clockText = Number.isFinite(startMs) ? ` <span class="order-eta-clock">(${clock(eta.min)} - ${clock(eta.max)})</span>` : "";
-  return etaBox(`<i class="fas fa-clock"></i> ${
-    isDelivery ? "Estimated delivery" : "Ready for collection in"
-  }: <strong>${eta.min} - ${eta.max} mins</strong>${clockText}`);
+  const clockText = Number.isFinite(startMs)
+    ? ` <span class="order-eta-clock">(${clock(eta.min)} - ${clock(eta.max)})</span>`
+    : "";
+  const label = isDelivery ? "Order preparation time" : "Ready for collection in";
+  const note = isDelivery
+    ? '<div style="opacity:.85;font-size:.85rem;margin-top:4px">Your delivery time will appear once your order is out for delivery.</div>'
+    : "";
+  return etaBox(
+    `<i class="fas fa-clock"></i> ${label}: <strong>${eta.min} - ${eta.max} mins</strong>${clockText}${note}`
+  );
 }
 
 function renderStatusTracker(order) {
