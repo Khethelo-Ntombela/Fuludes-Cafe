@@ -259,7 +259,7 @@ function renderOrderItems() {
     // Search spans every category, ranked by relevance (best matches first).
     items = searchMenuItems(searchQuery, menuItems, categories);
     if (items.length === 0) {
-      grid.innerHTML = `<p class="menu-empty">No dishes matched "${searchQuery}". Try a different word, or browse by category above.</p>`;
+      grid.innerHTML = `<p class="menu-empty">No items matched "${searchQuery}". Try a different word, or browse by category above.</p>`;
       return;
     }
     // Drinks have no photo, so they go after every dish as the same compact price list as the Drinks tab.
@@ -279,7 +279,7 @@ function renderOrderItems() {
         : menuItems.filter((item) => item.category_id === categoryBySlug[activeCategorySlug]);
 
     if (items.length === 0) {
-      grid.innerHTML = `<p class="menu-empty">No dishes in this category yet.</p>`;
+      grid.innerHTML = `<p class="menu-empty">No items in this category yet.</p>`;
       return;
     }
     if (drinkCategoryIds.has(categoryBySlug[activeCategorySlug])) {
@@ -469,7 +469,7 @@ function renderSpecialsBar() {
 function openSpecialsModal() {
   const specials = getActiveSpecials();
   if (specials.length === 0) {
-    specialsModalList.innerHTML = `<p class="menu-empty">No dishes are on special right now.</p>`;
+    specialsModalList.innerHTML = `<p class="menu-empty">No items are on special right now.</p>`;
   } else {
     specialsModalList.innerHTML = specials
       .map((item) => {

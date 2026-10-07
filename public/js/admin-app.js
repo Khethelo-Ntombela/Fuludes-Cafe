@@ -1503,7 +1503,7 @@ function initPlaceOrderTab() {
     <div class="place-order-layout">
       <div class="place-order-main">
         <div class="admin-panel-header"><h3>Menu</h3></div>
-        <input type="search" id="adminMenuSearch" class="po-search" placeholder="Search dishes&hellip;" />
+        <input type="search" id="adminMenuSearch" class="po-search" placeholder="Search items&hellip;" />
         <div id="adminMenuCats" class="po-chips"></div>
         <div id="adminMenuGrid" class="admin-menu-grid"><p class="menu-loading">Loading&hellip;</p></div>
       </div>

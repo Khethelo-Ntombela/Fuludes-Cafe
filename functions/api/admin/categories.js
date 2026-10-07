@@ -87,7 +87,7 @@ export async function onRequestDelete(context) {
       const names = dishes.rows.map((d) => d.name).join(", ");
       return jsonResponse(
         {
-          error: `This category still has ${total} dish${total === 1 ? "" : "es"} (${names}${total > dishes.rows.length ? ", …" : ""}). Move them to another category or delete them first.`,
+          error: `This category still has ${total} item${total === 1 ? "" : "s"} (${names}${total > dishes.rows.length ? ", …" : ""}). Move them to another category or delete them first.`,
         },
         400,
       );

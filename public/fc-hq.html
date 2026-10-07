@@ -269,7 +269,7 @@
             <input
               type="text"
               id="topbarSearch"
-              placeholder="Search orders, dishes, reservations…"
+              placeholder="Search orders, items, reservations…"
               autocomplete="off"
             />
           </div>
@@ -728,7 +728,7 @@
                 <input type="hidden" id="itemSpecialPrice" />
                 <div class="form-row">
                   <div class="form-group">
-                    <label for="itemName">Dish Name</label>
+                    <label for="itemName">Item Name</label>
                     <input type="text" id="itemName" required />
                   </div>
                   <div class="form-group">
@@ -813,7 +813,7 @@
                 <div class="form-group">
                   <label>Choice of Side (free, optional)</label>
                   <div id="itemSideCheckboxes" class="checkbox-options"></div>
-                  <span class="admin-hint">Tick the sides customers can choose from with this dish. Leave all unticked if it doesn't come with a side choice.</span>
+                  <span class="admin-hint">Tick the sides customers can choose from with this item. Leave all unticked if it doesn't come with a side choice.</span>
                 </div>
 
                 <div class="form-group">
@@ -827,7 +827,7 @@
                   ></textarea>
                   <span class="admin-hint"
                     >Used for stock-up suggestions. Leave blank if not tracking
-                    ingredients for this dish.</span
+                    ingredients for this item.</span
                   >
                 </div>
 
@@ -853,7 +853,7 @@
                 <input
                   type="text"
                   id="menuTableSearch"
-                  placeholder="Search by dish name…"
+                  placeholder="Search by item name…"
                 />
               </div>
               <div class="form-group">
@@ -877,7 +877,7 @@
             <form autocomplete="off" id="specialForm" class="admin-form sa-section">
               <div class="form-row">
                 <div class="form-group">
-                  <label for="specialItemSelect">Dish</label>
+                  <label for="specialItemSelect">Item</label>
                   <select id="specialItemSelect" required></select>
                 </div>
                 <div class="form-group">
@@ -913,7 +913,7 @@
               <h2>Active Campaigns</h2>
             </div>
             <div id="specialsList" class="promo-grid">
-              <p class="menu-empty">No dishes are on special right now.</p>
+              <p class="menu-empty">No items are on special right now.</p>
             </div>
           </section>
 
@@ -956,7 +956,7 @@
             <div class="admin-panel-header" style="margin-top: 32px">
               <h2>Choice of Side (free)</h2>
             </div>
-            <p class="admin-hint">Sides like Chips, Pap or Rice that come free with a dish. Add them here, then tick them on the dishes that offer a side choice (Menu &amp; Stock &rarr; add/edit item).</p>
+            <p class="admin-hint">Sides like Chips, Pap or Rice that come free with an item. Add them here, then tick them on the items that offer a side choice (Menu &amp; Stock &rarr; add/edit item).</p>
             <form autocomplete="off" id="sideForm" class="admin-form admin-form-inline">
               <input type="text" id="sideName" placeholder="e.g. Chips" required />
               <button type="submit" class="btn btn-primary">Add</button>
@@ -1637,8 +1637,8 @@
     <script src="js/order-alert.js?v=1"></script>
     <script src="js/kds.js?v=23"></script>
     <script src="js/form-validation.js?v=1"></script>
-    <script src="js/admin.js?v=30"></script>
-    <script src="js/admin-app.js?v=23"></script>
+    <script src="js/admin.js?v=31"></script>
+    <script src="js/admin-app.js?v=24"></script>
   <script>
   if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 </script>
