@@ -556,3 +556,17 @@ CREATE TABLE IF NOT EXISTS staff_email_verifications (
   used        BOOLEAN NOT NULL DEFAULT FALSE,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- ---------------------------------------------------------------------
+-- customer_carts: a signed-in customer's cart, kept on their account so it
+-- follows them between devices. Stores choices only (ids + quantities);
+-- names and prices are rebuilt from the live menu on every read.
+-- (Also in db/migrations/017_saved_carts.sql and created on the fly by
+-- functions/_lib/savedCart.js.)
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS customer_carts (
+  customer_id  INTEGER PRIMARY KEY REFERENCES customers(id) ON DELETE CASCADE,
+  items        JSONB NOT NULL DEFAULT '[]'::jsonb,
+  version      INTEGER NOT NULL DEFAULT 1,
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

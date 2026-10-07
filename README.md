@@ -30,8 +30,8 @@ public/
   js/site.js            shared customer logic loaded on every page: header/nav, accounts
                          (sign up/in/out, password reset), reservation modal, My Orders
                          tracker, photo lightbox, payment-return banner, FAQ accordions
-  js/menu.js             menu page logic: menu fetch, search, specials, cart (persisted in
-                          localStorage across pages), checkout + Yoco hand-off
+  js/menu.js             menu page logic: menu fetch, search, specials, cart (kept in localStorage
+                          across pages, and on the account when signed in), checkout + Yoco hand-off
   js/reviews.js           reviews page logic (load + submit)
   js/catering.js           catering page logic (gallery + inquiry form)
   js/admin.js            admin logic: login, menu CRUD, image upload, orders, settings
@@ -53,6 +53,7 @@ functions/
                            every line; returns hosted-checkout redirect fields if paying online)
                            PUT  - customer self-cancel (own order only, "New" status, 2-min window)
   api/order/my.js           GET  - full order history for the signed-in customer (My Orders)
+  api/cart.js                 GET/PUT/POST/DELETE - the signed-in customer's saved cart (follows them between devices)
   api/auth/signup.js         POST - create a customer account, returns a session token
   api/auth/login.js           POST - sign in, returns a session token (locks after 4 failed attempts)
   api/auth/logout.js           POST - end the current session
@@ -230,6 +231,13 @@ For local development, change admin/staff passwords directly in `.dev.vars`; nev
 - **Spice level & extras** only appear on a dish, in both the admin form and the customer card, if that dish's "Spice Level" / "Accepts Extras" checkboxes are on. Extras themselves are a shared catalog (Extras tab) — tick which ones apply to which dish when you edit it.
 - **Pricing is never trusted from the browser.** `functions/api/order.js` re-looks-up every item's and addon's price in Neon before totaling the bill, so a tampered checkout request can't undercharge.
 - **Security & audit:** login/signup/forgot-password endpoints are rate-limited, customer-entered text is sanitized before it is stored, and sensitive actions like logins, logouts, order status changes, and payment webhook events are recorded in the `audit_logs` table.
+- **Cart follows the customer between devices:** signed in, the cart is saved on the account (`customer_carts`, `functions/api/cart.js`, `functions/_lib/savedCart.js`; sync logic in `public/js/menu.js`), so the phone and the PC show the same one. localStorage stays as the instant local copy and is the only copy while signed out.
+  - *What's stored:* only the choices per line (dish id, quantity, spice level, side id, extra ids) - never names or prices. Each read rebuilds the cart from the live menu, so prices are always today's price (specials start/end), dishes that are hidden or sold out are removed with a message, a dish whose side options changed is removed, extras that are no longer offered are dropped, and quantities are lowered to what's left in stock. (A price change never removes an item - it's re-priced and the customer sees the new price, same as before.)
+  - *Signing in with items already in the cart:* the first time a device meets an account, the two carts are **merged** (identical lines add up; nothing is overwritten). After that the account's cart is the truth: loaded when the menu page opens, again when the tab gets focus and every 30s, and every change made on the page is saved back (a moment after the last tap).
+  - *Cleared when an order is placed:* `functions/api/order.js` empties the account's cart once the order and its payment link exist (not at payment confirmation, so items added in the meantime aren't wiped). An unpaid order stays payable from My Orders.
+  - *Signing out* removes the cart (and the pre-order booking) from that device; they're still on the account for the next sign-in. A cart not touched for 30 days is treated as empty.
+  - *Known limits:* if two devices change the cart at the same instant the last save wins. The "pre-order for my table" link (`fulude_active_reservation`) still lives on one device - the items follow the customer, but the "Pre-order for your table" banner doesn't.
+- **My reservations list:** for a signed-in customer this is always the account's list (`GET /api/reservations`); the copy kept in the browser (`fulude_my_reservations`) is only for guests, or a fallback if the account can't be reached.
 - **Cart editing:** customers can change quantity or remove any line from the cart panel before checking out (`public/js/main.js` `changeLineQuantity()` / the × remove button).
 - **Order monitor:** the admin Orders tab polls `/api/admin/pending-orders` every 30 seconds and plays a repeating tone (Web Audio API — no ringtone file to host) until you advance the order (New → Preparing → Ready → Collection/Delivery → Completed) or cancel it.
 - **Buffet section:** hidden on the customer site until you flip it on under admin Settings.
@@ -283,3 +291,4 @@ Repeat for each photo — this also lets you write a proper name/description/pri
 - My Orders (customer) shows only the last 24 hours; tracking doesn't start until payment is confirmed.
 - Buffet bookings start as `pending`; admin confirms them (Confirm button + WhatsApp). Customers use "Check My Bookings" under the buffet section to see status and cancel. Buffet event form now requires event date and booking-close date and compresses photos before upload.
 - Installable PWA: `public/manifest.webmanifest`, `public/sw.js`, icons and `offline.html`; pages register the service worker and show an "Install app" button.
+- Saved carts. Optionally run `db/migrations/017_saved_carts.sql` in Neon (the table is also created automatically the first time `/api/cart` is used). To check the logic locally: `node --test`.

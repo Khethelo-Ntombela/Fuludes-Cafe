@@ -59,6 +59,7 @@ import { isOpenNow, CLOSED_MESSAGE } from "../_lib/hours.js";
 import { ensureCancelledByColumn, restoreOrderStock } from "../_lib/orderCancel.js";
 import { MAX_DELIVERY_KM } from "../_lib/delivery.js";
 import { ensureScheduleColumns, scheduledForFromPickup, scheduledForFromReservation } from "../_lib/scheduledOrders.js";
+import { clearSavedCart } from "../_lib/savedCart.js";
 
 const CUSTOMER_CANCEL_WINDOW_MS = 2 * 60 * 1000; // keep in sync with CUSTOMER_CANCEL_WINDOW_MS in public/js/main.js
 const ROAD_BUFFER = 1.3; // straight-line * 1.3 ≈ road distance
@@ -764,6 +765,11 @@ export async function onRequestPost(context) {
         502,
       );
     }
+
+    // The order exists and payment has started: the cart on the customer's
+    // account has done its job, so it is emptied on every device. (Done here,
+    // not when the payment completes, so items added meanwhile aren't wiped.)
+    await clearSavedCart(env, customer.id);
 
     return jsonResponse({
       success: true,

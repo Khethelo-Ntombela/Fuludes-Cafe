@@ -193,6 +193,7 @@ async function initAuth() {
     }
   }
   updateAccountNav();
+  announceAuthChange();
   // load any customer-specific data (bookings)
   try {
     loadCustomerBuffetBookings();
@@ -248,6 +249,14 @@ async function initAuth() {
     openResetPasswordModal(resetToken);
     window.history.replaceState({}, document.title, window.location.pathname);
   }
+}
+
+/**
+ * Lets other scripts react to "who is signed in" without reaching into this
+ * file. The menu page uses it to load the customer's saved cart (menu.js).
+ */
+function announceAuthChange() {
+  window.dispatchEvent(new CustomEvent("fulude:auth-changed"));
 }
 
 function updateAccountNav() {
@@ -629,6 +638,7 @@ function onAuthSuccess(token, customer) {
   currentCustomer = customer;
   localStorage.setItem(CUSTOMER_TOKEN_KEY, token);
   updateAccountNav();
+  announceAuthChange();
   loadCustomerBuffetBookings();
 
   authModal.classList.remove("active");
@@ -947,6 +957,13 @@ accountModal.addEventListener("click", (e) => {
 })();
 
 document.getElementById("logoutBtn").addEventListener("click", async () => {
+  // Send any cart change still waiting to be saved to the account first
+  // (flushCartSync lives in menu.js, so it only exists on the menu page).
+  try {
+    if (typeof flushCartSync === "function") await flushCartSync();
+  } catch {
+    /* never block signing out */
+  }
   try {
     await fetch("/api/auth/logout", {
       method: "POST",
@@ -958,6 +975,10 @@ document.getElementById("logoutBtn").addEventListener("click", async () => {
   customerToken = null;
   currentCustomer = null;
   localStorage.removeItem(CUSTOMER_TOKEN_KEY);
+  // The cart and the pre-order booking belong to the account, which has just
+  // signed out - don't leave them behind for the next person on this device.
+  // (They are still on the account for the next sign-in.)
+  ["fulude_cart", "fulude_cart_sync", "fulude_cart_dirty", ACTIVE_RES_KEY].forEach((k) => localStorage.removeItem(k));
   updateAccountNav();
   accountModal.classList.remove("active");
   loadCustomerBuffetBookings();
@@ -1073,14 +1094,21 @@ reservationForm.parentNode.insertBefore(reservationExisting, reservationForm);
 
 async function loadExistingReservations() {
   let list = [];
+  let loadedFromAccount = false;
   const today = todayKeyLocal();
   if (currentCustomer && customerToken) {
     try {
       const res = await fetch("/api/reservations", { headers: { Authorization: `Bearer ${customerToken}` } });
-      if (res.ok) list = (await res.json()).reservations || [];
+      if (res.ok) {
+        list = (await res.json()).reservations || [];
+        loadedFromAccount = true;
+      }
     } catch { /* fall through to local copy */ }
   }
-  if (!list.length) {
+  // Signed in: the account's list is the list - an empty answer means no
+  // bookings (or history cleared), not "show what this device remembers".
+  // The copy kept on this device is only for guests, or if the account can't be reached.
+  if (!loadedFromAccount) {
     try { list = JSON.parse(localStorage.getItem(MY_RES_KEY) || "[]"); } catch { list = []; }
   }
   list = list.filter((r) => String(r.reservation_date || r.date).slice(0, 10) >= today && r.status !== "Completed");
