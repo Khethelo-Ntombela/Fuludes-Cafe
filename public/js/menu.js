@@ -211,13 +211,13 @@ const DRINK_GROUPS = [
 ];
 
 /** Drinks tab: a plain price list (no photos) grouped Beverages -> Cocktails -> Alcohol -> Others. */
-function renderDrinksList(grid, items) {
+function drinksListHtml(items) {
   const byType = {};
   for (const item of items) {
     const type = DRINK_GROUPS.some(([key]) => key === item.drink_type) ? item.drink_type : "other";
     (byType[type] || (byType[type] = [])).push(item);
   }
-  grid.innerHTML = `<div class="drinks-list">${DRINK_GROUPS.filter(([key]) => byType[key])
+  return `<div class="drinks-list">${DRINK_GROUPS.filter(([key]) => byType[key])
     .map(
       ([key, label]) => `
       <section class="drinks-group">
@@ -246,6 +246,10 @@ function renderDrinksList(grid, items) {
     .join("")}</div>`;
 }
 
+function renderDrinksList(grid, items) {
+  grid.innerHTML = drinksListHtml(items);
+}
+
 function renderOrderItems() {
   const grid = document.getElementById("orderItems");
   grid.classList.remove("is-drinks");
@@ -256,6 +260,13 @@ function renderOrderItems() {
     items = searchMenuItems(searchQuery, menuItems, categories);
     if (items.length === 0) {
       grid.innerHTML = `<p class="menu-empty">No dishes matched "${searchQuery}". Try a different word, or browse by category above.</p>`;
+      return;
+    }
+    // Drinks have no photo, so they go after every dish as the same compact price list as the Drinks tab.
+    const drinkResults = items.filter(isDrinkItem);
+    if (drinkResults.length > 0) {
+      const foodResults = items.filter((item) => !isDrinkItem(item));
+      grid.innerHTML = renderFoodCards(foodResults) + `<div class="search-drinks">${drinksListHtml(drinkResults)}</div>`;
       return;
     }
   } else {
@@ -278,29 +289,17 @@ function renderOrderItems() {
     }
   }
 
-  grid.innerHTML = items
+  grid.innerHTML = renderFoodCards(items);
+}
+
+function renderFoodCards(items) {
+  return items
     .map((item) => {
       const photos = getPhotos(item);
       const onSpecial = item.is_on_special === true;
       const priceHtml = onSpecial
         ? `<span class="was-price">${money(item.price)}</span>${money(item.effective_price)}`
         : money(item.price);
-      if (isDrinkItem(item)) {
-        // e.g. a drink in search results: text-only card, no grey photo box
-        return `
-    <div class="order-card no-image${item.is_available ? "" : " sold-out"}" data-item="${item.id}">
-      <div class="order-card-body">
-        <div class="order-card-header">
-          <span class="order-card-name">${item.name}</span>
-          <span class="order-card-dots" aria-hidden="true"></span>
-          <span class="order-card-price">${priceHtml}</span>
-        </div>
-        <p class="order-card-desc">${item.description || ""}</p>
-        ${item.is_available ? "" : `<p class="order-card-desc"><strong>Sold out</strong></p>`}
-        <div class="order-card-footer" data-id="${item.id}">${cardControlsHtml(item)}</div>
-      </div>
-    </div>`;
-      }
       return `
     <div class="order-card${item.is_available ? "" : " sold-out"}" data-item="${item.id}">
       <div class="order-card-image${photos.length > 1 ? " has-slides" : ""}">

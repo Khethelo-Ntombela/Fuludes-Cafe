@@ -1729,3 +1729,32 @@ showDashboard = function () {
   _showDashboardForRestore();
   setTimeout(restoreAdminTab, 0);
 };
+
+
+/* Shrink big money figures on the KPI cards so the digits always fit inside the card. */
+(function fitKpiValues() {
+  const MIN_PX = 11;
+  function fitAll() {
+    document.querySelectorAll(".kpi-value").forEach((el) => {
+      el.style.fontSize = "";
+      if (!el.clientWidth) return; // hidden tab: fitted when it is shown
+      let size = parseFloat(getComputedStyle(el).fontSize);
+      while (el.scrollWidth > el.clientWidth && size > MIN_PX) {
+        size -= 0.5;
+        el.style.fontSize = size + "px";
+      }
+    });
+  }
+  let queued = false;
+  function schedule() {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => {
+      queued = false;
+      fitAll();
+    });
+  }
+  new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true, characterData: true });
+  window.addEventListener("resize", schedule);
+  schedule();
+})();

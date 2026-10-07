@@ -1,6 +1,6 @@
 /* Service worker: makes the site installable as an app and gives an offline
    fallback. API calls are never cached (orders/payments must be live). */
-const CACHE = "fulude-shell-v7";
+const CACHE = "fulude-shell-v8";
 const SHELL = ["/home.html", "/offline.html", "/css/style.css", "/js/site.js", "/icon-192.png?v=2"];
 
 self.addEventListener("install", (e) => {
