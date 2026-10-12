@@ -1,15 +1,4 @@
-/**
- * functions/api/admin/config.js
- * -----------------------------------------------------------------------
- * POST /api/admin/config   (send only the fields you want to change)
- *   { is_buffet_visible: bool }
- *   { is_out_of_service: bool, out_of_service_reason: string }
- *   { announcement_message: string }
- *
- * Turning Out of Service ON requires a reason - it is shown to customers.
- * Every change is written to the audit log with before -> after values.
- * -----------------------------------------------------------------------
- */
+// POST /api/admin/config
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { sanitizeText, getRequestIp } from "../../_lib/security.js";

@@ -1,10 +1,4 @@
-/**
- * functions/api/admin/review-reply.js
- * -----------------------------------------------------------------------
- * POST /api/admin/review-reply  { review_id, reply }
- * Lets the admin post a public reply under a customer review.
- * -----------------------------------------------------------------------
- */
+// POST /api/admin/review-reply
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { sanitizeText } from "../../_lib/security.js";

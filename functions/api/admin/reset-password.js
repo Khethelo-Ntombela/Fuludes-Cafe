@@ -1,9 +1,4 @@
-/**
- * functions/api/admin/reset-password.js
- * -----------------------------------------------------------------------
- * POST /api/admin/reset-password  { token, password }
- * Redeems an admin password reset token.
- * ----------------------------------------------------------------------- */
+// POST /api/admin/reset-password
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { hashPassword } from "../../_lib/password.js";
 import { ensureLockoutColumns } from "../../_lib/accountLockout.js";

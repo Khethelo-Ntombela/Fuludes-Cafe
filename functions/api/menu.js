@@ -1,33 +1,4 @@
-/**
- * functions/api/menu.js
- * -----------------------------------------------------------------------
- * GET /api/menu
- * Public, read-only endpoint the customer site calls on page load.
- * Returns everything main.js needs to render the category tabs and
- * menu cards in one round trip: categories, visible+in-stock-aware menu
- * items (each with the addons it accepts attached), and the global
- * spice-level list.
- *
- * Items that the admin has hidden (is_visible = false, e.g. a dessert
- * that isn't on offer today) are excluded entirely. Items that are
- * visible but temporarily sold out (is_available = false) ARE included
- * so the frontend can render a "Sold Out" badge instead of just hiding
- * them.
- *
- * Category tabs are data-driven the same way: a category is only
- * returned (and so only shows up as a tab) if it currently has at least
- * one visible item in it. Categories like Starters or Dessert that
- * aren't offered every day simply disappear from the menu on days
- * nothing in them is turned on, instead of showing an empty tab - the
- * moment admin makes one dish in that category visible again, its tab
- * reappears automatically. Being sold out doesn't affect this; only
- * is_visible does, same as for individual dishes.
- *
- * special_price (nullable) is also included per item - when set it's the
- * item's real selling price (see functions/api/order.js), with `price`
- * kept as the "was" price so the frontend can show the discount.
- * -----------------------------------------------------------------------
- */
+// GET /api/menu
 import { runQuery, jsonResponse } from "../_lib/db.js";
 
 export async function onRequest(context) {

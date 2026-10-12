@@ -1,13 +1,4 @@
-/**
- * functions/api/admin/staff.js
- * -----------------------------------------------------------------------
- * CRUD for admin-managed staff logins.
- *
- * GET    /api/admin/staff                   -> list staff accounts
- * POST   /api/admin/staff                   -> create staff account { name, email, password }
- * PUT    /api/admin/staff                   -> update staff account { id, name, email, password? }
- * DELETE /api/admin/staff?id=1              -> delete staff account
- * ----------------------------------------------------------------------- */
+// CRUD for admin-managed staff logins
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdminPermission } from "../../_lib/adminAuth.js";
 import { hashPassword } from "../../_lib/password.js";

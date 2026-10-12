@@ -1,11 +1,6 @@
 import { runQuery } from "../../_lib/db.js";
 
-/**
- * GET /api/auth/verify-email?token=...  (the link in the sign-up email)
- * Always sends the browser back to the site with ?email_verified=yes|invalid|error,
- * where site.js shows the result - never a bare text/JSON response, which
- * some phone browsers offer to save as a file instead of showing it.
- */
+// GET /api/auth/verify-email?token=
 export async function onRequestGet(context) {
   const { request, env } = context;
   const url = new URL(request.url);

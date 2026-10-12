@@ -1,13 +1,4 @@
-/**
- * functions/api/admin/review-moderate.js
- * -----------------------------------------------------------------------
- * POST /api/admin/review-moderate  { review_id, action }
- * action: 'approve' | 'reject' | 'delete' | 'edit'
- *   edit also takes { customer_name?, rating?, comment? } - e.g. to remove
- *   a phone number or bad language before approving.
- * Requires admin auth.
- * -----------------------------------------------------------------------
- */
+// POST /api/admin/review-moderate
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { sanitizeText } from "../../_lib/security.js";

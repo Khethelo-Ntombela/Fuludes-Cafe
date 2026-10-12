@@ -1,14 +1,4 @@
-/**
- * functions/api/auth/reset-password.js
- * -----------------------------------------------------------------------
- * POST /api/auth/reset-password  { token, password }
- * Redeems a one-time token from forgot-password.js, sets a new password,
- * clears the 4-failed-attempt lockout (functions/api/auth/login.js), and
- * signs the account out everywhere by deleting every one of its sessions -
- * a password reset should invalidate any session an attacker might have
- * had, not just fix the password going forward.
- * -----------------------------------------------------------------------
- */
+// POST /api/auth/reset-password
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { hashPassword } from "../../_lib/password.js";
 import { ensureLockoutColumns } from "../../_lib/accountLockout.js";

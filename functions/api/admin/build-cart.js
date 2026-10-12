@@ -1,21 +1,4 @@
-/**
- * functions/api/admin/build-cart.js
- * -----------------------------------------------------------------------
- * POST /api/admin/build-cart  (Authorization: Bearer <admin token>)
- * Admin-only: build a cart/order on behalf of a customer and return a
- * time-limited secure payment link the customer can open to complete
- * payment. The resulting order follows the same rules as a normal order
- * (stock validation, server-side pricing).
- * Body: { customer_name, customer_email, customer_phone,
- *         order_type ("collection"|"delivery"|"dine_in"),
- *         delivery_address, delivery_lat, delivery_lng, table_number,
- *         pickup_time, special_instructions,
- *         cart_items: [{ id, quantity, spice_level, extras: [addonId], side: sideId }] }
- * Prices, extras, sides and the delivery fee are all computed here on the
- * server - nothing is trusted from the browser. Stock is NOT taken until the
- * payment is confirmed (functions/api/payment/notify.js), same as checkout.
- * -----------------------------------------------------------------------
- */
+// POST /api/admin/build-cart
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { sanitizeText, isValidEmail, isValidName, normalizePhone, VALIDATION_MESSAGES } from "../../_lib/security.js";

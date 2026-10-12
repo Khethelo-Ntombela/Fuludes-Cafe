@@ -1,14 +1,4 @@
-/**
- * functions/api/admin/buffet-bookings.js
- * -----------------------------------------------------------------------
- * Admin endpoints to list and update buffet bookings.
- * GET  /api/admin/buffet-bookings?event_id=1  -> { bookings: [...] }
- * POST /api/admin/buffet-bookings            -> { action: 'confirm'|'cancel', booking_id }
- * POST /api/admin/buffet-bookings            -> { action: 'create', event_id, name, phone, seats, email? }
- *   books seats on behalf of a customer who phoned in (email optional). Seats are
- *   still capped by the event's capacity; the booking starts as 'confirmed'.
- * -----------------------------------------------------------------------
- */
+// Admin endpoints to list and update buffet bookings
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { queuePush } from "../../_lib/push.js";

@@ -1,16 +1,4 @@
-/**
- * public/js/site.js
- * -----------------------------------------------------------------------
- * Shared logic for every customer-facing page: header/mobile nav,
- * customer accounts (sign in/up/out, password reset), the reservation
- * modal, the My Orders modal, the shared photo lightbox, the
- * payment-return banner, buffet visibility, and FAQ accordions.
- *
- * Page-specific logic lives in menu.js (ordering + cart + checkout),
- * reviews.js, catering.js, and contact.js. Load this file first - the
- * page scripts rely on helpers and state declared here.
- * -----------------------------------------------------------------------
- */
+// Shared logic for every customer-facing page: header/mobile nav, customer accounts
 
 const money = (n) => `R${Number(n).toFixed(2)}`;
 
@@ -41,9 +29,7 @@ async function readApiResponse(response) {
   }
 }
 
-// ---------------------------------------------------------------------
 // Mobile nav
-// ---------------------------------------------------------------------
 const mobileToggle = document.getElementById("mobileToggle");
 const navbar = document.getElementById("navbar");
 mobileToggle.addEventListener("click", () => navbar.classList.toggle("active"));
@@ -51,11 +37,7 @@ document.querySelectorAll(".nav-link").forEach((link) => {
   link.addEventListener("click", () => navbar.classList.remove("active"));
 });
 
-// ---------------------------------------------------------------------
-// Photo lightbox - shared by the dish galleries (menu page) and the
-// catering inspiration gallery (catering page). The modal markup exists
-// on every page so any script can call openLightboxWithPhotos().
-// ---------------------------------------------------------------------
+// Photo lightbox - shared by the dish galleries
 let lightboxPhotos = [];
 let lightboxIndex = 0;
 
@@ -100,19 +82,12 @@ document.getElementById("lightboxNext").addEventListener("click", () => {
   renderLightbox();
 });
 
-// ---------------------------------------------------------------------
-// Customer accounts - required to check out. A signed-in session is just
-// a long random token in localStorage, sent as `Authorization: Bearer`
-// on every request that needs to know who's asking (place/cancel order,
-// view order history, log out). There's no expiry - "stay signed in
-// until you sign out" - a session only ends via logout or a password
-// reset (which signs every session for that account out server-side).
-// ---------------------------------------------------------------------
+// Customer accounts - required to check out
 const CUSTOMER_TOKEN_KEY = "fulude_customer_token";
-const CUSTOMER_NAME_KEY = "fulude_customer_name"; // cached first name, so the nav can show it instantly on page load
+const CUSTOMER_NAME_KEY = "fulude_customer_name"; // cached so the nav shows the name straight away
 let customerToken = localStorage.getItem(CUSTOMER_TOKEN_KEY);
 let currentCustomer = null; // {id, name, email} once confirmed signed in
-let pendingCheckoutAfterAuth = false; // true if "Checkout" was clicked before being signed in (menu page)
+let pendingCheckoutAfterAuth = false; // true if "Checkout" was clicked before being signed in
 
 const accountNavBtn = document.getElementById("accountNavBtn");
 const accountNavLabel = document.getElementById("accountNavLabel");
@@ -251,10 +226,7 @@ async function initAuth() {
   }
 }
 
-/**
- * Lets other scripts react to "who is signed in" without reaching into this
- * file. The menu page uses it to load the customer's saved cart (menu.js).
- */
+// Lets other scripts react to "who is signed in" without reaching into this file
 function announceAuthChange() {
   window.dispatchEvent(new CustomEvent("fulude:auth-changed"));
 }
@@ -287,7 +259,7 @@ const BOOKING_STATUS_LABELS = {
   cancelled: "Cancelled",
 };
 
-const LIVE_POLL_MS = 5000; // statuses (orders, bookings) refresh on their own - no page reloads
+const LIVE_POLL_MS = 5000; // statuses (orders, bookings) refresh on their own
 
 /** Re-runs fn every 5s while `modal` stays open and the tab is visible. */
 function pollWhileOpen(modal, fn) {
@@ -308,7 +280,7 @@ function setOverlay(el, on) {
   el.classList.toggle("active", on);
 }
 
-let myBuffetBookedEventIds = new Set(); // events with a pending/confirmed booking by this customer
+let myBuffetBookedEventIds = new Set(); // events this customer has booked
 
 async function loadCustomerBuffetBookings() {
   if (!currentCustomer || !customerToken) {
@@ -678,22 +650,7 @@ function setGoogleButtonLabel(text) {
 }
 setGoogleButtonLabel("Sign in with Google");
 
-/**
- * "Sign in / Create account with Google" sends the whole page to Google's
- * sign-in (OpenID Connect, response_mode=form_post). Google then POSTs the
- * ID token to /api/auth/google, which creates the session and redirects
- * back here with #google_token=... (or #google_error=...) for
- * takeGoogleRedirectResult() to pick up.
- *
- * (The old approach - Google's button in an invisible iframe that opened a
- * popup - did nothing on iPhones, in the installed app and in in-app
- * browsers, where the popup is blocked or can't report back.)
- *
- * The nonce goes to Google as both `state` and `nonce`, and into a cookie
- * the server compares against - so a sign-in can't be started by another
- * site or replayed. The cart is in localStorage so it survives the trip;
- * a pending checkout is remembered in sessionStorage.
- */
+// "Sign in / Create account with Google" sends the whole page to Google's sign-in (OpenID Connect
 const GOOGLE_CHECKOUT_KEY = "fulude_google_checkout";
 
 function startGoogleSignIn() {
@@ -975,9 +932,7 @@ document.getElementById("logoutBtn").addEventListener("click", async () => {
   customerToken = null;
   currentCustomer = null;
   localStorage.removeItem(CUSTOMER_TOKEN_KEY);
-  // The cart and the pre-order booking belong to the account, which has just
-  // signed out - don't leave them behind for the next person on this device.
-  // (They are still on the account for the next sign-in.)
+  // The cart and the pre-order booking belong to the account, which has just signed out
   ["fulude_cart", "fulude_cart_sync", "fulude_cart_dirty", ACTIVE_RES_KEY].forEach((k) => localStorage.removeItem(k));
   updateAccountNav();
   accountModal.classList.remove("active");
@@ -985,15 +940,12 @@ document.getElementById("logoutBtn").addEventListener("click", async () => {
   window.location.assign("/home");
 });
 
-// ---------------------------------------------------------------------
-// Reservation modal - reachable from the nav on every page (plus the
-// hero button on the home page and the cart panel on the menu page).
-// ---------------------------------------------------------------------
+// Reservation modal - reachable from the nav on every page
 const navReservationLink = document.getElementById("navReservationLink");
 const heroReservationBtn = document.getElementById("heroReservationBtn");
 const menuReservationBtn = document.getElementById("menuReservationBtn");
 const reservationBtn = document.getElementById("reservationBtn");
-    updateAccountNav(); // Update the account navigation to reflect the new session
+const reservationModal = document.getElementById("reservationModal");
 const reservationModalClose = document.getElementById("reservationModalClose");
 const reservationForm = document.getElementById("reservationForm");
 const reservationError = document.getElementById("reservationError");
@@ -1105,9 +1057,7 @@ async function loadExistingReservations() {
       }
     } catch { /* fall through to local copy */ }
   }
-  // Signed in: the account's list is the list - an empty answer means no
-  // bookings (or history cleared), not "show what this device remembers".
-  // The copy kept on this device is only for guests, or if the account can't be reached.
+  // Signed in: the account's list is the list - an empty answer means no bookings (or history cleared)
   if (!loadedFromAccount) {
     try { list = JSON.parse(localStorage.getItem(MY_RES_KEY) || "[]"); } catch { list = []; }
   }
@@ -1191,11 +1141,7 @@ async function loadExistingReservations() {
   reservationForm.style.display = "block";
 }
 
-/**
- * "Clear history": removes every booking from the customer's own list.
- * Signed in, the server hides them on the account (the cafe still has them);
- * the copy kept on this device for guests is wiped too.
- */
+// "Clear history": removes every booking from the customer's own list
 async function clearReservationHistory() {
   if (!confirm("Clear your reservation history? Your bookings will be removed from this list. The cafe still has them - contact us if you need to change or cancel one.")) return;
   const btn = document.getElementById("reservationClearBtn");
@@ -1370,15 +1316,11 @@ reservationForm.addEventListener("submit", async (e) => {
   }
 });
 
-// ---------------------------------------------------------------------
-// My Orders: every order ever placed on the signed-in account, fetched
-// fresh from /api/order/my each time - accounts are required to check
-// out, so order history just lives on the account server-side.
-// ---------------------------------------------------------------------
+// My Orders: order history for the signed-in account
 const myOrdersModal = document.getElementById("myOrdersModal");
 const myOrdersList = document.getElementById("myOrdersList");
 const MY_ORDERS_POLL_MS = LIVE_POLL_MS; // status can change any time the kitchen updates it
-const CUSTOMER_CANCEL_WINDOW_MS = 2 * 60 * 1000; // keep in sync with CUSTOMER_CANCEL_WINDOW_MS in functions/api/order.js
+const CUSTOMER_CANCEL_WINDOW_MS = 2 * 60 * 1000; // same value as in functions/api/order.js
 let expandedReceipts = new Set(); // which order ids currently have "View Receipt" open
 let myOrdersPollTimer = null;
 let cancelCountdownTimer = null;
@@ -1447,11 +1389,7 @@ function formatCountdown(ms) {
   return `${mins}:${String(secs).padStart(2, "0")}`;
 }
 
-/**
- * Ticks every second purely to keep each order's cancel countdown fresh
- * (and to drop the button the instant the 2-minute window closes) -
- * separate from the 5s network poll so the countdown doesn't look stuck.
- */
+// Ticks every second purely to keep each order's cancel countdown fresh
 function startCancelCountdownTicker() {
   clearInterval(cancelCountdownTimer);
   cancelCountdownTimer = setInterval(() => {
@@ -1474,11 +1412,7 @@ function stopCancelCountdownTicker() {
   cancelCountdownTimer = null;
 }
 
-/**
- * "Leave a review" for one completed order: a pop-up with the thank-you
- * message, star rating and comment. The review is tied to that order
- * (one per order) and appears on the Reviews page once the admin approves it.
- */
+// "Leave a review" for one completed order: a pop-up with the thank-you message
 function openOrderReviewModal(orderId) {
   let overlay = document.getElementById("orderReviewModal");
   if (!overlay) {
@@ -1686,10 +1620,7 @@ async function refreshMyOrders() {
   });
 }
 
-/**
- * Sends the browser to Yoco. The server returns either Yoco's own
- * redirect_url (Checkout API) or, in the legacy setup, a form to POST.
- */
+// Sends the browser to Yoco
 function goToYocoPayment(payment) {
   if (payment.redirect_url) {
     window.location.href = payment.redirect_url;
@@ -1717,23 +1648,14 @@ function escapeAttr(str) {
     .replace(/>/g, "&gt;");
 }
 
-/**
- * A small live tracker with customer-facing labels and a pulsing current
- * stage, so customers can watch their order move without refreshing.
- */
-/**
- * The customer never paid, or paid but nothing's owed back - a flat
- * "cancelled" is accurate and enough.
- */
+// A small live tracker with customer-facing labels and a pulsing current stage
+// The customer never paid, or paid but nothing's owed back
 /** "A", "A and B", "A, B and C" */
 function listNames(names) {
   return names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
-/**
- * The whole order is refunded when one or more of its items sold out
- * before the payment completed (someone else's payment got them first).
- */
+// The whole order is refunded when one or more of its items sold out before the payment completed
 function soldOutRefundMessage(order) {
   const names = String(order.cancel_reason || "")
     .replace(/^Sold out:\s*/i, "")
@@ -1765,16 +1687,11 @@ function cancelledMessage(order) {
     return "This order was cancelled. Your refund is being processed and should reflect on your card within a few business days - if it hasn't after a week, please contact the cafe.";
   }
 
-  // paid, cancelled, refund_needed is false and payment_status isn't yet
-  // 'refunded' - a brief in-between state (e.g. refund initiated but the
-  // webhook confirmation hasn't landed yet).
+  // paid, cancelled, refund_needed is false and payment_status isn't yet 'refunded'
   return "This order was cancelled. A refund is being arranged for your payment.";
 }
 
-/**
- * ETA settings - change numbers here only.
- * Preparation time applies to every order. Drive time is only shown once a delivery order is out for delivery.
- */
+// ETA settings - change numbers here only
 const ETA_CONFIG = {
   prepMin: 30,
   prepMax: 40,
@@ -1812,19 +1729,11 @@ function etaBox(html) {
   return `<div class="order-eta">${html}</div>`;
 }
 
-/**
- * ETA line for the order tracker.
- *  - Collection: preparation time while New / Preparing, "ready" message once Ready.
- *  - Delivery before it leaves the cafe: preparation time only.
- *  - Delivery out for delivery: drive-time countdown -> "Arriving any moment" ->
- *    "Sorry, we are running late"; "Delivered" once the cafe ticks it (admin History);
- *    disappears by itself ETA_HIDE_AFTER_MIN after the order left.
- *  - Scheduled orders (not "As soon as possible"): shown once the kitchen starts preparing.
- */
+// ETA line for the order tracker
 function renderOrderEta(order) {
   if (order.status === "Cancelled" || order.order_type === "dine_in") return "";
   // Nothing to estimate until payment has gone through.
-  if (order.payment_method === "online" && ["awaiting", "failed"].includes(order.payment_status)) return "";
+  if (["awaiting", "failed"].includes(order.payment_status)) return "";
 
   const isDelivery = order.order_type === "delivery";
   const isAsap = /as soon as possible/i.test(String(order.pickup_time || ""));
@@ -1885,7 +1794,6 @@ function renderStatusTracker(order) {
   // pending (or failed) there is nothing for the kitchen to track yet.
   if (
     order.status !== "Cancelled" &&
-    order.payment_method === "online" &&
     ["awaiting", "failed"].includes(order.payment_status)
   ) {
     return `<div class="order-status-cancelled" style="background:#fff8e6;color:#8a6d1d;border-color:#f0d78a"><i class="fas fa-hourglass-half"></i> ${
@@ -1936,18 +1844,11 @@ function renderStatusTracker(order) {
   `;
 }
 
-/**
- * Cancel button - only for a PAID order that's still "New", during the
- * 2 minutes that start when the payment is confirmed; cancelling then
- * refunds automatically through Yoco. Unpaid orders get no cancel button
- * (there's nothing to refund - they just offer "Pay Now").
- * The server re-checks all of this (functions/api/order.js onRequestPut).
- */
+// Cancel button - only for a PAID order that's still "New"
 function renderCancelSection(order) {
   if (order.status !== "New") return "";
 
-  const isPaid =
-    order.payment_method === "online" && order.payment_status === "paid";
+  const isPaid = order.payment_status === "paid";
   if (!isPaid) return "";
 
   const paidAtMs = order.payment_confirmed_at ? new Date(order.payment_confirmed_at).getTime() : null;
@@ -1995,24 +1896,14 @@ function renderReceiptCard(order) {
       : order.order_type === "dine_in"
         ? `Dine In${order.table_number ? ` (Table ${order.table_number})` : ""}`
         : "Collection";
-  const payAtLabel =
-    order.order_type === "delivery"
-      ? "delivery"
-      : order.order_type === "dine_in"
-        ? "the table"
-        : "pickup";
 
   const paymentText =
-    order.payment_method === "online"
-      ? order.payment_status === "paid"
-        ? "Paid online"
-        : order.payment_status === "failed"
-          ? "Payment failed"
-          : "Payment pending"
-      : `Pay at ${payAtLabel}`;
-  const retryPayment =
-    order.payment_method === "online" &&
-    ["awaiting", "failed"].includes(order.payment_status);
+    order.payment_status === "paid"
+      ? "Paid online"
+      : order.payment_status === "failed"
+        ? "Payment failed"
+        : "Payment pending";
+  const retryPayment = ["awaiting", "failed"].includes(order.payment_status);
 
   const placedDate = new Date(order.created_at).toLocaleString("en-ZA", {
     dateStyle: "medium",
@@ -2068,11 +1959,7 @@ myOrdersModal.addEventListener("click", (e) => {
   if (e.target === myOrdersModal) myOrdersModal.classList.remove("active");
 });
 
-// ---------------------------------------------------------------------
-// Payment-return banner - Yoco bounces the browser back here with a
-// `payment` query param. The real confirmation is the server-side ITN
-// webhook; this banner is just a friendly heads-up, not a source of truth.
-// ---------------------------------------------------------------------
+// Payment-return banner - Yoco bounces the browser back here
 /** Polls My Orders for this order until the payment is confirmed or refunded (about 30 seconds max). */
 async function showPaymentOutcome(banner, orderId) {
   for (let attempt = 0; attempt < 15; attempt++) {
@@ -2126,9 +2013,7 @@ function checkPaymentReturn() {
   const banner = document.getElementById("paymentBanner");
   if (!banner) return;
   if (paymentResult === "success") {
-    // Coming back from Yoco doesn't mean the order went through yet - the
-    // payment is confirmed (or refunded if an item sold out) moments later.
-    // Show what really happened to this order.
+    // Coming back from Yoco doesn't mean the order went through yet - the payment is confirmed
     banner.textContent = `Thank you! Confirming your payment for order #${orderId}…`;
     banner.className = "payment-banner success";
     showPaymentOutcome(banner, Number(orderId));
@@ -2142,9 +2027,7 @@ function checkPaymentReturn() {
   window.history.replaceState({}, document.title, window.location.pathname);
 }
 
-// ---------------------------------------------------------------------
 // Buffet visibility (admin-controlled, home page only)
-// ---------------------------------------------------------------------
 const OUT_OF_SERVICE_TITLE = "Sorry, we are not taking orders at the moment.";
 
 /** Always asks the server (never cached) so checkout reacts the moment admin flips the switch. */
@@ -2212,9 +2095,7 @@ async function loadConfig() {
   }
 }
 
-/** Renders the buffet section, out-of-service notice and announcement bar
- * from a config object. Shared by the cached instant-render on page load
- * and the fresh server response in loadConfig(), so both draw the same way. */
+// Renders the buffet section, out-of-service notice and announcement bar from a config object
 function applyConfig(config) {
   // Buffet section (home page)
   const buffetSection = document.getElementById("buffetSection");
@@ -2229,9 +2110,7 @@ function applyConfig(config) {
     buffetSection.style.display = "none";
   }
 
-  // Out of service: hero notice on the home page only. The menu page no
-  // longer shows a persistent banner - checkout itself still blocks and
-  // shows a pop-up notice if the store is out of service (see menu.js).
+  // Out of service: hero notice on the home page only
   const heroNotice = document.getElementById("heroServiceNotice");
   if (heroNotice) {
     if (config.is_out_of_service) renderOutOfServiceNotice(heroNotice, config);
@@ -2251,11 +2130,7 @@ function applyConfig(config) {
   }
 }
 
-// Instant render from the last known config (cached locally), so the
-// buffet section / out-of-service notice / announcement don't disappear
-// and reappear on every page navigation while we re-confirm with the
-// server. loadConfig() above still runs and corrects anything that's
-// changed since this was cached (e.g. admin just flipped a switch).
+// Instant render from the last known config (cached locally)
 const STORE_CONFIG_CACHE_KEY = "fulude_store_config_cache";
 try {
   const cachedConfig = JSON.parse(localStorage.getItem(STORE_CONFIG_CACHE_KEY) || "null");
@@ -2264,13 +2139,11 @@ try {
   /* ignore a corrupted cache entry */
 }
 
-// ---------------------------------------------------------------------
 // FAQ / policies accordions (contact page)
-// ---------------------------------------------------------------------
 document.querySelectorAll(".faq-question").forEach((btn) => {
   btn.addEventListener("click", () => {
     const item = btn.parentElement;
-    const list = item.closest(".faq-list"); // scope to this accordion group (FAQ vs. Our Policies are separate)
+    const list = item.closest(".faq-list"); // scope to this accordion group (FAQ vs
     const isActive = item.classList.contains("active");
     list
       .querySelectorAll(".faq-item")
@@ -2279,20 +2152,13 @@ document.querySelectorAll(".faq-question").forEach((btn) => {
   });
 });
 
-// ---------------------------------------------------------------------
 // Init
-// ---------------------------------------------------------------------
 initAuth();
 checkPaymentReturn();
 loadConfig();
 
 
-// ---------------------------------------------------------------------
-// Settings (signed-in customers): update username / contact details,
-// change password (needs email confirmation), email marketing, and
-// delete the account. The markup is injected here so every page that
-// loads site.js gets it without duplicating HTML.
-// ---------------------------------------------------------------------
+// Settings (signed-in customers)
 (function setupSettings() {
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
@@ -2561,10 +2427,7 @@ async function confirmPasswordChange(token) {
   if (ok) openAuthModal("signin");
 }
 
-// ---------------------------------------------------------------------
-// "Install app" button - shown when the browser says the site can be
-// installed as a real app (Chrome/Edge/Android). iPhone: Share > Add to Home Screen.
-// ---------------------------------------------------------------------
+// "Install app" button - shown when the browser says the site
 (function setupInstallPrompt() {
   let deferred = null;
   const isStandalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone;
@@ -2589,10 +2452,7 @@ async function confirmPasswordChange(token) {
   window.addEventListener("appinstalled", () => (btn.style.display = "none"));
 })();
 
-// ---------------------------------------------------------------------
-// Form validation (every customer form on every page) - rules live in
-// js/form-validation.js, shared with the admin and staff dashboards.
-// ---------------------------------------------------------------------
+// Form validation (every customer form on every page)
 if (typeof FuludeValidation !== "undefined") {
   FuludeValidation.apply({
     names: ["reservation-name", "signup-name", "customer-name", "buffetName", "catName", "reviewName", "orderReviewName", "settings-name"],

@@ -1,13 +1,4 @@
-/**
- * functions/api/admin/buffet-events.js
- * -----------------------------------------------------------------------
- * Admin CRUD for buffet events.
- * GET    /api/admin/buffet-events      -> list
- * POST   /api/admin/buffet-events      -> create {title,description,event_date,capacity,price_cents}
- * PUT    /api/admin/buffet-events      -> update {id,...}
- * DELETE /api/admin/buffet-events      -> delete {id}
- * -----------------------------------------------------------------------
- */
+// Admin CRUD for buffet events
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { sanitizeText } from "../../_lib/security.js";

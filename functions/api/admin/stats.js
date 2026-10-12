@@ -1,17 +1,4 @@
-/**
- * functions/api/admin/stats.js
- * -----------------------------------------------------------------------
- * GET /api/admin/stats
- * Powers the admin "Your Sales" tab: a total order count, plus how many
- * orders touched each menu category (an order counts once per category
- * even if it had several items from that category - so the slices add
- * up to something meaningful rather than double-counting line items).
- *
- * These numbers are always computed live from the `orders`/`order_items`
- * tables, so running "Clear History" (functions/api/admin/orders.js
- * onRequestDelete) immediately lowers what shows up here too.
- * -----------------------------------------------------------------------
- */
+// GET /api/admin/stats
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 

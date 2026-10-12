@@ -1,15 +1,4 @@
-/**
- * functions/api/push/subscribe.js
- * -----------------------------------------------------------------------
- * GET    /api/push/subscribe  -> { publicKey }   (VAPID key for pushManager.subscribe)
- * POST   /api/push/subscribe  { role, subscription }  (Bearer token of that role)
- * DELETE /api/push/subscribe  { endpoint }
- *
- * role: "admin" (admin token) | "staff" (staff token) | "customer"
- * (customer token - pushes about their own orders/bookings only).
- * See functions/_lib/push.js for what gets sent.
- * -----------------------------------------------------------------------
- */
+// GET    /api/push/subscribe
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin, requireStaff } from "../../_lib/auth.js";
 import { requireCustomer } from "../../_lib/customerAuth.js";

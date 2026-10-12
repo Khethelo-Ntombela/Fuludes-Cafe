@@ -1,12 +1,4 @@
-/**
- * functions/api/staff/order-status.js
- * -----------------------------------------------------------------------
- * POST /api/staff/order-status
- *
- * Persists a staff-driven order transition and records the selected
- * fulfilment mode when an order enters Collection or Delivery.
- * -----------------------------------------------------------------------
- */
+// POST /api/staff/order-status
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireStaff } from "../../_lib/auth.js";
 import { getRequestIp } from "../../_lib/security.js";

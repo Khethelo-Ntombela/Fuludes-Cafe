@@ -1,37 +1,4 @@
-/**
- * functions/api/admin/menu.js
- * -----------------------------------------------------------------------
- * Full CRUD for menu items, used by public/js/admin.js to let Fulufhelo
- * add, categorize, and manage dishes from her phone.
- *
- * GET    /api/admin/menu          -> every item (incl. hidden/sold out),
- *                                    each with its assigned addon ids
- * POST   /api/admin/menu          -> create an item
- * PUT    /api/admin/menu          -> update an item (body must include id)
- * DELETE /api/admin/menu?id=5     -> delete an item
- *
- * Body shape for POST/PUT:
- * {
- *   category_id, name, description, price,
- *   images: ["https://.../a.webp", "https://.../b.webp"],  // up to MAX_IMAGES,
- *                                                            // first = cover photo
- *   stock_quantity, special_price, is_visible, accepts_spice, accepts_addons,
- *   addon_ids: [1, 2]   // which global addons this dish accepts
- * }
- *
- * is_available is no longer accepted directly from the client - it's a
- * "Sold Out" badge derived server-side from stock_quantity: blank/null
- * means untracked (always available), a number means available while
- * that number is above 0. Ordering (functions/api/order.js) decrements
- * stock_quantity automatically; this file is where the admin sets or
- * restocks the number.
- *
- * special_price is nullable - blank/null means the item isn't on special.
- * When set it must be less than `price` and becomes the item's actual
- * selling price everywhere (customer menu, cart, checkout) until an admin
- * clears it again from the Specials tab.
- * -----------------------------------------------------------------------
- */
+// Full CRUD for menu items, used by public/js/admin.js to let Fulufhelo add, categorize
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { logAudit, diffChanges, summarizeChanges, money } from "../../_lib/audit.js";
@@ -77,11 +44,7 @@ async function auditMenu(context, action, item, summary, changes = []) {
 
 const MAX_IMAGES = 6; // keeps R2 usage + gallery UI sane for a small cafe menu
 
-/**
- * Normalizes the incoming stock_quantity field. Blank/null/undefined means
- * "not tracked - always available" (NULL in the DB). Otherwise it must be a
- * whole number >= 0.
- */
+// Normalizes the incoming stock_quantity field
 function parseStockQuantity(raw) {
   if (raw === null || raw === undefined || raw === "")
     return { ok: true, value: null };
@@ -90,12 +53,7 @@ function parseStockQuantity(raw) {
   return { ok: true, value: n };
 }
 
-/**
- * Normalizes the incoming special_price field against the item's regular
- * price. Blank/null/undefined means "not on special" (NULL in the DB).
- * Otherwise it must be a non-negative number strictly less than `price` -
- * a "special" that isn't actually a discount would just be confusing.
- */
+// Normalizes the incoming special_price field against the item's regular price
 function parseSpecialPrice(raw, price) {
   if (raw === null || raw === undefined || raw === "")
     return { ok: true, value: null };
@@ -167,11 +125,7 @@ async function syncIngredients(env, menuItemId, ingredients) {
   return names;
 }
 
-/**
- * Replaces a dish's photo gallery and keeps menu_items.image_url (the
- * denormalized cover photo used by the customer grid) in sync with
- * whichever URL is first in the list.
- */
+// Replaces a dish's photo gallery and keeps menu_items.image_url
 async function syncImages(env, menuItemId, imageUrls) {
   const urls = (Array.isArray(imageUrls) ? imageUrls : [])
     .filter((url) => typeof url === "string" && url.trim().length > 0)
@@ -197,7 +151,7 @@ async function syncImages(env, menuItemId, imageUrls) {
 const DRINK_TYPES = ["beverage", "cocktail", "alcohol", "other"];
 let drinkTypeColumnReady = false;
 
-/** menu_items.drink_type (migration 008) - added here too so the admin works before the migration is run. */
+// drink_type is from migration 008; added here too in case it has not been run yet.
 async function ensureDrinkTypeColumn(env) {
   if (drinkTypeColumnReady) return;
   await runQuery(env, "ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS drink_type TEXT;");

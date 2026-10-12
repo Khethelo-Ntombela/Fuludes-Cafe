@@ -1,10 +1,4 @@
-/**
- * functions/api/admin/ingredient-suggestions.js
- * -----------------------------------------------------------------------
- * GET /api/admin/ingredient-suggestions?days=7&low_stock_threshold=5
- * Returns ingredients ranked by how many "worth watching" dishes use them.
- * -----------------------------------------------------------------------
- */
+// GET /api/admin/ingredient-suggestions?days=7&low_stock_threshold=5
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 
@@ -18,11 +12,7 @@ export async function onRequestGet(context) {
   const lowStockThreshold = Math.max(0, parseInt(url.searchParams.get("low_stock_threshold") || "5", 10));
 
   try {
-    // 1. Get dishes that sold well in the recent window.
-    // Only orders the gateway confirmed as paid count - 'awaiting' (still
-    // in checkout / abandoned), 'failed', 'refunded' and 'not_required' are
-    // excluded. A paid order that was later cancelled keeps
-    // payment_status = 'paid' until refunded, so Cancelled is excluded too.
+    // 1
     const soldWellRes = await runQuery(env, `
       SELECT
         oi.menu_item_id,
@@ -74,7 +64,7 @@ export async function onRequestGet(context) {
     `, [...allTriggerDishIds]);
 
     // 5. Aggregate by ingredient
-    const ingredientMap = new Map(); // ingredient_name -> { dish_count, urgency_score, dishes: [] }
+    const ingredientMap = new Map(); // ingredient_name -> { dish_count, urgency_score
     
     for (const row of ingredientRes.rows) {
       const { ingredient_name, menu_item_id, dish_name, stock_quantity } = row;

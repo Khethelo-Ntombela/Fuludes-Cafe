@@ -1,24 +1,7 @@
-/**
- * functions/_lib/stock.js
- * -----------------------------------------------------------------------
- * Stock is checked and deducted ONLY when a payment is completed (the Yoco
- * payment webhook). Nothing is reserved at cart, checkout or while the
- * customer is on Yoco's page.
- *
- * takeOrderStock is all-or-nothing and race-safe: when several customers
- * pay for the last items at the same time, only the first completed
- * payment gets the stock; for the others it returns ok:false and the
- * webhook refunds them automatically.
- * orders.stock_decremented = "this order's stock has been taken".
- * -----------------------------------------------------------------------
- */
+// Stock is checked and deducted ONLY when a payment is completed (the Yoco payment webhook)
 import { runQuery } from "./db.js";
 
-/**
- * Takes the stock for a just-paid order. Returns { ok: true } or
- * { ok: false, sold_out: [names] }. Calling it again for the same order
- * never takes the stock twice.
- */
+// Takes the stock for a just-paid order
 export async function takeOrderStock(env, orderId) {
   // Claim the order first - a repeated webhook for it can't take stock twice.
   const claimed = await runQuery(

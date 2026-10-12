@@ -1,15 +1,4 @@
-/**
- * functions/api/auth/account.js
- * -----------------------------------------------------------------------
- * PUT    /api/auth/account  - update account details. Send any of:
- *          { name }                     -> username / display name
- *          { phone_number }, { delivery_address }
- *          { marketing_email_opt_in }   -> email marketing on/off
- *        Only the fields that are present are changed. Passwords are NOT
- *        changed here - see change-password.js (needs email confirmation).
- * DELETE /api/auth/account  - permanently delete the signed-in account.
- * -----------------------------------------------------------------------
- */
+// PUT    /api/auth/account
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireCustomer } from "../../_lib/customerAuth.js";
 import { sanitizeText, isValidEmail, isValidName, normalizePhone, VALIDATION_MESSAGES } from "../../_lib/security.js";

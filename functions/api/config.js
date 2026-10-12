@@ -1,13 +1,4 @@
-/**
- * functions/api/config.js
- * -----------------------------------------------------------------------
- * GET /api/config
- * Public endpoint the customer site reads to know the admin-controlled
- * display flags: buffet section, out-of-service mode (+ reason) and the
- * optional announcement message shown under the hero buttons.
- * Writing to this row is admin-only - see functions/api/admin/config.js.
- * -----------------------------------------------------------------------
- */
+// GET /api/config
 import { runQuery, jsonResponse } from "../_lib/db.js";
 import { ensureConfigColumns } from "../_lib/config.js";
 

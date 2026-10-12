@@ -1,8 +1,5 @@
--- =====================================================================
--- Push notifications (admin / kitchen / customer apps). These tables are
--- also created automatically on first use by functions/_lib/push.js;
--- running this just does it up front. Run in Neon SQL editor.
--- =====================================================================
+-- Push notifications (admin / kitchen / customer apps)
+
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   id          SERIAL PRIMARY KEY,
   role        TEXT NOT NULL,                 -- 'admin' | 'staff' | 'customer'

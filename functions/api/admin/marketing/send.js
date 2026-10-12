@@ -1,18 +1,4 @@
-/**
- * functions/api/admin/marketing/send.js
- * -----------------------------------------------------------------------
- * POST /api/admin/marketing/send  (multipart form)
- *   subject, body       - required
- *   image_urls          - optional, JSON array of up to 5 image links
- *
- * Images are optional. The admin page shrinks each picked photo in the
- * browser and uploads it once to the R2 bucket (/api/admin/upload); the
- * email then shows those images inline under the text. (The old way -
- * base64 attachments rebuilt for every subscriber - ran past Cloudflare's
- * CPU/request limits, so emails with pictures failed.)
- * Emails go out through Resend's batch endpoint, 100 per request.
- * -----------------------------------------------------------------------
- */
+// POST /api/admin/marketing/send
 import { runQuery, jsonResponse } from "../../../_lib/db.js";
 import { requireAdmin } from "../../../_lib/auth.js";
 import { sendEmailBatch } from "../../../_lib/email.js";

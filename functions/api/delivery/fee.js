@@ -1,12 +1,4 @@
-/**
- * functions/api/delivery/fee.js
- * -----------------------------------------------------------------------
- * POST /api/delivery/fee
- * Calculates delivery fee based on distance from cafe to delivery address.
- * Expects: { lat: number, lng: number }
- * Returns: { fee, distance_km, band_up_to_km, too_far, cafe_phone, cafe_email }
- * -----------------------------------------------------------------------
- */
+// POST /api/delivery/fee
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { MAX_DELIVERY_KM } from "../../_lib/delivery.js";
 

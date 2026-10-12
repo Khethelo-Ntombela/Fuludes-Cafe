@@ -1,21 +1,4 @@
-/**
- * public/js/form-validation.js
- * -----------------------------------------------------------------------
- * Shared form validation for the customer site, the admin dashboard and
- * the staff board. Same rules as the server (functions/_lib/security.js),
- * so mistakes show on the field before anything is sent; the browser
- * blocks the submit and points at the first wrong field.
- *
- *  - every phone field (type="tel") and email field (type="email") is
- *    checked automatically
- *  - each page passes the rest with FuludeValidation.apply({...})
- *  - fields added later (windows built by JavaScript) are picked up too
- *  - FuludeValidation.check([ids]) is for actions sent from a plain button
- *    instead of a form submit (e.g. admin Place Order)
- *
- * Load BEFORE site.js / admin.js / staff.js.
- * -----------------------------------------------------------------------
- */
+// Shared form validation for the customer site, the admin dashboard and the staff board
 const FuludeValidation = (() => {
   const MESSAGES = {
     name: "Please enter a full name (at least 2 letters).",
@@ -149,15 +132,12 @@ const FuludeValidation = (() => {
     }).observe(document.body, { childList: true, subtree: true });
   }
 
-  /**
-   * For actions sent from a plain button: checks the given fields, shows the
-   * browser's message on the first wrong one and returns false; true if all OK.
-   */
+  // For actions sent from a plain button: checks the given fields
   function check(ids) {
     enhance();
     for (const id of ids) {
       const el = byId(id);
-      if (!el || el.offsetParent === null) continue; // missing or hidden (e.g. address fields on a collection order)
+      if (!el || el.offsetParent === null) continue; // missing or hidden (e.g
       if (el._fvCheck) el._fvCheck();
       if (!el.checkValidity()) {
         el.reportValidity();

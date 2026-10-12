@@ -1,20 +1,4 @@
-/**
- * functions/api/reservations.js
- * -----------------------------------------------------------------------
- * POST /api/reservations
- * Creates a dine-in reservation. It can be submitted by a signed-in
- * customer or as a guest. If the customer is signed in, the booking is
- * linked to their account so the cafe can follow up later.
- *
- * GET /api/reservations
- * Returns the reservations for the currently signed-in customer.
- *
- * DELETE /api/reservations
- * "Clear history" for the signed-in customer: hides every one of their
- * bookings from their own list (hidden_by_customer). The bookings stay in
- * the database and on the admin Reservations tab.
- * -----------------------------------------------------------------------
- */
+// POST /api/reservations
 import { runQuery, jsonResponse } from "../_lib/db.js";
 import {
   requireCustomer,
@@ -149,9 +133,7 @@ export async function onRequestPost(context) {
   let advanceOrderId = null;
   let advancePayment = null;
   if (advanceOrderRequested && !customer) {
-    // Pre-ordering needs an account; the customer then checks out from the
-    // menu page (their reservation details are filled in there), and that
-    // order is linked to this reservation by /api/order.
+    // Pre-ordering needs an account; the customer then checks out from the menu page
     return jsonResponse(
       { error: "Sign in is required for advance food ordering." },
       401,
@@ -168,9 +150,7 @@ export async function onRequestPost(context) {
   }
 
   try {
-    // Customers can hold several bookings at once - an earlier one that is
-    // still pending, confirmed or waiting for its pre-order payment no
-    // longer blocks booking another table.
+    // Customers can hold several bookings at once - an earlier one that is still pending
     const result = await runQuery(
       env,
       `

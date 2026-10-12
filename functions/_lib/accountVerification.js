@@ -1,11 +1,4 @@
-/**
- * functions/_lib/accountVerification.js
- * -----------------------------------------------------------------------
- * "Click the link before you can log in" for newly created admin/staff
- * accounts, mirroring the customer sign-up flow
- * (functions/api/auth/verify-email.js) but with two separate token
- * tables so admin and staff verification links can never be confused.
- * ----------------------------------------------------------------------- */
+// "Click the link before you can log in" for newly created admin/staff accounts
 import { runQuery } from "./db.js";
 import { generateToken } from "./password.js";
 import { sendEmail } from "./email.js";
@@ -30,11 +23,7 @@ async function ensureVerificationTable(env, tokenTable, accountTable, accountIdC
   readyTables.add(tokenTable);
 }
 
-/**
- * Sends the "verify your email" link for a freshly created admin or
- * staff account. role: "admin" | "staff" - picks the token table, the
- * page the link lands the person on, and the wording of the email.
- */
+// Sends the "verify your email" link for a freshly created admin or staff account
 export async function sendAccountVerificationEmail(env, { role, accountId, email, requestUrl, label }) {
   const isAdmin = role === "admin";
   const tokenTable = isAdmin ? "admin_email_verifications" : "staff_email_verifications";

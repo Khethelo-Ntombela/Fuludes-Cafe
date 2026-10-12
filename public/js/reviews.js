@@ -1,10 +1,4 @@
-/**
- * public/js/reviews.js
- * -----------------------------------------------------------------------
- * Reviews-page logic: loads the review wall from /api/review and submits
- * new reviews. Requires site.js to be loaded first.
- * -----------------------------------------------------------------------
- */
+// Reviews-page logic: loads the review wall from /api/review and submits new reviews
 
 async function loadReviews() {
   const list = document.getElementById("reviewsList");

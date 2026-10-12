@@ -1,28 +1,4 @@
-/**
- * functions/api/cart.js
- * -----------------------------------------------------------------------
- * The signed-in customer's saved cart - the same cart on every device
- * (see functions/_lib/savedCart.js for what is stored and how it is
- * rebuilt from the live menu). Every route needs a customer session.
- *
- * GET    /api/cart
- *   -> { items, version, notices }
- *      items are full cart lines priced from today's menu; notices say
- *      what was removed or changed (sold out, side options changed, ...).
- *
- * PUT    /api/cart   { items: [{ itemId, quantity, spiceLevel, sideId, extraIds }] }
- *   Replaces the saved cart with what this device shows. Same response.
- *
- * POST   /api/cart   { items: [...] }
- *   Merges what this device holds into the saved cart (identical lines
- *   have their quantities added) - used the first time a device meets the
- *   account, e.g. right after signing in with items already in the cart.
- *   Same response.
- *
- * DELETE /api/cart
- *   Empties the saved cart.
- * -----------------------------------------------------------------------
- */
+// The signed-in customer's saved cart - the same cart on every device
 import { jsonResponse } from "../_lib/db.js";
 import { requireCustomer } from "../_lib/customerAuth.js";
 import {

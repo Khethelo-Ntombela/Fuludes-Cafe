@@ -1,14 +1,4 @@
-/**
- * functions/api/admin/pending-orders.js
- * -----------------------------------------------------------------------
- * GET /api/admin/pending-orders
- * Polled every 30s by the admin dashboard's order monitor. Returns every
- * order still active in the kitchen lifecycle (New, Preparing, Ready, Collection, Delivery -
- * i.e. not yet Completed or Cancelled) with their line items, so admin.js
- * can detect brand-new tickets and ring an alert. The Staff Portal
- * (functions/api/staff/orders.js) is the same live board, kitchen-facing.
- * -----------------------------------------------------------------------
- */
+// GET /api/admin/pending-orders
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { queueDueNewOrderPushes } from "../../_lib/push.js";

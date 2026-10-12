@@ -1,11 +1,4 @@
-/**
- * functions/api/admin/password.js
- * -----------------------------------------------------------------------
- * POST /api/admin/password  { current_password, new_password }
- * Lets the signed-in admin change their own password. This is separate
- * from the customer-style password reset flow, and is protected by the
- * existing admin bearer token.
- * ----------------------------------------------------------------------- */
+// POST /api/admin/password
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { hashPassword, verifyPassword } from "../../_lib/password.js";

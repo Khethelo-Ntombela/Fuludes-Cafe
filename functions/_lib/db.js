@@ -1,26 +1,5 @@
-/**
- * functions/_lib/db.js
- * -----------------------------------------------------------------------
- * Tiny wrapper around Neon's serverless PostgreSQL driver. Every Pages
- * Function imports `runQuery()` instead of hand-rolling database calls, so
- * connection and error handling only live in one place.
- *
- * Required environment variables (set in Cloudflare Pages > Settings >
- * Environment variables):
- *   NEON_DATABASE_URL  PostgreSQL connection string from Neon's Connect panel
- *
- * NOTE: files/folders prefixed with "_" are ignored by Cloudflare Pages'
- * file-based router, so this module is never itself exposed as a route.
- * -----------------------------------------------------------------------
- */
+// Tiny wrapper around Neon's serverless PostgreSQL driver
 
-/**
- * Run a single parameterised SQL statement against Neon.
- * @param {object} env - the Pages Function `context.env` object
- * @param {string} query - SQL text with $1, $2... placeholders
- * @param {Array} params - values for the placeholders
- * @returns {Promise<{rows: any[]}>}
- */
 import { neon } from "@neondatabase/serverless";
 
 export async function runQuery(env, query, params = []) {
@@ -39,13 +18,7 @@ export async function runQuery(env, query, params = []) {
   }
 }
 
-/**
- * Run several statements back to back. Neon's HTTP endpoint does not
- * support multi-statement transactions, so this simply awaits each
- * statement in order and stops (returning what succeeded) on failure -
- * callers should design writes so partial completion is safe, or clean
- * up manually (see functions/api/order.js for an example).
- */
+// Run several statements back to back
 export async function runSequence(env, statements) {
   const results = [];
   for (const { query, params } of statements) {
@@ -57,9 +30,33 @@ export async function runSequence(env, statements) {
 export class DbConfigError extends Error {}
 export class DbQueryError extends Error {}
 
+// Anything that looks like a key or connection string is masked before it leaves the server.
+const SECRET_PATTERNS = [
+  [/postgres(?:ql)?:\/\/[^\s"'\\]+/gi, "[redacted-db-url]"],
+  [/\bnpg_[A-Za-z0-9]+/g, "[redacted]"],
+  [/\bre_[A-Za-z0-9_]{16,}/g, "[redacted]"],
+  [/\bsk_(?:live|test)_[A-Za-z0-9]+/g, "[redacted]"],
+  [/\bwhsec_[A-Za-z0-9+/=_-]+/g, "[redacted]"],
+  [/Bearer\s+[A-Za-z0-9._~+/=-]{12,}/gi, "Bearer [redacted]"],
+  [/([?&](?:key|api_key|apikey)=)[^&\s"'\\]+/gi, "$1[redacted]"],
+];
+
+export function redactSecrets(text) {
+  let out = String(text);
+  for (const [pattern, replacement] of SECRET_PATTERNS) out = out.replace(pattern, replacement);
+  return out;
+}
+
 /** Helper to build a consistent JSON Response. */
 export function jsonResponse(body, status = 200, extraHeaders = {}) {
-  return new Response(JSON.stringify(body), {
+  let payload = body;
+  if (status >= 500 && payload && typeof payload === "object") {
+    // Server errors keep their detail in the Cloudflare logs, not in the response.
+    const { message, details, ...safe } = payload;
+    if (message || details) console.error("API error:", redactSecrets(JSON.stringify({ error: safe.error, message, details })));
+    payload = safe;
+  }
+  return new Response(redactSecrets(JSON.stringify(payload)), {
     status,
     headers: {
       "Content-Type": "application/json",

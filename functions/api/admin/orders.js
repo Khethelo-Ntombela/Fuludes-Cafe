@@ -1,29 +1,4 @@
-/**
- * functions/api/admin/orders.js
- * -----------------------------------------------------------------------
- * GET /api/admin/orders
- * Full order history (every status - New, Preparing, Ready, Collection, Delivery, Completed,
- * Cancelled), for the admin "History" tab. Distinct from
- * /api/admin/pending-orders, which only ever shows the live kitchen queue.
- *
- * Query params (all optional):
- *   status         - "New" | "Preparing" | "Ready" | "Collection" | "Delivery" | "Completed" | "Cancelled"
- *   payment_status - "paid" | "awaiting" | "failed" | "not_required" (e.g. combined
- *                     with status=Cancelled, this is how the admin "Refund Needed"
- *                     history filter finds cancelled orders that were already paid)
- *   search         - matches customer name, phone, or exact order id
- *   limit          - default 30, max 100
- *   offset         - default 0 (for "Load more" pagination)
- *
- * DELETE /api/admin/orders
- * "Clear History" - permanently removes every Completed and Cancelled
- * order (and their order_items, via ON DELETE CASCADE). Live orders
- * still in New, Preparing, Ready, Collection, or Delivery are never touched by this, so an
- * admin can't accidentally wipe an order the kitchen hasn't finished
- * yet. Note this also reduces the counts shown on the Your Sales tab,
- * since those are computed live from the same orders table.
- * -----------------------------------------------------------------------
- */
+// GET /api/admin/orders
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { ensureCancelledByColumn } from "../../_lib/orderCancel.js";
@@ -46,12 +21,7 @@ export async function onRequestGet(context) {
   const offset = Math.max(parseInt(url.searchParams.get("offset"), 10) || 0, 0);
 
   try {
-    // Order History never lists unpaid orders (payment still awaiting, or
-    // failed) - they were never really placed as far as the cafe is
-    // concerned. Cancelled-after-payment orders are still shown. The only
-    // way to see unpaid orders is to ask for them explicitly with
-    // payment_status=awaiting|failed (used by the dashboard's "Pending
-    // Orders" card, never by the History tab).
+    // Order History never lists unpaid orders (payment still awaiting, or failed)
     const asksForUnpaid = paymentStatus === "awaiting" || paymentStatus === "failed";
     const conditions = asksForUnpaid
       ? []
@@ -80,7 +50,7 @@ export async function onRequestGet(context) {
     }
     if (
       paymentStatus &&
-      ["paid", "awaiting", "failed", "not_required", "refunded"].includes(paymentStatus)
+      ["paid", "awaiting", "failed", "refunded"].includes(paymentStatus)
     ) {
       params.push(paymentStatus);
       conditions.push(`payment_status = $${params.length}`);
@@ -168,9 +138,7 @@ export async function onRequestDelete(context) {
   if (authError) return authError;
 
   try {
-    // Dashboard "Pending Orders" manual clear: removes orders that were
-    // never paid (awaiting / failed) - either one specific order (?id=) or
-    // all of them. Paid orders are never touched by this.
+    // Dashboard "Pending Orders" manual clear: removes orders that were never paid (awaiting / failed)
     const url = new URL(request.url);
     if (url.searchParams.get("scope") === "unpaid") {
       const id = parseInt(url.searchParams.get("id"), 10);

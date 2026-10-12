@@ -1,21 +1,4 @@
-/**
- * functions/api/admin/login.js
- * -----------------------------------------------------------------------
- * POST /api/admin/login  { email, password }
- * Checks the submitted email/password against the admin credentials in
- * the env file (ADMIN_EMAIL / ADMIN_PASSWORD), or against the hashed
- * admin account in Neon, then creates a database-backed session token.
- *
- * Lockout: after MAX_FAILED_ATTEMPTS wrong passwords in a row the account
- * is locked (admin_accounts.is_locked = TRUE). Unlike customers there's
- * no self-service unlock here - only the main admin can re-enable a
- * locked account from Settings > Admin Accounts.
- *
- * Email verification: an admin account created by the main admin can't
- * log in until they click the link emailed to them (verify-email.js).
- * The env-var bootstrap admin below is always considered verified.
- * -----------------------------------------------------------------------
- */
+// POST /api/admin/login
 import { jsonResponse, runQuery } from "../../_lib/db.js";
 import { sanitizeText } from "../../_lib/security.js";
 import { generateToken, verifyPassword, hashPassword } from "../../_lib/password.js";

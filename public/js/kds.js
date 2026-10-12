@@ -1,30 +1,8 @@
-/**
- * public/js/kds.js
- * -----------------------------------------------------------------------
- * Shared Kitchen Display System renderer used by BOTH the admin Live
- * Orders board (admin.js) and the staff kitchen board (staff.js), so the
- * two boards stay pixel-identical.
- *
- * KDS rules enforced here:
- *  - every order card is a fixed height; long items/notes never stretch
- *    a card ("+N more" + a details overlay instead)
- *  - the elapsed-time timer dominates the card (urgency colored)
- *  - hierarchy: order # > timer > type > items > note; customer/contact
- *    details live in the details overlay only
- *  - one primary action + an overflow (⋮) menu per card
- *  - hand-off columns can render compact single-line rows
- *  - column headers show status, count and average ticket age
- *  - drag cards/rows between status columns to persist status changes
- *
- * Load BEFORE admin.js / staff.js.
- * -----------------------------------------------------------------------
- */
+// Shared Kitchen Display System renderer used by BOTH the admin Live Orders board
 
 const KDS_MAX_ITEM_LINES = 3;
 
-/* ---------------- Daily reset (South Africa time) ----------------
- * Today's stats (kitchen strip, today's reservations) only count things
- * from the current cafe day, so they clear by themselves at 12:00 am. */
+// ---------------- Daily reset (South Africa time) ---------------- Today's stats (kitchen strip
 const KDS_TZ = "Africa/Johannesburg";
 
 /** "YYYY-MM-DD" of a moment in cafe time (defaults to now). */
@@ -66,34 +44,20 @@ function kdsFmt(n) {
   return `R${Number(n).toFixed(2)}`;
 }
 
-/**
- * When the order reached the admin/staff boards: paid orders wait out the
- * customer's 2-minute cancel window first (kitchen_release_at), so all
- * timers - card timer, column average, Avg Ticket Age, Longest Waiting -
- * count from then, not from when the customer placed it.
- */
+// When the order reached the admin/staff boards
 function kdsStartTime(order) {
   const release = new Date(order.kitchen_release_at || order.created_at).getTime();
   if (order.scheduled_for && order.preparing_at) return new Date(order.preparing_at).getTime();
   return release;
 }
 
-/**
- * Pre-orders and timed orders (scheduled_for) are only a heads-up of when
- * the customer will arrive; the restaurant decides when to start them. They
- * stay out of Avg Ticket Age and Longest Waiting until Start Preparing is
- * pressed, and then count from that moment.
- */
+// Pre-orders and timed orders (scheduled_for) are only a heads-up of when the customer will arrive
 function kdsCountsInStats(order) {
   if (!order.scheduled_for) return true;
   return order.status !== "New";
 }
 
-/**
- * Order times come from the database's clock; this device's clock can be
- * minutes off, which made every timer start at e.g. "6 min". Each board
- * fetch reports the database's current time, so timers count on that clock.
- */
+// Order times come from the database's clock; this device's clock can be minutes off
 let kdsClockOffset = 0;
 function kdsNow() {
   return Date.now() + kdsClockOffset;
@@ -104,10 +68,7 @@ function kdsMinutes(order) {
   return Math.max(0, Math.floor((kdsNow() - kdsStartTime(order)) / 60000));
 }
 
-/**
- * Timers tick every second between fetches: card/row timers update in place
- * and each board's callbacks (Avg Ticket Age, Longest Waiting) re-run.
- */
+// Timers tick every second between fetches: card/row timers update in place and each board's
 const kdsTickCallbacks = [];
 function kdsOnTick(fn) {
   kdsTickCallbacks.push(fn);
@@ -134,11 +95,7 @@ setInterval(() => {
   });
 }, 1000);
 
-/**
- * The boards poll every 5s; the API also says when the next paid order
- * leaves its 2-minute window, so fetch again at exactly that moment and the
- * new-order sound rings as soon as it reaches the kitchen.
- */
+// The boards poll every 5s; the API also says when the next paid order leaves its 2-minute window
 let kdsReleaseTimer = null;
 function kdsScheduleNextRelease(data, refresh) {
   clearTimeout(kdsReleaseTimer);
@@ -260,10 +217,7 @@ function kdsRowHtml(order) {
     </div>`;
 }
 
-/**
- * Renders the full board (columns incl. headers) as HTML.
- * opts.compactStatuses: statuses rendered as compact rows instead of cards.
- */
+// Renders the full board (columns incl
 function kdsBoardHtml(orders, columns, opts = {}) {
   const compact = new Set(opts.compactStatuses || []);
   return columns
@@ -289,11 +243,7 @@ function kdsBoardHtml(orders, columns, opts = {}) {
     .join("");
 }
 
-/**
- * Wires up a rendered board: overflow menus, details overlay, and status
- * actions. `confirmAction(order, status)` may return false to abort;
- * `onAction(status, orderId)` performs the update.
- */
+// Wires up a rendered board: overflow menus, details overlay, and status actions
 function kdsBindBoard(container, orders, { onAction, confirmAction, onError }) {
   const byId = Object.fromEntries(orders.map((o) => [String(o.id), o]));
 
@@ -396,7 +346,7 @@ function kdsEsc(value) {
   return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 
-/** Row menus sit in a scrolling column - float them next to the ⋮ button, above or below, whichever fits. */
+// Row menus sit in a scrolling column - float them next to the ⋮ button, above or below
 function kdsPlaceFloatingMenu(btn, menu) {
   if (!menu) return;
   const r = btn.getBoundingClientRect();

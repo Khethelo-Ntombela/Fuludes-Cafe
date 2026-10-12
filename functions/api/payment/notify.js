@@ -12,11 +12,7 @@ function toBase64(buffer) {
   return btoa(binary);
 }
 
-/**
- * Yoco signs webhooks the "Standard Webhooks" way: HMAC-SHA256 over
- * "<webhook-id>.<webhook-timestamp>.<body>" keyed with the base64 part of
- * the whsec_... secret; webhook-signature holds "v1,<base64>" entries.
- */
+// Yoco signs webhooks the "Standard Webhooks" way
 async function verifyStandardWebhook(rawBody, request, secretValue) {
   const id = request.headers.get("webhook-id");
   const timestamp = request.headers.get("webhook-timestamp");
@@ -146,9 +142,7 @@ export async function onRequestPost(context) {
     }
     const eventType = payload.type || null;
 
-    // Yoco Checkout API event: { type: "payment.succeeded", payload: { amount (cents),
-    // status, metadata: { checkoutId, order_id } } } - flatten it to the shape below.
-    // payment_ref becomes the checkout id (ch_...), which refunds need.
+    // Yoco Checkout API event: { type: "payment.succeeded", payload: { amount (cents), status, metadata
     if (typeof payload.type === "string" && payload.payload && typeof payload.payload === "object") {
       const inner = payload.payload;
       payload = {
@@ -241,12 +235,7 @@ export async function onRequestPost(context) {
       return new Response("payment failed", { status: 200 });
     }
 
-    // Stock is checked and taken only now, when the payment is complete.
-    // Several customers can be on Yoco for the last items at once - the
-    // first completed payment gets them; any later one finds them gone and
-    // is refunded automatically below.
-    // The new-order notification is sent once the 2-minute window ends (see
-    // sendDueNewOrderPushes) - make sure its column exists before marking paid.
+    // Stock is checked and taken only now, when the payment is complete
     await ensureNewOrderPushColumn(env).catch(() => {});
     const stockResult = await takeOrderStock(env, orderId);
     const soldOutAfterPayment = stockResult.ok ? null : stockResult;

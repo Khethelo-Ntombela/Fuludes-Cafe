@@ -1,9 +1,5 @@
--- =====================================================================
--- Remove SMS marketing + add password-change confirmation table
--- Run once in the Neon SQL editor after deploying.
--- =====================================================================
+-- Remove SMS marketing, add password-change confirmation table
 
--- SMS marketing no longer exists anywhere in the app; delete the stored opt-ins.
 ALTER TABLE customers DROP COLUMN IF EXISTS marketing_sms_opt_in;
 
 -- Password changes from Settings must be confirmed by an emailed link.

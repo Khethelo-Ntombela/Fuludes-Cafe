@@ -1,15 +1,4 @@
-/**
- * functions/api/review.js
- * -----------------------------------------------------------------------
- * GET  /api/review  -> approved reviews (with any owner_reply) for the
- *                      public review wall, newest first, each with the food
- *                      that order contained (drinks left out).
- * POST /api/review  -> a customer submits a rating + comment, optionally
- *                      for one specific paid order (one review per order).
- *                      New reviews wait for admin approval
- *                      (admin > Reviews, via /api/admin/reviews).
- * -----------------------------------------------------------------------
- */
+// GET  /api/review
 import { runQuery, jsonResponse } from "../_lib/db.js";
 import { sanitizeText, isValidEmail, isValidName, normalizePhone, VALIDATION_MESSAGES } from "../_lib/security.js";
 import { requireCustomer } from "../_lib/customerAuth.js";

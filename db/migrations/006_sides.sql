@@ -1,8 +1,5 @@
--- =====================================================================
--- Free "choice of side" (e.g. Chips / Pap / Rice).
--- Managed on the admin Extras tab, then ticked (optionally) per dish.
--- Run once in the Neon SQL editor after deploying.
--- =====================================================================
+-- Free choice of side (chips / pap / rice), ticked per dish
+
 CREATE TABLE IF NOT EXISTS sides (
   id          SERIAL PRIMARY KEY,
   name        TEXT NOT NULL UNIQUE,

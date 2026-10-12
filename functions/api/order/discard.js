@@ -1,13 +1,4 @@
-/**
- * functions/api/order/discard.js
- * -----------------------------------------------------------------------
- * POST /api/order/discard  { id }   (customer token)
- * Removes one of the customer's own orders that was never paid - used when
- * checkout finds an identical unpaid ticket and the customer chooses to
- * edit their order instead of paying the old one. Paid orders can't be
- * removed here (they go through the normal cancel/refund flow).
- * -----------------------------------------------------------------------
- */
+// POST /api/order/discard
 import { requireCustomer } from "../../_lib/customerAuth.js";
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 

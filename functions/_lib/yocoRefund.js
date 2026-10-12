@@ -1,36 +1,8 @@
-/**
- * functions/_lib/yocoRefund.js
- * -----------------------------------------------------------------------
- * Calls Yoco's real Checkout API to refund a completed payment.
- * https://developer.yoco.com/guides/online-payments/refunding-a-payment
- *
- * Requires env.YOCO_SECRET_KEY - the merchant secret key from the Yoco
- * dashboard (Settings > API Keys). This is DIFFERENT from
- * YOCO_WEBHOOK_SECRET (which only verifies incoming webhooks) and from
- * YOCO_PAYMENT_URL/YOCO_CHECKOUT_URL (which only build the checkout
- * redirect). Without YOCO_SECRET_KEY, refundYocoCheckout() cannot
- * authenticate to Yoco at all and will return { ok: false }.
- *
- * checkoutId must be Yoco's own Checkout id (ch_... / ch_test_...),
- * exactly what's stored in orders.payment_ref from the payment webhook.
- * If payment_ref is not actually a Yoco checkout id (e.g. this
- * environment's webhook sender doesn't send one), the refund call will
- * fail with a 4xx from Yoco - that failure is returned, not thrown, so
- * the caller can fall back to the manual refund_needed flow.
- * -----------------------------------------------------------------------
- */
+// Calls Yoco's real Checkout API to refund a completed payment
 
 const YOCO_API_BASE = "https://payments.yoco.com/api";
 
-/**
- * @param {object} env - request env, must contain YOCO_SECRET_KEY
- * @param {object} params
- * @param {string} params.checkoutId - Yoco checkout id to refund (orders.payment_ref)
- * @param {number} params.amount - amount in Rand (will be converted to cents)
- * @param {string} params.idempotencyKey - unique per refund attempt, lets a
- *   retried request be safely resent without risking a double refund
- * @returns {Promise<{ok: true, refundId: string, raw: object} | {ok: false, error: string, status?: number}>}
- */
+// @param {object} env - request env, must contain YOCO_SECRET_KEY
 export async function refundYocoCheckout(env, { checkoutId, amount, idempotencyKey }) {
   if (!env.YOCO_SECRET_KEY) {
     return { ok: false, error: "YOCO_SECRET_KEY is not configured." };

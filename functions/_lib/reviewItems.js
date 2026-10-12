@@ -1,10 +1,4 @@
-/**
- * functions/_lib/reviewItems.js
- * What each reviewed order contained, for showing next to a review
- * ("Ordered: 2× Quarter Chicken, Chakalaka"). Drinks are left out - an
- * item counts as a drink when it has a drink_type or sits in a drinks-like
- * category (same rule as the customer menu, public/js/menu.js).
- */
+// What each reviewed order contained, for showing next to a review ("Ordered
 import { runQuery } from "./db.js";
 
 const DRINK_RE = "(drink|beverage|juice|soda|cocktail|alcohol|liquor|wine|beer|smoothie|shake|coffee|\\mtea\\M)";

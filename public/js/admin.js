@@ -1,13 +1,4 @@
-/**
- * public/js/admin.js
- * -----------------------------------------------------------------------
- * Admin dashboard logic for Fulude's Cafe: password login, menu CRUD with
- * category + spice/extras assignment, in-browser image compression +
- * upload to R2, sold-out / visibility toggles, extras & spice-level
- * catalog management, buffet visibility, review replies, and a polling
- * live order monitor.
- * -----------------------------------------------------------------------
- */
+// Admin dashboard logic for Fulude's Cafe: password login
 
 const TOKEN_KEY = "fulude_admin_token";
 let adminToken = localStorage.getItem(TOKEN_KEY);
@@ -66,27 +57,8 @@ function describeOrderType(order) {
   return "Collection";
 }
 
-/** Payment label for legacy non-online orders. */
-function orderTypePaymentLabel(order) {
-  if (order.order_type === "delivery") return "Delivery";
-  if (order.order_type === "dine_in") return "Table";
-  return "Pickup";
-}
-
-/**
- * The little payment-status pill shown on every order card, in both Live
- * Orders and History. A Cancelled order that was already paid gets a
- * "Refund Needed" pill instead - cancelling never refunds anything
- * automatically (see handleOrderAction's confirm prompt), so this is the
- * at-a-glance reminder that a manual refund may still be needed.
- */
-/**
- * Order History wording for a cancelled order: who cancelled it and what
- * happened to the money.
- *   customer -> "Cancelled by the customer · Automatically refunded"
- *   staff    -> "Cancelled by staff · Refund needed"   (or "· Refunded" once done)
- *   admin    -> "Cancelled by admin · Refund needed"
- */
+// The little payment-status pill shown on every order card, in both Live Orders and History
+// Order History wording for a cancelled order: who cancelled it and what happened to the money
 function cancelledStatusLabel(order) {
   const who =
     order.cancelled_by === "customer"
@@ -108,10 +80,6 @@ function cancelledStatusLabel(order) {
 }
 
 function paymentBadgeHtml(order) {
-  if (order.payment_method !== "online") {
-    // Legacy orders placed before payment became mandatory.
-    return `<span class="badge badge-unpaid">Pay at ${orderTypePaymentLabel(order)}</span>`;
-  }
   if (order.status === "Cancelled" && order.payment_status === "paid") {
     return `<span class="badge badge-refund">Refund Needed</span>`;
   }
@@ -127,9 +95,7 @@ function paymentBadgeHtml(order) {
   return `<span class="badge badge-unpaid">Awaiting Payment</span>`;
 }
 
-// ---------------------------------------------------------------------
 // Auth
-// ---------------------------------------------------------------------
 async function adminFetch(url, options = {}) {
   const res = await fetch(url, {
     ...options,
@@ -147,10 +113,7 @@ async function adminFetch(url, options = {}) {
   return res;
 }
 
-// ---------------------------------------------------------------------
-// Permissions: admins created by the main admin only see (and load) the
-// sections they were given. Main admin = { all: true }.
-// ---------------------------------------------------------------------
+// Permissions: admins created by the main admin only see
 let adminPermissions = { all: true }; // replaced with the real ones right after sign-in
 const adminCan = (perm) => Boolean(adminPermissions.all || adminPermissions[perm]);
 window.adminCan = adminCan;
@@ -243,9 +206,7 @@ function setupAdminAlertToggle() {
   );
 }
 
-// ---------------------------------------------------------------------
 // Tabs
-// ---------------------------------------------------------------------
 let historyLoadedOnce = false;
 
 document.querySelectorAll(".admin-tab-btn").forEach((btn) => {
@@ -264,7 +225,7 @@ document.querySelectorAll(".admin-tab-btn").forEach((btn) => {
       loadOrderHistory(true);
     }
     if (btn.dataset.tab === "sales") {
-      loadSalesStats(); // always fresh - numbers change any time an order is placed or history is cleared
+      loadSalesStats(); // stats change with every order
     }
     if (btn.dataset.tab === "audit") {
       loadAudit(true);
@@ -387,8 +348,7 @@ function resetAdminAccountForm() {
   editingFullAccess = false;
 }
 
-// True while a main (full-access) admin is editing their own account, so
-// their full access is kept without needing a checkbox.
+// True while a main admin edits their own account (full access is kept)
 var editingFullAccess = false;
 
 function startEditAdminAccount(account) {
@@ -502,14 +462,8 @@ document
     }
   });
 
-// ---------------------------------------------------------------------
 // Orders: poll every 30s
-// ---------------------------------------------------------------------
-/**
- * Live refresh every 5s so nobody has to reload the page: the kitchen
- * board always (it drives the new-order beep, even in a background tab),
- * plus whatever fast-changing tab is open while the page is visible.
- */
+// Live refresh every 5s so nobody has to reload the page: the kitchen board always
 const ADMIN_POLL_MS = 5000;
 let adminPollTick = 0;
 function adminLivePoll() {
@@ -647,9 +601,7 @@ function renderKitchenStrip(allOrders) {
   const orders = allOrders.filter(kdsIsToday);
   const note = document.getElementById("kpiResetNote");
   if (note) note.textContent = kdsResetLabel();
-  // Only tickets the kitchen is still working on count towards ticket age,
-  // longest wait and load - once an order is out for collection/delivery
-  // it stops counting.
+  // Only tickets the kitchen is still working on count towards ticket age, longest wait and load
   const active = orders.filter((o) => ["New", "Preparing", "Ready"].includes(o.status));
   const ages = active.filter(kdsCountsInStats).map(kdsMinutes);
   const avgAge = ages.length
@@ -753,10 +705,7 @@ async function handleOrderAction(status, orderId) {
   loadOrders();
 }
 
-// ---------------------------------------------------------------------
-// Order History (read-only view across every status, incl. Completed
-// and Cancelled - separate from the live order monitor).
-// ---------------------------------------------------------------------
+// Order History (read-only view across every status, incl
 const HISTORY_PAGE_SIZE = 30;
 let historyOffset = 0;
 let historyOrders = [];
@@ -776,9 +725,7 @@ async function loadOrderHistory(reset) {
   });
   if (search) params.set("search", search);
 
-  // "Refund Needed" isn't a real order status - it's a shortcut for
-  // Cancelled orders that were already paid, so translate it into the
-  // two real filters the API understands.
+  // "Refund Needed" isn't a real order status - it's a shortcut for Cancelled orders that were already
   if (status === "refund_needed") {
     params.set("status", "Cancelled");
     params.set("payment_status", "paid");
@@ -960,11 +907,7 @@ populateSalesMonthSelect();
 setDefaultSalesDates();
 toggleSalesDateInputs();
 
-// ---------------------------------------------------------------------
-// Your Sales: period-based order + revenue stats and a hand-drawn SVG pie
-// chart of orders per menu category (no charting library - keeps this
-// vanilla/free-tier).
-// ---------------------------------------------------------------------
+// Your Sales: order and revenue stats
 const PIE_COLORS = [
   "#a88b4a",
   "#0a0a0a",
@@ -1289,9 +1232,7 @@ function polarToCartesian(cx, cy, r, angleDegrees) {
   };
 }
 
-// ---------------------------------------------------------------------
 // Categories
-// ---------------------------------------------------------------------
 async function loadCategories() {
   const res = await adminFetch("/api/admin/categories");
   const data = await res.json();
@@ -1392,9 +1333,7 @@ document
     loadCategories();
   });
 
-// ---------------------------------------------------------------------
 // Menu items
-// ---------------------------------------------------------------------
 async function loadMenuItems() {
   const res = await adminFetch("/api/admin/menu");
   const data = await res.json();
@@ -1577,11 +1516,7 @@ async function saveMenuItemPatch(item, patch) {
   loadMenuItems();
 }
 
-// ---------------------------------------------------------------------
-// Specials - pick an existing dish and set a discounted price for it.
-// While special_price is set, it IS the dish's real selling price
-// everywhere (customer menu, cart, checkout) - see functions/api/order.js.
-// ---------------------------------------------------------------------
+// Specials - pick an existing dish and set a discounted price
 function renderSpecialItemSelect() {
   const select = document.getElementById("specialItemSelect");
   const previousValue = select.value;
@@ -1733,7 +1668,7 @@ function renderAddonCheckboxesForForm(selectedIds = []) {
 }
 
 const MAX_ITEM_IMAGES = 6;
-let formImages = []; // URLs already uploaded to R2 for the item currently being added/edited
+let formImages = []; // URLs already uploaded to R2 for the item currently
 
 function populateFormForEdit(item) {
   document.getElementById("menuFormTitle").textContent = `Edit: ${item.name}`;
@@ -1834,10 +1769,7 @@ document
     }
 
     const price = parseFloat(document.getElementById("itemPrice").value);
-    // special_price isn't editable on this form (see the Specials tab) - just
-    // carry the item's existing special forward. If the regular price was
-    // dropped to/below the existing special here, the special no longer
-    // makes sense, so end it automatically rather than blocking this save.
+    // special_price isn't editable on this form (see the Specials tab)
     const carriedSpecialInput = document
       .getElementById("itemSpecialPrice")
       .value.trim();
@@ -1941,13 +1873,7 @@ document.getElementById("itemImage").addEventListener("change", async (e) => {
   e.target.value = "";
 });
 
-/**
- * compressImageToWebP(file, maxBytes)
- * Downscales/re-encodes a photo entirely in the browser (canvas) to a
- * WebP under maxBytes, so the server never has to receive or process
- * an oversized upload - keeping R2 usage and Worker CPU time inside the
- * free tier.
- */
+// compressImageToWebP(file, maxBytes) Downscales/re-encodes a photo entirely in the browser
 function compressImageToWebP(file, maxBytes = 300 * 1024, type = "image/webp") {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1993,7 +1919,7 @@ function compressImageToWebP(file, maxBytes = 300 * 1024, type = "image/webp") {
               }
               tryExport();
             },
-            type, // "image/jpeg" for email images - every email app can show JPEG
+            type, // "image/jpeg" for email images
             quality,
           );
         };
@@ -2006,9 +1932,7 @@ function compressImageToWebP(file, maxBytes = 300 * 1024, type = "image/webp") {
   });
 }
 
-// ---------------------------------------------------------------------
 // Extras (addons) & spice levels
-// ---------------------------------------------------------------------
 async function loadAddonsAndSpice() {
   const res = await adminFetch("/api/admin/addons");
   const data = await res.json();
@@ -2116,9 +2040,7 @@ document.getElementById("spiceForm").addEventListener("submit", async (e) => {
   loadAddonsAndSpice();
 });
 
-// ---------------------------------------------------------------------
 // Reviews
-// ---------------------------------------------------------------------
 /** Summary cards + rating distribution above the review feed. */
 function renderReviewSummary(reviews) {
   const wrap = document.getElementById("reviewSummary");
@@ -2293,9 +2215,7 @@ async function loadAdminReviews() {
   });
 }
 
-// ---------------------------------------------------------------------
 // Settings: admin password + staff accounts
-// ---------------------------------------------------------------------
 document
   .getElementById("adminPasswordForm")
   .addEventListener("submit", async (e) => {
@@ -2710,9 +2630,7 @@ function renderReservations() {
   });
 }
 
-// Last known store settings are cached in localStorage so the dashboard paints
-// the right state instantly on load, then refreshes silently from the server
-// (stale-while-revalidate). Anything wrong with storage is simply ignored.
+// Last known store settings are cached in localStorage so the dashboard paints the right state
 const STORE_CACHE_KEY = "fc_admin_store_config_v1";
 const STORE_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000; // same length as an admin session
 
@@ -2755,7 +2673,7 @@ function showCachedStoreStatus() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  if (adminToken) showCachedStoreStatus(); // signed in: show last known status before any request finishes
+  if (adminToken) showCachedStoreStatus(); // signed in: show last known status before any request
 });
 
 async function loadBuffetSetting() {
@@ -2996,12 +2914,7 @@ function initBuffetAdminHandlers() {
 let buffetEventsById = {};
 
 /** Photo thumbnails in the buffet form, each with a remove (x) button. */
-/**
- * Photo picker that lets admins add pictures in several goes: every pick is
- * ADDED to the list (never replaces it), all of them - already-saved and
- * new - show as thumbnails with a remove (x), and nothing is uploaded until
- * Save / Send. Used by the buffet event form and the marketing email.
- */
+// Photo picker that lets admins add pictures in several goes: every pick is ADDED to the list
 function createImagePicker({ inputId, previewId, max, existing = () => [], setExisting = () => {} }) {
   const input = document.getElementById(inputId);
   const preview = document.getElementById(previewId);
@@ -3297,9 +3210,7 @@ document
     });
   });
 
-// ---------------------------------------------------------------------
 // Admin password reset flow on the login page
-// ---------------------------------------------------------------------
 function getResetTokenFromUrl() {
   const params = new URLSearchParams(window.location.search);
   return params.get("reset_token") || "";
@@ -3407,8 +3318,7 @@ const AUDIT_LABELS = {
   order_cancelled: "Order cancelled",
 };
 
-/** Username/name recorded at the time of the action; older entries (before
- * this was stored) fall back to "admin #N" / "staff #N". */
+// Username/name recorded at the time of the action; older entries
 function auditActor(r) {
   if (r.actor_name) return r.actor_name;
   return `${r.actor_type || ""}${r.actor_id ? " #" + r.actor_id : ""}`;
@@ -3569,17 +3479,13 @@ function initAuditHandlers() {
   }
 }
 // Init
-// ---------------------------------------------------------------------
 if (adminToken) {
   showDashboard();
 } else if (!initialResetToken) {
   window.location.replace("/home.html?auth=signin");
 }
 
-// ---------------------------------------------------------------------
-// Form validation for every admin form - rules live in js/form-validation.js
-// (shared with the customer site); the server re-checks all of it.
-// ---------------------------------------------------------------------
+// Form validation for every admin form
 if (typeof FuludeValidation !== "undefined") {
   const money = (max, title) => ({ min: 0, max, step: 0.01, title });
   FuludeValidation.apply({

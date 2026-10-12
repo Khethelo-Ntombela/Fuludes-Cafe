@@ -1,11 +1,4 @@
-/**
- * functions/_lib/rateLimit.js
- * -----------------------------------------------------------------------
- * Simple database-backed rate limiting so auth and other sensitive
- * endpoints can reject repeated abuse across Cloudflare Pages' stateless
- * Functions platform.
- * -----------------------------------------------------------------------
- */
+// Simple database-backed rate limiting so auth and other sensitive endpoints can reject
 import { runQuery } from "./db.js";
 
 export async function checkRateLimit(env, key, limit, windowSeconds = 60) {

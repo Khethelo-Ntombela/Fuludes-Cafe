@@ -1,16 +1,4 @@
-/**
- * New-order sound for the admin dashboard and the staff/kitchen board.
- *
- * Browsers keep Web Audio silent until someone taps the page, and phones
- * suspend it again after the screen locks or the app goes to the
- * background. So the sound is (re)unlocked on every tap/key press and when
- * the page comes back into view, and if a new order arrives while it's
- * still locked, a "Tap to turn on order sound" bar appears - one tap
- * unlocks it and plays the chime.
- *
- * On iPhones, audioSession "playback" lets the chime play even with the
- * ring/silent switch on silent.
- */
+// New-order sound for the admin dashboard and the staff/kitchen board
 const FuludeOrderAlert = (() => {
   let ctx = null;
   let banner = null;

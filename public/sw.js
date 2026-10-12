@@ -1,5 +1,4 @@
-/* Service worker: makes the site installable as an app and gives an offline
-   fallback. API calls are never cached (orders/payments must be live). */
+// Service worker: makes the site installable as an app and gives an offline fallback
 const CACHE = "fulude-shell-v9";
 const SHELL = ["/home.html", "/offline.html", "/css/style.css", "/js/site.js", "/icon-192.png?v=2"];
 
@@ -32,9 +31,7 @@ self.addEventListener("fetch", (e) => {
   );
 });
 
-/* Push notifications (new orders for admin/kitchen, order + booking updates
-   for customers) - delivered even when the app is closed. Sent by
-   functions/_lib/push.js. */
+// Push notifications (new orders for admin/kitchen, order + booking updates for customers)
 self.addEventListener("push", (e) => {
   let data = {};
   try {

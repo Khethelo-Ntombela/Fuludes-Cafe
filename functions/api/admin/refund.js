@@ -1,17 +1,4 @@
-/**
- * functions/api/admin/refund.js
- * -----------------------------------------------------------------------
- * POST /api/admin/refund  { order_id, mode? }
- * For a paid order that was cancelled and still needs its money back
- * (refund_needed - e.g. cancelled by staff/admin, or a customer refund
- * that failed):
- *   mode "yoco" (default): refunds it through Yoco's Refund API right from
- *     the app (needs YOCO_SECRET_KEY and the order's Yoco checkout id).
- *   mode "manual": the refund was already done in the Yoco dashboard - just
- *     record it.
- * Every refund is written to the audit log.
- * -----------------------------------------------------------------------
- */
+// POST /api/admin/refund
 import { requireAdmin } from "../../_lib/auth.js";
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { getRequestIp } from "../../_lib/security.js";

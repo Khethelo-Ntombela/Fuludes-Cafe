@@ -1,15 +1,4 @@
-/**
- * functions/api/admin/mark-paid.js
- * -----------------------------------------------------------------------
- * POST /api/admin/mark-paid  { id, payment_ref? }
- * Recovery for "the customer paid on Yoco but the order is still waiting
- * for payment" (e.g. the payment notification never arrived). The admin
- * checks the payment in the Yoco dashboard first, then this does what the
- * payment webhook would have done: marks the order paid, takes the stock,
- * sends it to the kitchen (after the usual 2-minute cancel window), where
- * staff get the new-order notification. Every use is written to the audit log.
- * -----------------------------------------------------------------------
- */
+// POST /api/admin/mark-paid
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { logAudit } from "../../_lib/audit.js";

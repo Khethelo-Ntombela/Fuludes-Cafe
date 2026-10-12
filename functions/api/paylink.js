@@ -1,14 +1,4 @@
-/**
- * functions/api/paylink.js
- * -----------------------------------------------------------------------
- * GET /api/paylink?token=...
- * The link the admin sends a customer (see admin/build-cart.js). Opening
- * it goes straight to the Yoco payment page for the linked order - no
- * sign-in, no intermediate page. The link is time-limited and only works
- * while the order's `payment_status` is `awaiting`; otherwise the
- * customer sees a short explanation instead.
- * -----------------------------------------------------------------------
- */
+// GET /api/paylink?token=...
 import { runQuery } from "../_lib/db.js";
 import { createYocoCheckout } from "../_lib/yoco.js";
 

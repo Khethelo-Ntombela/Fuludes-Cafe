@@ -1,20 +1,4 @@
-/**
- * functions/api/admin/reservations.js
- * -----------------------------------------------------------------------
- * Admin/staff-facing reservation endpoints.
- *
- * GET /api/admin/reservations
- * Lists all reservations.
- *
- * POST /api/admin/reservations
- *   { action: "create", name, phone, email?, reservation_date, reservation_time,
- *     party_size, table_number?, notes?, status? }
- *     -> books a table on behalf of a customer who phoned in (same fields and
- *        checks as the customer-facing form; email is optional here; the
- *        booking starts as "Confirmed" unless another status is sent).
- *   { reservation_id, status } -> updates a reservation status.
- * -----------------------------------------------------------------------
- */
+// Admin/staff-facing reservation endpoints
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { sanitizeText, isValidEmail, isValidName, normalizePhone, VALIDATION_MESSAGES } from "../../_lib/security.js";

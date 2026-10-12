@@ -1,11 +1,4 @@
-/**
- * functions/_lib/config.js
- * -----------------------------------------------------------------------
- * Makes sure the app_config table has the columns the admin "Store status"
- * settings need, so the site keeps working even if the SQL migration
- * (db/migrations/007_store_status.sql) hasn't been run yet.
- * -----------------------------------------------------------------------
- */
+// Makes sure the app_config table has the columns the admin "Store status" settings need
 import { runQuery } from "./db.js";
 
 export async function ensureConfigColumns(env) {

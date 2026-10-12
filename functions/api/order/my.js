@@ -1,16 +1,4 @@
-/**
- * functions/api/order/my.js
- * -----------------------------------------------------------------------
- * GET /api/order/my  (Authorization: Bearer <customer session token>)
- * The "My Orders" listing - orders placed by the signed-in account in the
- * last 24 hours, newest first (older ones drop off this list automatically;
- * the cafe's own order history is unaffected). This replaced the old guest system entirely
- * (remembering {order id, phone} in localStorage with a 24-hour expiry) -
- * now that accounts are required to check out, order history just lives
- * on the account and is available for as long as the account exists, no
- * expiry needed.
- * -----------------------------------------------------------------------
- */
+// GET /api/order/my
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireCustomer } from "../../_lib/customerAuth.js";
 import { ensureCancelledByColumn } from "../../_lib/orderCancel.js";

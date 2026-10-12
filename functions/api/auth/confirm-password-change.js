@@ -1,15 +1,4 @@
-/**
- * functions/api/auth/confirm-password-change.js
- * -----------------------------------------------------------------------
- * POST /api/auth/confirm-password-change  { token }
- * Redeems the one-time link emailed by change-password.js and only THEN
- * writes the new password hash onto the customer row. Unknown, used or
- * expired tokens change nothing. All sessions are ended afterwards so any
- * device still signed in with the old password has to sign in again.
- * No session is required - the link may be opened on a different device
- * from the one that asked; the secret token is the proof.
- * -----------------------------------------------------------------------
- */
+// POST /api/auth/confirm-password-change
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 
 export async function onRequestPost(context) {

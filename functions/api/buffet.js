@@ -1,11 +1,4 @@
-/**
- * functions/api/buffet.js
- * -----------------------------------------------------------------------
- * Public endpoints for buffet events listing and creating bookings.
- * GET  /api/buffet         -> { events: [...] }
- * POST /api/buffet/book    -> { success: true, booking_id }
- * -----------------------------------------------------------------------
- */
+// Public endpoints for buffet events listing and creating bookings
 import { runQuery, jsonResponse } from "../_lib/db.js";
 import { sanitizeText, isValidEmail, isValidName, normalizePhone, VALIDATION_MESSAGES } from "../_lib/security.js";
 import { checkRateLimit } from "../_lib/rateLimit.js";

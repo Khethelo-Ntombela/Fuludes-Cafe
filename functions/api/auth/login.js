@@ -1,18 +1,4 @@
-/**
- * functions/api/auth/login.js
- * -----------------------------------------------------------------------
- * POST /api/auth/login  { email, password }
- * Signs an existing customer in and returns a session token (see
- * functions/_lib/customerAuth.js for how that token is later checked).
- *
- * Lockout: after MAX_FAILED_ATTEMPTS wrong passwords in a row, the
- * account is locked (`customers.is_locked = TRUE`) - further login
- * attempts are refused, even with the correct password, until the
- * customer resets their password (functions/api/auth/reset-password.js,
- * which clears both is_locked and the counter). A successful login at any
- * point before that resets the counter back to 0.
- * -----------------------------------------------------------------------
- */
+// POST /api/auth/login
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { verifyPassword, generateToken, hashPassword } from "../../_lib/password.js";
 import { checkRateLimit } from "../../_lib/rateLimit.js";
@@ -48,9 +34,7 @@ export async function onRequestPost(context) {
     return jsonResponse({ error: "Email and password are required." }, 400);
   }
 
-  // Deliberately identical wording for "no such account" and "wrong
-  // password" so a login attempt can't be used to discover which emails
-  // are registered.
+  // Deliberately identical wording for "no such account" and "wrong password" so a login attempt can't
   const wrongCredentials = () =>
     jsonResponse({ error: "Incorrect email or password." }, 401);
 
@@ -139,9 +123,7 @@ export async function onRequestPost(context) {
       );
     }
 
-    // If this account was created via Google OAuth it may not have a
-    // password_hash/password_salt - treat password login attempts as
-    // wrong credentials in that case to avoid leaking which emails exist.
+    // If this account was created via Google OAuth it may not have a password_hash/password_salt
     let isValid = false;
     if (account.password_hash && account.password_salt) {
       isValid = await verifyPassword(

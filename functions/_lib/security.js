@@ -1,10 +1,4 @@
-/**
- * functions/_lib/security.js
- * -----------------------------------------------------------------------
- * Shared security helpers for request sanitation, client IP extraction,
- * and other low-level protection mechanisms.
- * -----------------------------------------------------------------------
- */
+// Shared security helpers for request sanitation, client IP extraction
 
 export function sanitizeText(value, maxLength = 2000) {
   if (value == null) return "";
@@ -17,9 +11,7 @@ export function sanitizeText(value, maxLength = 2000) {
   return text;
 }
 
-/* ---------------- Form field validation ----------------
- * The same rules run in the browser (public/js/site.js, "Form validation")
- * so customers see problems before sending; these are the ones that count. */
+// ---------------- Form field validation ---------------- The same rules run in the browser
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 export function isValidEmail(email) {
@@ -33,12 +25,7 @@ export function isValidName(name) {
   return n.length >= 2 && n.length <= 100 && /\p{L}/u.test(n);
 }
 
-/**
- * Returns the phone number cleaned to digits (keeping a leading +), or null
- * if it isn't a real number. Spaces, dashes, dots and brackets are allowed.
- * South African numbers: 0 + 9 digits, or +27 / 27 + 9 digits; other
- * international numbers: 9-15 digits.
- */
+// Returns the phone number cleaned to digits (keeping a leading +), or null if it isn't a real number
 export function normalizePhone(phone) {
   const raw = String(phone || "").trim();
   if (!raw || !/^\+?[\d\s().-]+$/.test(raw)) return null;

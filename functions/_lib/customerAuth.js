@@ -1,27 +1,7 @@
-/**
- * functions/_lib/customerAuth.js
- * -----------------------------------------------------------------------
- * Session lookup for logged-in customers - a different shape from the
- * admin/staff shared-secret pattern in auth.js. There isn't one password
- * for the whole role here; every customer has their own row in
- * `customers`, and a session is a random token stored in
- * `customer_sessions`, checked against Neon on every authenticated
- * request (place order, cancel order, view order history, log out).
- *
- * There's no expiry baked into a session - "stay signed in until you sign
- * out" - a session only ends when the customer logs out (which deletes
- * the row) or resets their password (which deletes every session for
- * that account, functions/api/auth/reset-password.js).
- * -----------------------------------------------------------------------
- */
+// Session lookup for logged-in customers - a different shape from the admin/staff
 import { runQuery, jsonResponse } from "./db.js";
 
-/**
- * Returns { customer } on success, or { error: Response } to return
- * immediately if the request isn't authenticated. Usage:
- *   const { customer, error } = await requireCustomer(request, env);
- *   if (error) return error;
- */
+// Returns { customer } on success, or { error: Response } to return immediately if the request isn't
 export async function ensureCustomerProfileColumns(env) {
   await runQuery(
     env,

@@ -1,11 +1,5 @@
--- =====================================================================
--- Delivery fee bands + cafe location + order delivery tracking
--- Run in Neon SQL editor after deploying schema changes
--- =====================================================================
+-- Delivery fee bands, cafe location, delivery fields on orders
 
--- ---------------------------------------------------------------------
--- delivery_fee_bands: 17 fixed 3km bands, admin-editable fee per band
--- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS delivery_fee_bands (
   id          SERIAL PRIMARY KEY,
   up_to_km    INTEGER NOT NULL UNIQUE,   -- 3, 6, 9, ..., 51

@@ -1,9 +1,4 @@
-/**
- * functions/_lib/hours.js
- * Cafe opening hours (South Africa time) + reservation slot validation.
- * Mon-Thu 09:00-18:00, Fri & Sun 09:00-20:00, Sat 09:00-21:00.
- * Keep in sync with OPENING_HOURS in public/js/site.js.
- */
+// Cafe opening hours (South Africa time) + reservation slot validation
 const OPEN_MIN = 9 * 60;
 export const NOT_OPEN_MESSAGE =
   "Sorry, try a different time because we don't operate at the time you chose.";

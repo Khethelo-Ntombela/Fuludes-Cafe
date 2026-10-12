@@ -1,8 +1,4 @@
--- =====================================================================
--- Seed script for dish_ingredients
--- Matches dishes to menu_items by name, reports any mismatches.
--- Run this in Neon SQL editor after menu items exist.
--- =====================================================================
+-- Seed script for dish_ingredients Matches dishes to menu_items by name, reports any mismatches
 
 DO $$
 DECLARE

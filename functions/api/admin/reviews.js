@@ -1,9 +1,4 @@
-/**
- * functions/api/admin/reviews.js
- * GET /api/admin/reviews -> every review (pending, approved, rejected) for
- * the admin Reviews tab, newest first, each with what the customer ordered.
- * (The public /api/review only ever returns approved reviews.)
- */
+// GET /api/admin/reviews
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { reviewItemsByOrder } from "../../_lib/reviewItems.js";

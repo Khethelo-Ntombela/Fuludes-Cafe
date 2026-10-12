@@ -267,9 +267,7 @@ CREATE TABLE IF NOT EXISTS staff_sessions (
 );
 
 
--- ---------------------------------------------------------------------
 -- orders / order_items: checkout tickets
--- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS orders (
   id                SERIAL PRIMARY KEY,
   customer_id       INTEGER REFERENCES customers(id) ON DELETE SET NULL, -- who placed it (accounts are required to check out)
@@ -286,8 +284,6 @@ CREATE TABLE IF NOT EXISTS orders (
   special_instructions TEXT,
   total_amount      NUMERIC(10,2) NOT NULL,
   status            TEXT NOT NULL DEFAULT 'New', -- New | Preparing | Ready | Collection | Delivery | Completed | Cancelled
-                                                   -- (kitchen order lifecycle - see the Staff Portal
-                                                   -- section of README.md)
   payment_method    TEXT NOT NULL DEFAULT 'online',
   payment_status    TEXT NOT NULL DEFAULT 'awaiting',
   payment_ref       TEXT,
@@ -364,9 +360,7 @@ CREATE TABLE IF NOT EXISTS order_items (
 CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 
--- ---------------------------------------------------------------------
 -- reviews: customer feedback wall, owner can reply
--- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS reviews (
   id            SERIAL PRIMARY KEY,
   customer_id   INTEGER REFERENCES customers(id) ON DELETE SET NULL,
@@ -384,9 +378,7 @@ ALTER TABLE reviews ADD COLUMN IF NOT EXISTS customer_id INTEGER REFERENCES cust
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS order_id INTEGER REFERENCES orders(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_reviews_status ON reviews(status);
 
--- ---------------------------------------------------------------------
 -- app_config: single-row settings the admin panel toggles
--- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS app_config (
   id                 INTEGER PRIMARY KEY DEFAULT 1,
   is_buffet_visible  BOOLEAN NOT NULL DEFAULT FALSE,
@@ -423,9 +415,7 @@ INSERT INTO delivery_fee_bands (up_to_km, fee, sort_order)
 SELECT km, 0.00, km / 3 FROM generate_series(3, 51, 3) AS bands(km)
 ON CONFLICT (up_to_km) DO NOTHING;
 
--- Payment links: one-time or time-limited links admins can create
--- when building a cart on a customer's behalf. The link points to the
--- public paylink endpoint which returns a hosted-checkout payload.
+-- Payment links admins send when placing an order for a customer
 CREATE TABLE IF NOT EXISTS payment_links (
   token        TEXT PRIMARY KEY,
   order_id     INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
@@ -436,9 +426,7 @@ CREATE TABLE IF NOT EXISTS payment_links (
 );
 ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS checkout_url TEXT;
 
--- ---------------------------------------------------------------------
 -- buffet_events: scheduled buffet sessions customers can book
--- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS buffet_events (
   id            SERIAL PRIMARY KEY,
   title         TEXT NOT NULL,
@@ -526,13 +514,7 @@ CREATE TABLE IF NOT EXISTS staff_email_verifications (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- ---------------------------------------------------------------------
--- customer_carts: a signed-in customer's cart, kept on their account so it
--- follows them between devices. Stores choices only (ids + quantities);
--- names and prices are rebuilt from the live menu on every read.
--- (Also in db/migrations/017_saved_carts.sql and created on the fly by
--- functions/_lib/savedCart.js.)
--- ---------------------------------------------------------------------
+-- customer_carts: a signed-in customer's cart
 CREATE TABLE IF NOT EXISTS customer_carts (
   customer_id  INTEGER PRIMARY KEY REFERENCES customers(id) ON DELETE CASCADE,
   items        JSONB NOT NULL DEFAULT '[]'::jsonb,

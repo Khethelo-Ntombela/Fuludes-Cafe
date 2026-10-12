@@ -1,19 +1,6 @@
-/**
- * public/js/menu.js
- * -----------------------------------------------------------------------
- * Menu-page logic: loads the live menu from /api/menu, renders category
- * tabs + dish cards, typo-tolerant search, specials, an on-page cart
- * (kept in localStorage so it survives navigating between pages, and on the
- * customer's account when signed in so it follows them between devices),
- * and checkout via POST /api/order with the hosted Yoco payment hand-off.
- *
- * Requires site.js to be loaded first (accounts, lightbox, helpers).
- * -----------------------------------------------------------------------
- */
+// Menu-page logic: loads the live menu from /api/menu, renders category tabs + dish cards
 
-// ---------------------------------------------------------------------
 // State
-// ---------------------------------------------------------------------
 let categories = [];      // [{id, name, slug, sort_order}]
 let menuItems = [];       // [{id, category_id, name, price, addons: [...], ...}]
 let spiceLevels = [];     // [{id, name}]
@@ -29,10 +16,10 @@ let geocodedDeliveryLng = null;
 let geocodedDisplayAddress = "";
 let deliveryFeeLoading = false;
 
-// Cart lines survive page navigation via localStorage - prices here are
-// only cosmetic; the server re-prices every line from the live DB at checkout.
+// Cart lives in localStorage between pages. Prices here are only for display;
+// the server re-prices every line at checkout.
 const CART_KEY = "fulude_cart";
-let cart = []; // [{lineId, itemId, name, price, quantity, spiceLevel, side:{id,name}|null, extras:[{id,name,price}]}]
+let cart = []; // [{lineId, itemId, name, price, quantity, spiceLevel
 try {
   cart = JSON.parse(localStorage.getItem(CART_KEY) || "[]");
 } catch {
@@ -63,31 +50,9 @@ function saveCart() {
   }
 }
 
-// ---------------------------------------------------------------------
-// Cart on the customer's account (GET/PUT/POST /api/cart)
-//
-// Signed in, the cart is kept on the account, so the phone and the PC show
-// the same one. localStorage stays as the instant local copy (and the only
-// copy while signed out).
-//
-//   - First time this device meets the account (just signed in, or the
-//     first visit after this feature shipped): the cart here is MERGED into
-//     the account's cart - identical lines add up, nothing is overwritten.
-//   - After that, the account's cart is the truth: it is loaded on page
-//     open and whenever the tab gets focus / every 30s, and every change
-//     made here is saved back.
-//   - The server rebuilds the cart from the live menu each time, so sold-out
-//     dishes drop out (we say so) and prices are always today's.
-//   - The server empties the cart when an order is placed (api/order.js).
-//
-// Rules that keep two devices from fighting:
-//   - Nothing is saved until the account's cart has been loaded once
-//     (otherwise a new, empty device would wipe the account's cart).
-//   - A pull never replaces edits that haven't been saved yet.
-//   - If two devices edit at the same moment, the last save wins.
-// ---------------------------------------------------------------------
-const CART_SYNC_KEY = "fulude_cart_sync"; // { customerId, version } - set once this device is linked to that account's cart
-const CART_DIRTY_KEY = "fulude_cart_dirty"; // "1" while changes made here haven't reached the account yet
+// Cart on the customer's account
+const CART_SYNC_KEY = "fulude_cart_sync"; // { customerId, version } of the last synced cart
+const CART_DIRTY_KEY = "fulude_cart_dirty"; // "1" while local changes are not yet saved to the account
 let cartSyncReady = false; // the account's cart has been loaded on this page
 let cartSyncCustomerId = null;
 let cartSyncPromise = null;
@@ -164,11 +129,7 @@ function adoptServerCart(data) {
   }
 }
 
-/**
- * Makes sure this device is linked to the signed-in customer's cart.
- * Safe to call any number of times; resolves true once the account's cart
- * has been loaded.
- */
+// Makes sure this device is linked to the signed-in customer's cart
 function ensureCartLinked() {
   if (!currentCustomer || !customerToken) return Promise.resolve(false);
   if (cartSyncReady && cartSyncCustomerId === currentCustomer.id) return Promise.resolve(true);
@@ -190,7 +151,7 @@ async function linkCart() {
     if (linked && cartIsDirty()) res = await cartRequest("PUT", cartToCompact()); // changes made offline / before leaving
     else if (linked) res = await cartRequest("GET");
     else res = await cartRequest("POST", cartToCompact()); // first meeting: merge
-    if (!res.ok) return false; // not signed in any more, or the server is down - keep the local cart
+    if (!res.ok) return false; // not signed in any more, or the server is down
     const data = await res.json();
     if (!currentCustomer || currentCustomer.id !== customerId) return false; // signed out meanwhile
 
@@ -203,7 +164,7 @@ async function linkCart() {
     }
     return true;
   } catch {
-    return false; // offline - the local cart keeps working, linking is retried on the next page open
+    return false; // offline - the local cart keeps working
   }
 }
 
@@ -249,13 +210,7 @@ async function pushCart() {
   }
 }
 
-/**
- * The order was placed (or the customer is paying an existing one): empty the
- * cart here and on the account. The server already empties the account's cart
- * when it creates an order; the DELETE is a second, harmless attempt. Nothing
- * is left marked "unsaved", so a later page load can't push an empty cart
- * over items the customer has since added on another device.
- */
+// The order was placed (or the customer is paying an existing one)
 function clearCartAfterOrder() {
   cart = [];
   clearTimeout(cartPushTimer);
@@ -313,9 +268,7 @@ document.addEventListener("visibilitychange", () => {
 });
 window.addEventListener("focus", pullCart);
 
-// ---------------------------------------------------------------------
 // Load menu from the server
-// ---------------------------------------------------------------------
 let lastMenuSignature = "";
 
 async function loadMenu(silent = false) {
@@ -332,9 +285,7 @@ async function loadMenu(silent = false) {
     menuItems = data.items || [];
     spiceLevels = data.spice_levels || [];
 
-    // Re-price anything already in the cart against the live menu, so a
-    // special that ended (price goes back up) or one that just started
-    // (price drops) is reflected before the customer pays.
+    // Re-price anything already in the cart against the live menu, so a special that ended
     const pricesChanged = repriceCart();
 
     if (menuChanged || !silent) {
@@ -353,11 +304,7 @@ async function loadMenu(silent = false) {
   }
 }
 
-/**
- * Syncs every cart line's price with the item's current effective price
- * (special price while a special is running, normal price otherwise).
- * Returns true if any line's price changed.
- */
+// Syncs every cart line's price with the item's current effective price
 function repriceCart() {
   let changed = false;
   for (const line of cart) {
@@ -381,9 +328,7 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) loadMenu(true);
 });
 
-// ---------------------------------------------------------------------
-// Quick pop-up message (e.g. "Item added to cart")
-// ---------------------------------------------------------------------
+// Quick pop-up message (e.g
 function showCartToast(message, kind = "success") {
   let stack = document.getElementById("cartToastStack");
   if (!stack) {
@@ -423,11 +368,7 @@ function renderCategoryTabs() {
   const tabsContainer = document.getElementById("categoryTabs");
   const tabs = [{ id: 0, name: "All", slug: "all" }, ...categories];
 
-  // Categories only come back from the API while they have at least one
-  // visible dish (see functions/api/menu.js) - so a category can vanish
-  // between page loads (e.g. admin turns off the last visible starter).
-  // If the tab someone was on is gone, fall back to "All" instead of
-  // silently rendering an empty category with nothing selected.
+  // Categories only come back from the API while they have at least one visible dish
   if (!tabs.some((t) => t.slug === activeCategorySlug)) {
     activeCategorySlug = "all";
   }
@@ -608,11 +549,7 @@ function getPhotos(item) {
   return item.images && item.images.length > 0 ? item.images : item.image_url ? [item.image_url] : [];
 }
 
-// ---------------------------------------------------------------------
-// Per-dish quantity controls. Each dish card owns its own "Add to Order"
-// button, which turns into a  -  2  +  stepper once the dish is in the
-// cart. (The Your Order panel only displays quantities.)
-// ---------------------------------------------------------------------
+// Per-dish quantity controls
 function itemQuantityInCart(itemId) {
   return cart.filter((l) => l.itemId === itemId).reduce((sum, l) => sum + l.quantity, 0);
 }
@@ -633,7 +570,7 @@ function cardControlsHtml(item) {
     </div>`;
 }
 
-/** Refreshes only the quantity controls on the visible cards (keeps any photo the customer has slid to). */
+// Refreshes only the quantity controls on the visible cards
 function syncCardControls() {
   document.querySelectorAll("#orderItems .order-card-footer[data-id]").forEach((footer) => {
     const item = menuItems.find((i) => i.id === parseInt(footer.dataset.id, 10));
@@ -651,10 +588,7 @@ function decrementItem(itemId) {
   }
 }
 
-// ---------------------------------------------------------------------
-// Photo slideshow inside each dish card - arrows + swipe, no full-screen
-// lightbox. The customer stays right where they are on the menu.
-// ---------------------------------------------------------------------
+// Photo slideshow inside each dish card - arrows + swipe
 function slideTo(imageEl, index) {
   const track = imageEl.querySelector(".slides-track");
   if (!track) return;
@@ -713,12 +647,7 @@ function slideTo(imageEl, index) {
   );
 })();
 
-// ---------------------------------------------------------------------
-// Specials - the red "Save on Meals" button + the modal listing every
-// dish currently discounted by the admin. Only items that are visible
-// AND in stock are counted/shown here - a sold-out special would just be
-// confusing to promote.
-// ---------------------------------------------------------------------
+// Specials - the red "Save on Meals" button + the modal
 const specialsBtn = document.getElementById("specialsBtn");
 const specialsModal = document.getElementById("specialsModal");
 const specialsModalList = document.getElementById("specialsModalList");
@@ -778,13 +707,7 @@ specialsModal.addEventListener("click", (e) => {
   if (e.target === specialsModal) closeSpecialsModal();
 });
 
-// ---------------------------------------------------------------------
-// Menu search - typo-tolerant, no external library. Matches on dish
-// name, description, and category name; ranks exact/substring matches
-// highest and falls back to fuzzy (edit-distance) matching so a
-// misspelled search like "chiken" or "piza" still finds something
-// "sort of relevant" instead of coming up empty.
-// ---------------------------------------------------------------------
+// Menu search - typo-tolerant, no external library
 function levenshteinDistance(a, b) {
   if (a === b) return 0;
   if (a.length === 0) return b.length;
@@ -869,10 +792,7 @@ menuSearchClear.addEventListener("click", () => {
   renderOrderItems();
 });
 
-// ---------------------------------------------------------------------
-// Add to cart - either straight in, or via the customize modal when the
-// dish accepts a spice level and/or extras.
-// ---------------------------------------------------------------------
+// Add to cart, or open the options picker first
 function handleAddClick(itemId) {
   const item = menuItems.find((i) => i.id === itemId);
   if (!item) return;
@@ -889,9 +809,7 @@ function addToCart(item, { spiceLevel, side = null, extras, quantity }) {
   const extraIds = extras.map((e) => e.id).sort().join(",");
   const lineId = `${item.id}|${spiceLevel || ""}|${side ? side.id : ""}|${extraIds}`;
   const existing = cart.find((line) => line.lineId === lineId);
-  // effective_price is the special price only while the special is
-  // actually running (start/end dates respected); otherwise the normal
-  // price. The server re-prices from the live DB at checkout regardless.
+  // effective_price is the special price only while the special is actually running
   const effectivePrice =
     item.effective_price !== undefined && item.effective_price !== null ? item.effective_price : item.price;
 
@@ -914,9 +832,7 @@ function addToCart(item, { spiceLevel, side = null, extras, quantity }) {
   renderCart();
 }
 
-// ---------------------------------------------------------------------
 // Customize modal (spice level + extras)
-// ---------------------------------------------------------------------
 const customizeModal = document.getElementById("customizeModal");
 const customizeItemName = document.getElementById("customizeItemName");
 const customizeSpiceGroup = document.getElementById("customizeSpiceGroup");
@@ -1025,9 +941,7 @@ document.getElementById("customizeConfirmBtn").addEventListener("click", () => {
   pendingCustomizeItem = null;
 });
 
-// ---------------------------------------------------------------------
 // Cart rendering + edit/remove
-// ---------------------------------------------------------------------
 function renderCart() {
   saveCart();
   syncCardControls();
@@ -1130,11 +1044,7 @@ function renderCart() {
   });
 }
 
-/**
- * The "Order Summary" inside the checkout modal: every line with its
- * choices and extras, then subtotal, delivery fee and the total to pay -
- * so the customer sees exactly what they're paying for before Yoco.
- */
+// The "Order Summary" inside the checkout modal: every line with its choices and extras
 function renderCheckoutSummary() {
   const el = document.getElementById("checkoutSummary");
   if (!el) return;
@@ -1196,12 +1106,7 @@ function renderCheckoutSummary() {
     </div>`;
 }
 
-// ---------------------------------------------------------------------
-// Phones/tablets: "Your Order" lives on its own page instead of sitting at
-// the very bottom of a long menu. A bar fixed to the bottom of the screen
-// (the order nav bar) shows the item count + total and opens it in one tap;
-// the browser's Back button (or the Back arrow) returns to the menu.
-// ---------------------------------------------------------------------
+// Phones/tablets: "Your Order" lives on its own page instead
 const cartPanelEl = document.querySelector(".cart-panel");
 const mobileCartBar = document.getElementById("mobileCartBar");
 const mobileCartCount = document.getElementById("mobileCartCount");
@@ -1248,9 +1153,7 @@ function changeLineQuantity(lineId, delta) {
   renderCart();
 }
 
-// ---------------------------------------------------------------------
 // Checkout modal
-// ---------------------------------------------------------------------
 const checkoutModal = document.getElementById("checkoutModal");
 const checkoutBtn = document.getElementById("checkoutBtn");
 const modalClose = document.getElementById("modalClose");
@@ -1297,7 +1200,7 @@ function updateCheckoutFieldVisibility() {
 
 let lastQuotedAddressInput = ""; // the exact text we last looked up
 let deliveryTooFar = false;
-let deliveryFromLocation = false; // priced from the phone's shared location (GPS), not the typed address
+let deliveryFromLocation = false; // priced from the phone's shared location (GPS)
 
 function resetDeliveryQuote() {
   deliveryFee = 0;
@@ -1312,7 +1215,7 @@ function resetDeliveryQuote() {
   setLocationStatus("");
 }
 
-// ---- Structured delivery address: street, unit (optional), suburb, town/city, postal code, province ----
+// ---- Structured delivery address: street, unit (optional), suburb, town/city, postal code
 const addrField = (id) => document.getElementById(id);
 function addressParts() {
   const v = (id) => (addrField(id)?.value || "").trim();
@@ -1487,12 +1390,7 @@ async function useMyLocation() {
   }
 }
 
-/**
- * Looks the typed address up (geocode -> distance -> fee). Runs when the
- * address field loses focus, when a saved address is filled in, and once
- * more at submit time if there is still no quote - so a delivery order is
- * never sent without coordinates.
- */
+// Looks the typed address up (geocode -> distance -> fee)
 async function handleDeliveryAddressBlur() {
   syncDeliveryAddressInput();
   if (deliveryFromLocation) return; // already priced from the phone's location
@@ -1571,11 +1469,7 @@ async function handleDeliveryAddressBlur() {
   }
 }
 
-/**
- * Wires the address fields once. Nothing is looked up while the customer
- * types - they tap OK when their details are complete (or share their
- * location); editing afterwards clears the fee until they tap OK again.
- */
+// Wires the address fields once
 let deliveryFieldsWired = false;
 function setupDeliveryGeocoding() {
   if (deliveryFieldsWired) return;
@@ -1590,7 +1484,7 @@ function setupDeliveryGeocoding() {
   addrField("addressOkBtn")?.addEventListener("click", confirmTypedAddress);
 }
 
-/** The OK button: check every required field is filled in, then find the address and price the delivery. */
+// OK button: check the address fields, then price the delivery
 async function confirmTypedAddress() {
   checkoutError.style.display = "none";
   const missing = missingAddressParts();
@@ -1702,12 +1596,7 @@ function formatArrivalTime(timeStr) {
   return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
 }
 
-/**
- * submitOrderCheckout()
- * Validates the contact fields, ensures the cart isn't empty, packages
- * the full payload (including per-line spice level + extras), and POSTs
- * it to /api/order. Resets the cart only after a confirmed success.
- */
+// submitOrderCheckout() Validates the contact fields, ensures the cart isn't empty
 async function submitOrderCheckout(event) {
   event.preventDefault();
   checkoutError.style.display = "none";
@@ -1761,16 +1650,14 @@ async function submitOrderCheckout(event) {
     return;
   }
 
-  // Delivery: make sure the address has been located and priced (the
-  // customer may tap "Continue" straight after typing, before the field
-  // has lost focus).
+  // Delivery: make sure the address has been located and priced
   if (orderType === "delivery") {
     if (!deliveryFromLocation && (geocodedDeliveryLat === null || composeDeliveryAddress() !== lastQuotedAddressInput)) {
       await handleDeliveryAddressBlur();
     }
     if (deliveryFeeLoading) return;
     if (geocodedDeliveryLat === null) return; // error already shown by the lookup
-    if (deliveryTooFar) return; // message already shown - don't send an order we can't deliver
+    if (deliveryTooFar) return; // message already shown - don't send an order we can't
   }
 
   const pickupTime =
@@ -1838,9 +1725,7 @@ async function submitOrderCheckout(event) {
       throw new Error(result.error || "Something went wrong placing your order.");
     }
 
-    // Order is already saved (payment_status = 'awaiting'); hand the
-    // browser off to the hosted Yoco payment page. Clear the cart now
-    // since the order itself exists regardless of payment outcome.
+    // Order is already saved (payment_status = 'awaiting')
     clearCartAfterOrder();
     localStorage.removeItem(ACTIVE_RES_KEY); // pre-order done - this booking no longer drives checkout
     redirectToYoco(result.payment);
@@ -1851,10 +1736,7 @@ async function submitOrderCheckout(event) {
   }
 }
 
-/**
- * Checkout found an identical unpaid order: let the customer pay that
- * existing ticket, or remove it and go back to edit their cart.
- */
+// Checkout found an identical unpaid order: let the customer pay that existing ticket
 function showDuplicateOrderChoice(existing) {
   checkoutError.style.display = "none";
   let panel = document.getElementById("duplicateOrderPanel");
@@ -1939,14 +1821,7 @@ function showCheckoutError(message) {
 
 checkoutForm.addEventListener("submit", submitOrderCheckout);
 
-// ---------------------------------------------------------------------
-// Init
-// ---------------------------------------------------------------------
-// ---------------------------------------------------------------------
-// Pre-order for a table reservation: cart items are kept and editable,
-// checkout is dine-in with the booking's details, and the "Book
-// Reservation" button is hidden (they already have one).
-// ---------------------------------------------------------------------
+// Init Pre-order for a table reservation
 function refreshPreorderUI() {
   const r = getActiveReservation();
   const resBtn = document.getElementById("menuReservationBtn");

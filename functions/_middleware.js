@@ -1,12 +1,4 @@
-/**
- * functions/_middleware.js
- * -----------------------------------------------------------------------
- * The old public dashboard addresses (/admin, /staff and their .html
- * versions) must look like they never existed: always a plain 404, never
- * a redirect to the home page. This runs before any static file, so it
- * still returns a 404 even if an old copy of those pages is left over in
- * a deployment. (public/_routes.json limits it to these paths + /api.)
- * ----------------------------------------------------------------------- */
+// The old public dashboard addresses (/admin
 const HIDDEN = /^\/(admin|staff)(\.html)?\/?$|^\/(admin|staff)\//i;
 
 const NOT_FOUND_HTML = `<!doctype html>

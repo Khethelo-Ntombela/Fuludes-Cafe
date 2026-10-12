@@ -1,16 +1,4 @@
-/**
- * functions/api/auth/forgot-password.js
- * -----------------------------------------------------------------------
- * POST /api/auth/forgot-password  { email }
- * Sends password reset links to customers and the main admin. Added admins
- * and staff are directed to contact the admin; other addresses get a
- * generic response to limit account enumeration.
- *
- * The link points at `/?reset_token=<token>` - public/js/main.js checks
- * for that query param on page load and opens the reset-password form
- * instead of the sign-in form.
- * -----------------------------------------------------------------------
- */
+// POST /api/auth/forgot-password
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { generateToken, hashPassword } from "../../_lib/password.js";
 import { sendEmail } from "../../_lib/email.js";
@@ -168,9 +156,7 @@ export async function onRequestPost(context) {
 
     return genericSuccess();
   } catch (err) {
-    // Don't leak whether the failure was "no account" vs "email service
-    // down" - but do return a 500 so the frontend can show a fallback
-    // message rather than silently claiming success when nothing sent.
+    // Don't leak whether the failure was "no account" vs "email service down"
     return jsonResponse({ error: "Couldn't process this request right now. Please try again shortly.", message: err.message }, 500);
   }
 }

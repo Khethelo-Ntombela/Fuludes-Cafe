@@ -1,25 +1,4 @@
-/**
- * functions/api/staff/orders.js
- * -----------------------------------------------------------------------
- * GET /api/staff/orders
- * The kitchen board: every order in the active lifecycle (New,
- * Preparing, Ready, Collection, Delivery - not yet Completed/Cancelled), polled every 15s by
- * the Staff Portal so new tickets appear automatically with no refresh.
- *
- * Payment is mandatory (there's no pay-at-pickup/delivery path), so an
- * order only ever appears here once payment_status = 'paid'. Orders still
- * "awaiting" confirmation or that came back "failed" are left off the
- * board entirely - the kitchen should never start cooking something that
- * hasn't actually been paid for. functions/api/payment/notify.js flips
- * payment_status to 'paid' once the gateway confirms it, and the order
- * appears here on the next poll.
- *
- * Includes item prices/subtotals and the order total (same shape as
- * functions/api/admin/pending-orders.js) so staff can see what a ticket
- * is worth, e.g. for cash handling, spotting mis-rung items, or bagging
- * the right combo for a big order.
- * -----------------------------------------------------------------------
- */
+// GET /api/staff/orders
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireStaff } from "../../_lib/auth.js";
 import { queueDueNewOrderPushes } from "../../_lib/push.js";

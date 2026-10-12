@@ -1,9 +1,4 @@
-/**
- * functions/api/admin/forgot-password.js
- * -----------------------------------------------------------------------
- * POST /api/admin/forgot-password  { email }
- * Emails a one-time reset link to an admin account.
- * ----------------------------------------------------------------------- */
+// POST /api/admin/forgot-password
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { generateToken } from "../../_lib/password.js";
 import { sendEmail } from "../../_lib/email.js";

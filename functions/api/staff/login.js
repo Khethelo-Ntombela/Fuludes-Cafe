@@ -1,19 +1,4 @@
-/**
- * functions/api/staff/login.js
- * -----------------------------------------------------------------------
- * POST /api/staff/login  { email, password }
- * Separate login for the kitchen Staff Portal - checks the staff
- * credentials against the env file (STAFF_EMAIL / STAFF_PASSWORD),
- * or against the hashed staff account in Neon, then creates a
- * database-backed session token.
- *
- * Lockout: after MAX_FAILED_ATTEMPTS wrong passwords in a row the account
- * is locked (staff_accounts.is_locked = TRUE) and every further attempt
- * shows "Please contact admin, your account has been locked." until the
- * main admin clicks Unlock on that account (Settings > Staff Accounts).
- * The env-var bootstrap staff login is never locked out.
- * -----------------------------------------------------------------------
- */
+// POST /api/staff/login
 import { jsonResponse, runQuery } from "../../_lib/db.js";
 import { sanitizeText } from "../../_lib/security.js";
 import { verifyPassword, generateToken, hashPassword } from "../../_lib/password.js";

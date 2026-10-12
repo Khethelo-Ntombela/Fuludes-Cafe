@@ -1,8 +1,4 @@
-/**
- * functions/api/admin/me.js
- * GET /api/admin/me -> { permissions } for the signed-in admin, so the
- * dashboard only shows (and loads) the sections this admin may use.
- */
+// GET /api/admin/me
 import { jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 

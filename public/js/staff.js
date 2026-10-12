@@ -1,15 +1,4 @@
-/**
- * public/js/staff.js
- * -----------------------------------------------------------------------
- * Kitchen Staff Portal: uses its own token and storage key, then a live
- * live Kanban board polled every 15s. The board itself is rendered by the
- * shared KDS engine (js/kds.js) so it stays identical to the admin's
- * Live Orders view: fixed-height cards, urgency timers, one primary
- * action + overflow menu, compact rows for hand-off columns.
- *
- * Load kds.js BEFORE this file.
- * -----------------------------------------------------------------------
- */
+// Kitchen Staff Portal: uses its own token and storage key
 
 const STAFF_TOKEN_KEY = "fulude_staff_token";
 let staffToken = localStorage.getItem(STAFF_TOKEN_KEY);
@@ -17,9 +6,7 @@ let pollIntervalId = null;
 let knownPaidNewOrderIds = new Set();
 const STAFF_ALERTS_MUTED_KEY = "fulude_staff_alerts_muted";
 
-// ---------------------------------------------------------------------
 // Auth
-// ---------------------------------------------------------------------
 async function staffFetch(url, options = {}) {
   const res = await fetch(url, {
     ...options,
@@ -78,9 +65,7 @@ function setupStaffAlertToggle() {
   );
 }
 
-// ---------------------------------------------------------------------
 // Board: poll every 15s
-// ---------------------------------------------------------------------
 async function loadOrders() {
   try {
     const res = await staffFetch("/api/staff/orders");
@@ -121,9 +106,7 @@ function renderControlBar(allOrders) {
   const orders = allOrders.filter(kdsIsToday);
   const note = document.getElementById("sResetNote");
   if (note) note.textContent = kdsResetLabel();
-  // Only tickets the kitchen is still working on count towards ticket age,
-  // longest wait and load - once an order is out for collection/delivery
-  // it stops counting.
+  // Only tickets the kitchen is still working on count towards ticket age, longest wait and load
   const active = orders.filter((o) => ["New", "Preparing", "Ready"].includes(o.status));
   const ages = active.filter(kdsCountsInStats).map(kdsMinutes);
   const avgAge = ages.length
@@ -170,9 +153,7 @@ function renderBoard(orders) {
   kdsBindBoard(container, orders, {
     onAction: handleAdvance,
     confirmAction: (order, status) => {
-      // Every ticket on this board has already been paid for, so
-      // cancelling always means a refund is owed - the admin refunds it
-      // through Yoco from Order History.
+      // Every ticket on this board has already been paid for, so cancelling always means a refund is owed
       if (status === "Cancelled") {
         return confirm(
           `Order #${order.id} was already paid online. Cancelling marks it \"Refund needed\" - the admin can then refund it through Yoco from Order History.\n\nCancel this order anyway?`,
@@ -193,9 +174,7 @@ async function handleAdvance(status, orderId) {
   loadOrders();
 }
 
-// ---------------------------------------------------------------------
 // Init
-// ---------------------------------------------------------------------
 if (staffToken) {
   showBoard();
 } else {

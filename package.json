@@ -4,5 +4,9 @@
   "type": "module",
   "dependencies": {
     "@neondatabase/serverless": "^1.0.0"
+  },
+  "scripts": {
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "prepare": "git config core.hooksPath .githooks || true"
   }
 }

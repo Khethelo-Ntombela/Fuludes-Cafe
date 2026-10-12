@@ -1,10 +1,4 @@
-/**
- * functions/api/admin/delivery-fee.js
- * -----------------------------------------------------------------------
- * GET  /api/admin/delivery-fee     - Get all fee bands + cafe location
- * POST /api/admin/delivery-fee     - Update fee bands (fee only) + cafe location/contact
- * -----------------------------------------------------------------------
- */
+// GET  /api/admin/delivery-fee
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { MAX_DELIVERY_KM } from "../../_lib/delivery.js";

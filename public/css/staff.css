@@ -1,7 +1,4 @@
-/* Staff Portal (kitchen display) - the board itself is rendered by the
-   shared KDS engine and styled by admin.css (kds-* classes), so the two
-   boards stay identical. This file only owns the kitchen header and the
-   staff page frame. */
+/* Staff Portal (kitchen display) - the board itself is rendered by the shared KDS */
 
 /* Header */
 .staff-header {

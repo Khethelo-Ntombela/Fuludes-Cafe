@@ -1,13 +1,4 @@
-/**
- * functions/api/admin/buffet-cleanup.js
- * -----------------------------------------------------------------------
- * Small admin-only endpoint to run a manual cleanup of past buffet
- * bookings. POST JSON { mode: 'archive' | 'delete' } (defaults to 'archive').
- * - 'archive' marks past bookings as `expired` (safer, reversible)
- * - 'delete' permanently removes past booking rows
- * Returns { success: true, mode, affected }
- * -----------------------------------------------------------------------
- */
+// Small admin-only endpoint to run a manual cleanup of past buffet bookings
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 

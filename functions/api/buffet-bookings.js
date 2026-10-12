@@ -1,11 +1,4 @@
-/**
- * functions/api/buffet-bookings.js
- * -----------------------------------------------------------------------
- * Customer-facing endpoints to view and cancel their buffet bookings.
- * GET  /api/buffet-bookings       -> { bookings: [...] }
- * PUT  /api/buffet-bookings       -> { booking_id } (cancels booking)
- * -----------------------------------------------------------------------
- */
+// Customer-facing endpoints to view and cancel their buffet bookings
 import { runQuery, jsonResponse } from "../_lib/db.js";
 import { requireCustomer } from "../_lib/customerAuth.js";
 

@@ -1,14 +1,4 @@
-/**
- * public/js/pwa.js
- * -----------------------------------------------------------------------
- * Shared by the admin app, the kitchen (staff) app and the customer site:
- *   - FuludePWA.setupInstallButton(label): floating "Install app" button
- *     (Chrome/Edge/Android; iPhone uses Share > Add to Home Screen)
- *   - FuludePWA.bindPushToggle(btn, role, getToken): on/off button for
- *     push notifications that arrive even when the app is closed
- *     (server side: functions/api/push/subscribe.js + functions/_lib/push.js)
- * -----------------------------------------------------------------------
- */
+// Shared by the admin app, the kitchen (staff) app and the customer site
 const FuludePWA = (() => {
   const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
   const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent);

@@ -1,25 +1,4 @@
-/**
- * functions/_lib/savedCart.js
- * -----------------------------------------------------------------------
- * A signed-in customer's cart, kept on their account (table
- * customer_carts) so the same cart shows on every device they sign in on.
- *
- * What is stored: only the customer's CHOICES per line - dish id, quantity,
- * spice level, side id, extra ids ("compact" lines). Never names or prices.
- * Every read rebuilds the full lines from the live menu (hydrateCart), so:
- *   - prices are always today's price (a special that ended or started is
- *     reflected, same as the server re-pricing at checkout);
- *   - dishes that are hidden, sold out or whose side options changed drop
- *     out, and the customer is told why (notices);
- *   - a quantity above what's left in stock is lowered to what's left.
- *
- * The order endpoint stays the source of truth for prices and stock; this
- * only keeps the cart on screen honest.
- *
- * Neon's HTTP driver has no transactions, so the cart is saved with single
- * statements (an upsert, or a compare-and-set on `version`).
- * -----------------------------------------------------------------------
- */
+// A signed-in customer's cart, kept on their account
 import { runQuery } from "./db.js";
 
 export const MAX_CART_LINES = 60;
@@ -41,9 +20,7 @@ export async function ensureCartTable(env, query = runQuery) {
   tableReady = true;
 }
 
-// ---------------------------------------------------------------------
 // Compact lines
-// ---------------------------------------------------------------------
 
 /** Same key the menu page uses for a cart line (public/js/menu.js addToCart). */
 export function lineKey(c) {
@@ -56,12 +33,7 @@ function toPositiveInt(value) {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
-/**
- * Cleans untrusted input into compact lines:
- * { itemId, quantity, spiceLevel|null, sideId|null, extraIds[] }.
- * Bad lines are skipped; identical lines are combined (quantities added,
- * capped); the list is capped at MAX_CART_LINES.
- */
+// Cleans untrusted input into compact lines: { itemId, quantity, spiceLevel|null, sideId|null
 export function normalizeCompact(raw) {
   if (!Array.isArray(raw)) return [];
   const byKey = new Map();
@@ -110,18 +82,9 @@ export function compactFromLines(lines) {
   );
 }
 
-// ---------------------------------------------------------------------
 // Rebuild full lines from the live menu
-// ---------------------------------------------------------------------
 
-/**
- * Turns compact lines into the full lines the menu page shows
- * ({ lineId, itemId, name, price, quantity, spiceLevel, side, extras }),
- * dropping anything that can't be ordered right now.
- * Returns { lines, notices }.
- * (`query` here and on the storage functions below is only a seam for tests;
- * it defaults to the real database.)
- */
+// Turns compact lines into the full lines the menu page shows ({ lineId, itemId, name, price
 export async function hydrateCart(env, compact, query = runQuery) {
   const items = normalizeCompact(compact);
   if (!items.length) return { lines: [], notices: [] };
@@ -247,9 +210,7 @@ export async function hydrateCart(env, compact, query = runQuery) {
   return { lines, notices };
 }
 
-// ---------------------------------------------------------------------
 // Storage
-// ---------------------------------------------------------------------
 
 /** { items: compact[], version } - version 0 means "no saved cart". */
 export async function loadSavedCart(env, customerId, query = runQuery) {
@@ -283,11 +244,7 @@ export async function writeSavedCart(env, customerId, compact, query = runQuery)
   return Number(res.rows[0].version);
 }
 
-/**
- * Saves the cleaned-up cart only if nobody changed it since it was read
- * (compare-and-set on version), so tidying never overwrites a newer edit.
- * Returns the version the caller should report.
- */
+// Saves the cleaned-up cart only if nobody changed it since it was read (compare-and-set on version)
 export async function tidySavedCart(env, customerId, compact, readVersion, query = runQuery) {
   if (!readVersion) return readVersion;
   const res = await query(

@@ -1,12 +1,4 @@
-/**
- * functions/api/admin/categories.js
- * -----------------------------------------------------------------------
- * GET  /api/admin/categories       -> list all categories
- * POST /api/admin/categories       -> create a category { name, sort_order }
- * DELETE /api/admin/categories     -> delete an empty category { id }
- * All routes require the admin bearer token.
- * -----------------------------------------------------------------------
- */
+// GET  /api/admin/categories
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { logAudit } from "../../_lib/audit.js";
@@ -60,12 +52,7 @@ export async function onRequestPost(context) {
   }
 }
 
-/**
- * DELETE /api/admin/categories  { id }
- * Removes a category. Refused while dishes are still in it (they'd lose
- * their menu tab) - the response names them so the admin can move or
- * delete them first.
- */
+// DELETE /api/admin/categories { id } Removes a category
 export async function onRequestDelete(context) {
   const authError = await requireAdmin(context.request, context.env);
   if (authError) return authError;

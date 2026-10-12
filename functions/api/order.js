@@ -1,51 +1,4 @@
-/**
- * functions/api/order.js
- * -----------------------------------------------------------------------
- * POST /api/order  (Authorization: Bearer <customer session token>)
- * Places a checkout order. An account is required to check out - see
- * functions/_lib/customerAuth.js - so every order is tied to a
- * `customer_id`. Expects JSON:
- * {
- *   customer_name, phone_number, order_type ("collection"|"delivery"|"dine_in"),
- *   delivery_address, table_number, pickup_time, special_instructions,
- *   cart_items: [{ id, quantity, spice_level, extras: [addonId, ...] }]
- * }
- *
- * Payment is strictly online through Yoco - every order must be paid before
- * the kitchen sees it as placed. There is no pay-at-pickup/delivery path.
- *
- * Security note: prices are NEVER trusted from the browser. Every item id
- * and every addon id in the cart is re-priced against the current Neon
- * `menu_items` / `addons` tables, so a tampered client payload cannot
- * change what gets billed - including the amount that gets sent to Yoco.
- *
- * Specials: menu_items.special_price is nullable - when set on an item, it
- * IS that item's price here, full stop, regardless of what the browser
- * sent. `price` is only ever used as the "was" price for display.
- *
- * Stock: menu_items.stock_quantity is nullable - NULL means untracked and
- * always available. Quantities are checked before order creation, then
- * decremented only after a signed payment confirmation.
- *
- * The order is created immediately with payment_status = 'awaiting' (the
- * kitchen doesn't treat it as confirmed yet) and the response includes a
- * `payment` object for the browser to hand off to Yoco to complete payment.
- * functions/api/payment/notify.js updates payment_status to 'paid' after
- * the gateway confirms the transaction.
- *
- * Full order history now lives on the account - see
- * functions/api/order/my.js for the "My Orders" listing, which replaced
- * the old guest phone+localStorage lookup entirely.
- *
- * PUT /api/order  { id }  (Authorization: Bearer <customer session token>)
- * Customer self-service cancel - only for an order that belongs to the
- * signed-in customer, only while it's still "New", and only once it's paid
- * (an unpaid order has nothing to refund). Paid orders only within
- * the 2-minute window that starts when the payment is CONFIRMED
- * (kitchen_release_at = payment_confirmed_at + 2 min, set by the payment
- * webhook) - cancelling then refunds automatically through Yoco.
- * -----------------------------------------------------------------------
- */
+// POST /api/order
 import { runQuery, jsonResponse } from "../_lib/db.js";
 import { createYocoCheckout } from "../_lib/yoco.js";
 import { refundYocoCheckout } from "../_lib/yocoRefund.js";
@@ -61,7 +14,7 @@ import { MAX_DELIVERY_KM } from "../_lib/delivery.js";
 import { ensureScheduleColumns, scheduledForFromPickup, scheduledForFromReservation } from "../_lib/scheduledOrders.js";
 import { clearSavedCart } from "../_lib/savedCart.js";
 
-const CUSTOMER_CANCEL_WINDOW_MS = 2 * 60 * 1000; // keep in sync with CUSTOMER_CANCEL_WINDOW_MS in public/js/main.js
+const CUSTOMER_CANCEL_WINDOW_MS = 2 * 60 * 1000; // same value as in public/js/site.js
 const ROAD_BUFFER = 1.3; // straight-line * 1.3 ≈ road distance
 
 function haversineKm(lat1, lng1, lat2, lng2) {
@@ -175,14 +128,7 @@ export async function onRequestPut(context) {
       );
     }
 
-    // Re-check status='New' in the WHERE clause too, in case staff acted
-    // on it in the moment between the SELECT above and this UPDATE.
-    // For a paid order, mark it Cancelled + refund_needed first - this is
-    // the safe fallback state. If the automatic Yoco refund below succeeds,
-    // it's immediately overwritten with the real refunded state. If Yoco
-    // fails or isn't configured, refund_needed stays TRUE so a human can
-    // still catch it via the existing manual admin/refund.js flow - the
-    // refund is never silently lost either way.
+    // Re-check status='New' in the WHERE clause too
     await ensureCancelledByColumn(env);
     const cancelQuery =
       order.payment_status === "paid"
@@ -207,9 +153,6 @@ export async function onRequestPut(context) {
     await restoreOrderStock(env, orderId);
 
     // Customer-initiated cancellation itself is not written to audit_logs
-    // (audit reserved for admin/staff actions) - but the refund below is a
-    // payment-gateway-driven event, logged the same way payment/notify.js
-    // logs webhook activity, so it's always visible in order/audit history.
     let refundOutcome = null;
     if (order.payment_status === "paid" && order.payment_ref) {
       const refundResult = await refundYocoCheckout(env, {
@@ -237,9 +180,7 @@ export async function onRequestPut(context) {
         });
         refundOutcome = "refunded";
       } else {
-        // Leave refund_needed = TRUE from the UPDATE above; record why the
-        // automatic attempt failed so it's visible next to the order, not
-        // just in logs.
+        // Leave refund_needed = TRUE from the UPDATE above
         await runQuery(
           env,
           `UPDATE orders SET refund_error = $1 WHERE id = $2;`,
@@ -374,7 +315,7 @@ export async function onRequestPost(context) {
     return jsonResponse({ error: CLOSED_MESSAGE, closed: true }, 503);
   }
 
-  const paymentMethod = "online"; // payment is strictly online - no pay-at-pickup/delivery path
+  const paymentMethod = "online"; // payment is strictly online
   const cartItems = Array.isArray(orderData.cart_items)
     ? orderData.cart_items
     : [];
@@ -395,9 +336,7 @@ export async function onRequestPost(context) {
     );
   }
   if (!env.YOCO_SECRET_KEY && !env.YOCO_PAYMENT_URL && !env.YOCO_CHECKOUT_URL) {
-    // Fail before touching the database - never create an order we can't
-    // actually collect payment for. Online payment is the only path now,
-    // so a misconfigured server means nobody can check out at all.
+    // Fail early: never create an order we have no way to take payment for.
     return jsonResponse(
       {
         error:
@@ -468,7 +407,7 @@ export async function onRequestPost(context) {
 
     // Build validated, server-priced line items
     const lineItems = [];
-    const orderedQtyByItem = {}; // tracks total quantity per menu_item_id across all cart lines, for the stock check below
+    const orderedQtyByItem = {}; // tracks total quantity per menu_item_id across all cart
     for (const cartItem of cartItems) {
       const menuItem = menuById[parseInt(cartItem.id, 10)];
       const quantity = parseInt(cartItem.quantity, 10);
@@ -492,10 +431,7 @@ export async function onRequestPost(context) {
         );
       }
 
-      // Stock check - null stock_quantity means untracked/unlimited, so only
-      // items the admin is actively tracking get capped here. Aggregate
-      // across cart lines in case the same dish appears more than once
-      // (e.g. different spice levels) in a single order.
+      // Stock check - null stock_quantity means untracked/unlimited
       orderedQtyByItem[menuItem.id] =
         (orderedQtyByItem[menuItem.id] || 0) + quantity;
       if (
@@ -575,10 +511,7 @@ export async function onRequestPost(context) {
     let tooFar = false;
 
     if (orderType === "delivery") {
-      // Coordinates come from the checkout's address lookup. Without them we
-      // can't price the delivery, so don't let the order through at R0.
-      // (Number(null) is 0, which would read as "middle of the ocean" - so
-      // treat null/blank as missing rather than as zero.)
+      // Coordinates come from the checkout's address lookup
       const hasCoords =
         orderData.delivery_lat != null &&
         orderData.delivery_lng != null &&
@@ -667,7 +600,7 @@ export async function onRequestPost(context) {
     }
     if (!scheduledFor) scheduledFor = scheduledForFromPickup(pickupTime);
 
-    const initialPaymentStatus = "awaiting"; // every order is online-paid; kitchen won't treat it as confirmed until the payment gateway callback fires
+    const initialPaymentStatus = "awaiting"; // every order is online-paid
     const orderInsert = await runQuery(
       env,
       `
@@ -766,9 +699,7 @@ export async function onRequestPost(context) {
       );
     }
 
-    // The order exists and payment has started: the cart on the customer's
-    // account has done its job, so it is emptied on every device. (Done here,
-    // not when the payment completes, so items added meanwhile aren't wiped.)
+    // The order exists and payment has started: the cart on the customer's account has done its job
     await clearSavedCart(env, customer.id);
 
     return jsonResponse({

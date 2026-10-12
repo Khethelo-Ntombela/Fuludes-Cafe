@@ -1,12 +1,4 @@
-/**
- * functions/api/admin/order-status.js
- * -----------------------------------------------------------------------
- * POST /api/admin/order-status
- *
- * Persists an admin-driven order transition and, when a hand-off stage is
- * selected, stores the selected fulfilment mode on the order.
- * -----------------------------------------------------------------------
- */
+// POST /api/admin/order-status
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { getRequestIp } from "../../_lib/security.js";

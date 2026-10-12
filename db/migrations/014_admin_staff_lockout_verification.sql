@@ -1,10 +1,5 @@
--- =====================================================================
--- Admin/staff accounts: lock after 4 failed sign-ins (only the main admin
--- can re-enable them), and new accounts must click an emailed link before
--- they can sign in. Existing accounts stay verified.
--- Also added on the fly by functions/_lib/accountLockout.js and
--- accountVerification.js. Run in Neon SQL editor.
--- =====================================================================
+-- Admin/staff accounts: lock after 4 failed sign-ins (only the main admin can re-enable them)
+
 ALTER TABLE admin_accounts ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE admin_accounts ADD COLUMN IF NOT EXISTS is_locked BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE admin_accounts ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT TRUE;

@@ -1,9 +1,4 @@
-/**
- * functions/_lib/audit.js
- * -----------------------------------------------------------------------
- * Audit logging helper for security-sensitive actions and payment events.
- * -----------------------------------------------------------------------
- */
+// Audit logging helper for security-sensitive actions and payment events
 import { runQuery } from "./db.js";
 
 let auditTableReady = false;
@@ -30,9 +25,7 @@ export async function logAudit(
   actor_id = actor_id ?? env.__actorId ?? null;
   actor_role = actor_role ?? env.__actorRole ?? null;
   actor_type = actor_type ?? env.__actorRole ?? null;
-  // The username/name at the time of the action, so it's preserved even
-  // if the account is later renamed or deleted (see auditLabel() in
-  // admin.js for how "actor #N" is used as a fallback for older entries).
+  // The username/name at the time of the action, so it's preserved even if the account is later renamed
   actor_name = actor_name ?? env.__actorName ?? null;
   await ensureActorNameColumn(env);
   await runQuery(
@@ -57,12 +50,7 @@ export async function logAudit(
 }
 
 
-/**
- * Compares two plain objects and returns a readable list of changes.
- *   fields: { column: { label: "Price", format: (v) => "R" + v } }
- * Only fields that actually differ are returned, e.g.
- *   [{ field: "price", label: "Price", from: "R80.00", to: "R70.00" }]
- */
+// Compares two plain objects and returns a readable list of changes
 export function diffChanges(before = {}, after = {}, fields = {}) {
   const changes = [];
   for (const [key, meta] of Object.entries(fields)) {

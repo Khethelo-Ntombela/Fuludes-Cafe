@@ -1,17 +1,4 @@
-/**
- * functions/_lib/yoco.js
- * -----------------------------------------------------------------------
- * Starts a Yoco payment for an order.
- *
- * With YOCO_SECRET_KEY set (the normal setup) this calls Yoco's Checkout
- * API (POST https://payments.yoco.com/api/checkouts), which returns a
- * `redirectUrl` - the customer's browser goes straight there to pay.
- * https://developer.yoco.com/guides/online-payments/accepting-a-payment
- *
- * Without YOCO_SECRET_KEY it falls back to the older hosted-form payload
- * (fields POSTed to YOCO_PAYMENT_URL / YOCO_CHECKOUT_URL).
- * -----------------------------------------------------------------------
- */
+// Starts a Yoco payment for an order
 
 import { runQuery } from "./db.js";
 
@@ -74,11 +61,7 @@ export function buildYocoCheckout(env, { orderId, amount, itemName, customerName
   };
 }
 
-/**
- * Returns { redirect_url, checkout_id } when Yoco's Checkout API is
- * available, otherwise the legacy { action_url, fields } form payload.
- * Throws if the Yoco API call itself fails.
- */
+// Returns { redirect_url, checkout_id } when Yoco's Checkout API is available
 export async function createYocoCheckout(env, params) {
   if (!env.YOCO_SECRET_KEY) return buildYocoCheckout(env, params);
 

@@ -1,22 +1,6 @@
-/**
- * public/js/admin-app.js
- * -----------------------------------------------------------------------
- * SaaS shell + analytics layer on top of admin.js (which owns auth, CRUD
- * and the per-tab data loading). This file owns:
- *   - sidebar collapse / mobile drawer
- *   - sticky topbar: page titles, global search, quick actions, bell
- *   - the Dashboard home tab (KPIs, charts, recent activity, top lists)
- *   - Sales & Reports derived widgets (top items, peak hours, breakdowns)
- *   - restaurant status card, toasts, settings sub-tabs
- * Everything here is derived client-side from the existing endpoints
- * (/api/admin/stats, /api/admin/orders, /api/review) - no new backend.
- * Load AFTER admin.js.
- * -----------------------------------------------------------------------
- */
+// SaaS shell + analytics layer on top of admin.js (which owns auth
 
-// ---------------------------------------------------------------------
 // Small helpers
-// ---------------------------------------------------------------------
 const $id = (id) => document.getElementById(id);
 
 const escHtml = (v) =>
@@ -98,9 +82,7 @@ const isToday = (isoDate) => {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
 };
 
-// ---------------------------------------------------------------------
-// Shared data: full order history (feeds dashboard, reports, specials)
-// ---------------------------------------------------------------------
+// Shared data: full order history (feeds dashboard, reports
 window.adminHistoryAll = window.adminHistoryAll || [];
 
 async function fetchHistoryAll() {
@@ -115,9 +97,7 @@ async function fetchHistoryAll() {
   return window.adminHistoryAll;
 }
 
-// ---------------------------------------------------------------------
 // Sidebar: collapse (desktop) + drawer (mobile)
-// ---------------------------------------------------------------------
 const dashShell = $id("dashboard");
 const SIDEBAR_KEY = "fulude_admin_sidebar";
 
@@ -141,9 +121,7 @@ document.addEventListener("click", (e) => {
   }
 });
 
-// ---------------------------------------------------------------------
 // Topbar: page titles, tab hooks, search, quick actions, bell
-// ---------------------------------------------------------------------
 const TAB_TITLES = {
   dashboard: "Dashboard",
   orders: "Live Orders",
@@ -235,9 +213,7 @@ function updateBell(orders) {
   el.style.display = fresh > 0 ? "flex" : "none";
 }
 
-// ---------------------------------------------------------------------
 // Restaurant status card (sidebar)
-// ---------------------------------------------------------------------
 const STATUS_CARD_CACHE_KEY = "fc_admin_status_card_v1";
 
 /** Last known Orders/Revenue Today, only reused on the same calendar day. */
@@ -278,9 +254,7 @@ function updateStatusCard() {
   }
 }
 
-// ---------------------------------------------------------------------
 // Dashboard home
-// ---------------------------------------------------------------------
 async function loadDashboardData() {
   if (window.adminCan && !window.adminCan("orders")) return; // dashboard figures need the Orders permission
   const [history, statsRes, reviewsRes] = await Promise.all([
@@ -328,15 +302,7 @@ async function fetchAwaitingOrders() {
   return window.adminAwaiting;
 }
 
-// ---------------------------------------------------------------------
-// Manual "Clear" for the dashboard's Pending Orders / Delivery Orders /
-// Reservations Today cards.
-//  - Pending Orders: really deletes the unpaid orders (paid ones are never
-//    touched) - stale "awaiting payment" orders otherwise pile up forever.
-//  - Delivery Orders / Reservations Today: these are real records, so
-//    clearing only resets the card's counter for today (remembered in this
-//    browser); anything new that comes in afterwards is counted again.
-// ---------------------------------------------------------------------
+// Manual "Clear" for the dashboard's Pending Orders /
 const localDayKey = (d = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
@@ -639,9 +605,7 @@ function updateKitchenCompletedToday(history) {
   el.textContent = history.filter((o) => o.status === "Completed" && isToday(o.created_at)).length;
 }
 
-// ---------------------------------------------------------------------
 // Sales & Reports derived widgets
-// ---------------------------------------------------------------------
 async function loadReportWidgets() {
   const history = await fetchHistoryAll();
   const active = history.filter(isPaidOrder);
@@ -672,7 +636,7 @@ async function loadReportWidgets() {
   const payments = {};
   const types = { collection: 0, delivery: 0, dine_in: 0 };
   active.forEach((o) => {
-    const label = o.payment_method === "online" ? "Online (Yoco)" : "Pay in person";
+    const label = "Online (Yoco)";
     payments[label] = (payments[label] || 0) + 1;
     if (types[o.order_type] !== undefined) types[o.order_type] += 1;
   });
@@ -684,9 +648,7 @@ async function loadReportWidgets() {
   ]);
 }
 
-// ---------------------------------------------------------------------
 // Settings sub-tabs
-// ---------------------------------------------------------------------
 document.querySelectorAll(".settings-tab-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".settings-tab-btn").forEach((b) => b.classList.remove("active"));
@@ -701,9 +663,7 @@ document.querySelectorAll(".settings-tab-btn").forEach((btn) => {
   });
 });
 
-// ---------------------------------------------------------------------
-// Payments (Yoco): key mode, payment-notification webhook, recent events
-// ---------------------------------------------------------------------
+// Payments (Yoco): key mode, payment-notification webhook
 const PAYMENT_EVENT_TEXT = {
   payment_notify_processed: "Payment confirmed",
   payment_notify_payment_failed: "Payment failed on Yoco",
@@ -747,9 +707,7 @@ function renderPaymentSettings(d) {
     <div class="sa-list">${events}</div>`;
 }
 
-// ---------------------------------------------------------------------
 // Delivery fee settings
-// ---------------------------------------------------------------------
 async function loadDeliveryFeeSettings() {
   try {
     const res = await adminFetch("/api/admin/delivery-fee");
@@ -863,9 +821,7 @@ $id("cafeLocationForm")?.addEventListener("submit", (e) => {
   saveCafeLocation();
 });
 
-// ---------------------------------------------------------------------
 // Menu tab: Add Item collapse + table filters
-// ---------------------------------------------------------------------
 $id("addItemToggleBtn").addEventListener("click", () => {
   const card = $id("menuFormCard");
   card.classList.toggle("open");
@@ -882,9 +838,7 @@ populateFormForEdit = function (item) {
 $id("menuTableSearch").addEventListener("input", () => renderMenuItemsList());
 $id("menuTableCategory").addEventListener("change", () => renderMenuItemsList());
 
-// ---------------------------------------------------------------------
-// Hooks into admin.js flows (function declarations are reassignable)
-// ---------------------------------------------------------------------
+// Wrap admin.js render functions so this file can extend them
 const _renderOrders = renderOrders;
 renderOrders = function (orders) {
   _renderOrders(orders);
@@ -916,21 +870,18 @@ function initShellData() {
   if (shellInitialized) return;
   shellInitialized = true;
   $id("topbarTitle").textContent = TAB_TITLES.dashboard;
-  updateStatusCard(); // Open/Closed comes from the clock, so it needs no network - paint it right away
-  paintCachedStatusCounts(); // last known Orders/Revenue Today until fresh figures arrive
+  updateStatusCard(); // Open/Closed comes from the clock
+  paintCachedStatusCounts(); // last known Orders/Revenue Today until fresh figures
   loadDashboardData();
   setInterval(updateStatusCard, 60000);
 }
 
-// admin.js may have already shown the dashboard (stored token) before this
-// file loaded - catch up if so.
+// admin.js may already have shown the dashboard before this file loaded
 if ($id("dashboard").style.display !== "none") {
   initShellData();
 }
 
-// ---------------------------------------------------------------------
-// Place Order: admin orders on behalf of a customer, generates Yoco link
-// ---------------------------------------------------------------------
+// Place Order: admin orders on behalf of a customer
 let adminCart = [];
 let adminMenuData = [];
 let adminSpiceLevels = [];
@@ -1655,11 +1606,7 @@ document.querySelectorAll("[data-goto-tab]").forEach((btn) => {
 });
 
 
-// ---------------------------------------------------------------------
-// Reservations: admin books a table for a customer who phoned in, then
-// sends the confirmation over WhatsApp (opens WhatsApp with the message
-// filled in - the admin taps send).
-// ---------------------------------------------------------------------
+// Reservations: admin books a table for a customer who phoned
 (function setupAdminReservationForm() {
   const form = $id("resNewForm");
   const toggle = $id("resNewToggle");

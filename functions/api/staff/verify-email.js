@@ -1,12 +1,6 @@
 import { runQuery } from "../../_lib/db.js";
 
-/**
- * GET /api/staff/verify-email?token=...  (the link emailed when the main
- * admin creates a new staff account)
- * Always redirects to the main sign-in page (/home?auth=signin&staff_email_verified=yes|invalid|error)
- * rather than returning bare text/JSON, which some phone browsers offer
- * to save as a file instead of showing it.
- */
+// GET /api/staff/verify-email?token=
 export async function onRequestGet(context) {
   const { request, env } = context;
   const url = new URL(request.url);

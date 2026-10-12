@@ -1,27 +1,4 @@
-/**
- * functions/api/auth/google.js
- * -----------------------------------------------------------------------
- * POST /api/auth/google
- * Exchanges a Google ID token for a local session. Two ways in:
- *
- *  1. Redirect flow (what the site uses): the "Sign in with Google" button
- *     sends the whole page to Google with response_mode=form_post, and
- *     Google POSTs back here as a form { id_token, state }. We verify it,
- *     then 303-redirect back to the page the customer started on with the
- *     session token in the URL fragment (#google_token=...), which site.js
- *     picks up. No popup and no iframe, so it works in iPhone Safari, the
- *     installed app, and in-app browsers where Google's popup silently fails.
- *     `state` is "<nonce>.<return path>"; the nonce must match the
- *     g_oauth_nonce cookie site.js set just before leaving AND the nonce
- *     claim inside the ID token (stops login-CSRF and token replay).
- *
- *  2. JSON { id_token } - kept for API clients that already have a token.
- *
- * The token is verified with Google's tokeninfo endpoint, then a
- * `customers` row is upserted with `google_id` and `is_verified = TRUE`.
- * Google accounts never get a stored password_hash/salt per FR07.
- * -----------------------------------------------------------------------
- */
+// POST /api/auth/google
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { generateToken } from "../../_lib/password.js";
 import { ensureCustomerProfileColumns } from "../../_lib/customerAuth.js";
@@ -94,11 +71,7 @@ async function handleRedirectFlow(context) {
   return back(`google_token=${encodeURIComponent(result.token)}`);
 }
 
-/**
- * Verifies a Google ID token and returns { token, customer } for a new
- * local session, or { error, message, status }. If `expectedNonce` is
- * given, the token's nonce claim must match it.
- */
+// Verifies a Google ID token and returns { token, customer } for a new local session, or { error
 async function signInWithGoogleToken(env, idToken, expectedNonce) {
   try {
     // Verify token with Google's tokeninfo endpoint
@@ -132,10 +105,7 @@ async function signInWithGoogleToken(env, idToken, expectedNonce) {
     let customerId;
     if (existing.rows[0]) {
       const row = existing.rows[0];
-      // If this email already has a password-based account that has never
-      // been linked to Google before, don't silently attach google_id and
-      // flip is_verified on a bare email match - require the user to prove
-      // ownership via their existing password first.
+      // If this email already has a password-based account that has never been linked to Google before
       if (row.password_hash && !row.google_id) {
         return {
           error: 'account_exists_use_password',

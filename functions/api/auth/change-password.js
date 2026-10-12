@@ -1,17 +1,4 @@
-/**
- * functions/api/auth/change-password.js
- * -----------------------------------------------------------------------
- * POST /api/auth/change-password  { current_password, new_password }
- * (Authorization: Bearer <customer session token>)
- *
- * Does NOT change the password. It checks the current password, hashes the
- * new one straight away (the plaintext is never stored), parks the hash in
- * `password_change_requests`, and emails the account owner a confirmation
- * link. The password only changes when that link is opened
- * (confirm-password-change.js). If the link is never confirmed - or has
- * expired after 1 hour - the old password keeps working unchanged.
- * -----------------------------------------------------------------------
- */
+// POST /api/auth/change-password
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireCustomer } from "../../_lib/customerAuth.js";
 import {

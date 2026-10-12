@@ -1,26 +1,4 @@
-/**
- * functions/_lib/accountLockout.js
- * -----------------------------------------------------------------------
- * Shared failed-login lockout + email-verification-before-first-login
- * behaviour for admin_accounts and staff_accounts (mirrors the pattern
- * already used for customers in functions/api/auth/login.js).
- *
- * Lockout: after MAX_FAILED_ATTEMPTS wrong passwords in a row, the
- * account is locked (is_locked = TRUE) and the login screen shows
- * LOCKED_MESSAGE ("Please contact admin, your account has been locked.").
- * Unlike customers, admin/staff accounts have NO self-service way to
- * unlock - the main admin clicks the "Unlock" button next to Edit/Delete
- * on that account in the Admin/Staff Accounts settings panel (see the
- * `unlock` handling in accounts.js / staff.js), which resets the counter
- * so they can try signing in again.
- *
- * Email verification: a new admin or staff account created by the main
- * admin starts with email_verified = FALSE and can't log in until they
- * click the link emailed to them (functions/api/admin/verify-email.js,
- * functions/api/staff/verify-email.js). Accounts created before this
- * feature existed, and the env-var-based bootstrap admin/staff login,
- * are always considered verified - see migration 014.
- * ----------------------------------------------------------------------- */
+// Failed-login lockout and email verification for admin and staff accounts.
 import { runQuery } from "./db.js";
 
 export const MAX_FAILED_ATTEMPTS = 4;
@@ -41,13 +19,7 @@ export async function ensureLockoutColumns(env, table) {
   readyTables.add(table);
 }
 
-/**
- * Call after a wrong password. Increments the counter, locks the account
- * once it reaches MAX_FAILED_ATTEMPTS, and returns the response to send
- * back (still a generic "incorrect password" message below the limit).
- * `contactLabel` is kept for backwards compatibility but is no longer used -
- * the locked message is the same LOCKED_MESSAGE everywhere.
- */
+// Call after a wrong password
 export async function recordFailedLogin(env, table, accountId, attemptsSoFar, contactLabel) {
   const attempts = attemptsSoFar + 1;
   const shouldLock = attempts >= MAX_FAILED_ATTEMPTS;

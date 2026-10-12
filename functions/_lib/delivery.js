@@ -1,9 +1,4 @@
-/**
- * functions/_lib/delivery.js
- * Delivery fee calculation shared with the admin "place order for a customer"
- * flow (same rules as the checkout in functions/api/order.js): straight-line
- * distance from the cafe x 1.3 road factor, matched against the fee bands.
- */
+// Delivery fee calculation shared with the admin "place order for a customer" flow
 import { runQuery } from "./db.js";
 
 const ROAD_BUFFER = 1.3;

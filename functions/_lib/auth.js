@@ -1,11 +1,4 @@
-/**
- * functions/_lib/auth.js
- * -----------------------------------------------------------------------
- * Authentication for the owner admin dashboard and kitchen Staff Portal.
- * Tokens are checked against database sessions in production and against
- * the in-memory fallback used by local runs without Neon credentials.
- * -----------------------------------------------------------------------
- */
+// Authentication for the owner admin dashboard and kitchen Staff Portal
 
 import { runQuery, jsonResponse } from "./db.js";
 import { getSession, isDbAvailable } from "./sessionStore.js";

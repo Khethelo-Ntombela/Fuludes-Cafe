@@ -1,10 +1,4 @@
-/* =====================================================================
-   Fulude's Cafe — Admin design system (SaaS-grade)
-   Loads after style.css (customer tokens) and deliberately overrides its
-   decorative styles inside the admin: Inter everywhere (the serif stays
-   only on the brand logo), 12px radius, #F8F9FB canvas, white cards,
-   8/12/16/24/32 spacing scale, subtle shadows.
-   ===================================================================== */
+/* Fulude's Cafe — Admin design system (SaaS-grade) Loads after style.css */
 
 .admin-body {
   --sa-bg: #f8f9fb;
@@ -757,10 +751,7 @@
   border-color: var(--sa-text);
 }
 
-/* ---------------- 12-column grid system ----------------
-   Every card row sits on the same 12-col grid with 16px gutters:
-   .kpi-grid (6 cards -> span 2), .kpi-grid.kpi-4 (4 cards -> span 3),
-   .sa-grid-2 (2 widgets -> span 6). */
+/* 12-column grid system Every card row sits on the same 12-col grid with 16px */
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -1136,9 +1127,7 @@
   color: var(--sa-red);
 }
 
-/* Board: columns share the full width evenly - no fixed widths, no
-   horizontal scrolling. All columns are the same height and fill the
-   viewport; each scrolls internally. */
+/* Board: columns share the full width evenly - no fixed widths */
 .kds-board {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
@@ -1255,8 +1244,7 @@
   padding: 20px 0;
 }
 
-/* Order cards: FIXED height - long content never stretches a card.
-   Overflow lives behind "+N more" and the details view. */
+/* Order cards: FIXED height - long content never stretches a card */
 .kds-card {
   background: var(--sa-card);
   border: 1px solid var(--sa-border);
@@ -2123,8 +2111,7 @@
 }
 
 /* ---------------- Filter card ---------------- */
-/* Every filter control sits on the same 42px baseline - same height,
-   radius, typography; no control visually dominates another. */
+/* Every filter control sits on the same 42px baseline - same height, radius */
 .filter-card {
   background: var(--sa-card);
   border: 1px solid var(--sa-border);
@@ -2517,9 +2504,7 @@
   }
 }
 
-/* =====================================================================
-   Place Customer Order (staff orders on behalf of a customer)
-   ===================================================================== */
+/* Place Customer Order (staff orders on behalf of a customer) */
 .place-order-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
@@ -2680,8 +2665,7 @@
   border-radius: 8px;
   font-size: 0.8rem;
 }
-/* Desktop: the order sidebar scrolls on its own, so the menu beside it
-   never has to be scrolled away to reach the cart or the pay-link button. */
+/* Desktop: the order sidebar scrolls on its own */
 @media (min-width: 901px) {
   .place-order-sidebar {
     max-height: calc(100vh - 100px);
@@ -2711,9 +2695,7 @@
 .po-jump-btn {
   display: none;
 }
-/* Both columns may shrink to the screen: without min-width 0 the one-line
-   row of category chips stretches the menu column wider than the phone,
-   and everything past the screen edge gets cut off. */
+/* Both columns may shrink to the screen */
 .place-order-main,
 .place-order-sidebar {
   min-width: 0;
@@ -2745,9 +2727,7 @@
   }
 }
 
-/* =====================================================================
-   Dashboard: clickable "Pending Orders" card + awaiting-payment panel
-   ===================================================================== */
+/* Dashboard: clickable "Pending Orders" card + awaiting-payment panel */
 button.kpi-card {
   font-family: inherit;
   color: inherit;
@@ -3248,12 +3228,8 @@ button.kpi-card {
   border-radius: 8px;
 }
 
-/* =====================================================================
-   Responsive admin (phones + tablets): nothing is cut off or pushed off
-   the screen - wide things scroll sideways inside their own box.
-   ===================================================================== */
-/* Top bar: on tablets the quick buttons show just their icon (title on hover),
-   and if space is still short they wrap instead of widening the page. */
+/* Responsive admin (phones + tablets): nothing is cut off or pushed off the */
+/* Top bar: on tablets the quick buttons show just their icon (title on hover) */
 .admin-topbar,
 .topbar-search,
 .topbar-actions {
@@ -3341,16 +3317,13 @@ button.kpi-card {
   background: var(--sa-border-strong);
   border-radius: 6px;
 }
-/* Sidebar: size to the visible screen on phones (browser toolbars can hide
-   the bottom of a 100vh menu) and scroll so every section can be reached. */
+/* Sidebar: size to the visible screen on phones */
 .admin-sidebar {
   height: 100dvh;
   overscroll-behavior: contain;
 }
 
-/* Place Order - Order panel rows: each part of a row (name + price, the
-   choices list, quantity + item total) takes the full width instead of
-   squeezing side by side; the remove button stays at the top right. */
+/* Place Order - Order panel rows: each part of a row (name + price */
 .admin-cart-item {
   align-items: flex-start;
 }

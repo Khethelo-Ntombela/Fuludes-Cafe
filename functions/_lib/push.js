@@ -1,21 +1,4 @@
-/**
- * functions/_lib/push.js
- * -----------------------------------------------------------------------
- * Web Push (phone/desktop notifications that arrive even when the app is
- * closed), implemented with WebCrypto so it runs on Cloudflare:
- *   - VAPID auth (RFC 8292): an ES256-signed JWT per push service
- *   - payload encryption "aes128gcm" (RFC 8291 / RFC 8188)
- *
- * VAPID keys: set VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY (base64url, raw
- * P-256) in the environment, or leave them out and a key pair is created
- * once and kept in the push_config table. VAPID_SUBJECT (e.g.
- * "mailto:owner@example.com") is optional - the site URL is used otherwise.
- *
- * Subscriptions live in push_subscriptions, tagged with who they belong to:
- * role 'admin' | 'staff' | 'customer' (+ customer_id for customers).
- * Dead subscriptions (404/410 from the push service) are deleted.
- * -----------------------------------------------------------------------
- */
+// Web Push (phone/desktop notifications that arrive even when the app is closed)
 import { runQuery } from "./db.js";
 
 const enc = new TextEncoder();
@@ -158,13 +141,7 @@ async function sendOne(env, keys, subject, sub, payloadText) {
   }
 }
 
-/**
- * Sends a notification to everyone matching `target`:
- *   { roles: ["admin", "staff"] }  or  { customerId: 12 }
- * message: { title, body, url, tag }. `url` may be an object keyed by role
- * ({ admin: "/fc-hq.html#orders", staff: "/fc-kitchen.html" }) for per-app links.
- * Never throws.
- */
+// Sends a notification to everyone matching `target`: { roles: ["admin", "staff"] } or { customerId
 export async function sendPush(env, target, message, { origin } = {}) {
   try {
     await ensurePushTables(env);
@@ -186,7 +163,7 @@ export async function sendPush(env, target, message, { origin } = {}) {
   }
 }
 
-/** Fire-and-forget from a Pages Function: keeps the Worker alive until sent without delaying the response. */
+// Send after the response, without slowing the request down.
 export function queuePush(context, target, message) {
   const origin = new URL(context.request.url).origin;
   const job = sendPush(context.env, target, message, { origin });
@@ -194,22 +171,7 @@ export function queuePush(context, target, message) {
   return job;
 }
 
-/**
- * "New paid order" notifications for admin + kitchen staff.
- *
- * A paid order only shows on the admin/staff boards once its 2-minute
- * customer-cancel window ends (kitchen_release_at), so the notification
- * waits for that too - sent 1 second after release, and never for an order
- * the customer cancelled inside the window.
- *
- * Cloudflare can't sleep 2 minutes after the payment webhook, so this runs
- * on the requests that already come in every few seconds (the admin and
- * staff boards, the customer's My Orders countdown) plus /api/push/dispatch
- * for an optional once-a-minute outside cron. new_order_push_sent_at is
- * claimed in the same UPDATE that picks the order, so it's sent only once
- * however many requests race. Orders released over 30 minutes ago are
- * skipped - a late "new order" would just be noise.
- */
+// "New paid order" notifications for admin + kitchen staff
 let newOrderPushColumnReady = false;
 export async function ensureNewOrderPushColumn(env) {
   if (newOrderPushColumnReady) return;

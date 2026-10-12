@@ -1,12 +1,4 @@
-/**
- * functions/api/auth/logout.js
- * -----------------------------------------------------------------------
- * POST /api/auth/logout  (Authorization: Bearer <token>)
- * Deletes this one session row - other devices/browsers the customer is
- * signed into stay signed in (unlike a password reset, which signs
- * everything out everywhere).
- * -----------------------------------------------------------------------
- */
+// POST /api/auth/logout
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { getRequestIp } from "../../_lib/security.js";
 

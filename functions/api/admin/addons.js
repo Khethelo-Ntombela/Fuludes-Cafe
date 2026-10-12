@@ -1,18 +1,4 @@
-/**
- * functions/api/admin/addons.js
- * -----------------------------------------------------------------------
- * Manages the two global customization catalogs an admin edits once and
- * then attaches to individual dishes:
- *   - addons: paid extras (e.g. "Extra Chips R25")
- *   - spice_levels: free spice choices (e.g. "Mild", "Hot")
- *
- * GET    /api/admin/addons                 -> { addons, spice_levels }
- * POST   /api/admin/addons                 -> create an addon { name, price }
- * POST   /api/admin/addons?type=spice      -> create a spice level { name }
- * DELETE /api/admin/addons?id=5            -> remove an addon
- * DELETE /api/admin/addons?type=spice&id=2 -> remove a spice level
- * -----------------------------------------------------------------------
- */
+// Global addons and sides, edited once and attached to dishes.
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 

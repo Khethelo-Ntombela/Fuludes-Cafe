@@ -1,12 +1,4 @@
-/**
- * functions/api/auth/signup.js
- * -----------------------------------------------------------------------
- * POST /api/auth/signup  { name, email, password }
- * Creates a customer account (required to check out - see
- * functions/api/order.js) and immediately signs them in, returning a
- * session token the same way login.js does.
- * -----------------------------------------------------------------------
- */
+// POST /api/auth/signup
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { hashPassword, generateToken } from "../../_lib/password.js";
 import { sendEmail } from "../../_lib/email.js";

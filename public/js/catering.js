@@ -1,11 +1,4 @@
-/**
- * public/js/catering.js
- * -----------------------------------------------------------------------
- * Catering-page logic: renders the static inspiration gallery (opens in
- * the shared lightbox from site.js) and handles the inquiry form.
- * Requires site.js to be loaded first.
- * -----------------------------------------------------------------------
- */
+// Catering-page logic: renders the static inspiration gallery
 
 const CATERING_GALLERY_PHOTOS = [
   "images/catering/cat.jpeg",
@@ -30,8 +23,7 @@ function renderCateringGallery() {
   });
 }
 
-// Catering inquiries go to orders@fuludescafe.co.za: the form opens the
-// customer's email app with a ready-to-send message (no email service needed).
+// The form opens the customer's email app with the message ready to send.
 const CATERING_INQUIRY_EMAIL = "orders@fuludescafe.co.za";
 
 document.getElementById("cateringForm").addEventListener("submit", (e) => {
@@ -55,8 +47,7 @@ document.getElementById("cateringForm").addEventListener("submit", (e) => {
   const subject = `Catering inquiry - ${name}${val("catDate") ? ` - ${val("catDate")}` : ""}`;
   window.location.href = `mailto:${CATERING_INQUIRY_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 
-  // The details are now in the email app, so start the form fresh. WhatsApp is
-  // only an optional fallback (pre-filled with the same message) - OK closes it.
+  // Details are in the email app now, so reset the form. WhatsApp is an optional fallback.
   e.target.reset();
   showCateringSent(body);
 });

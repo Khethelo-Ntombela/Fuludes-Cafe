@@ -1,21 +1,4 @@
-/**
- * functions/api/delivery/geocode.js
- * -----------------------------------------------------------------------
- * POST /api/delivery/geocode   { address: string }
- * Proxies LocationIQ forward geocoding so the API key never reaches the
- * browser. Returns { lat, lng, display_name } or { error }.
- *
- * Why this is smarter than "take the first result": a street address like
- * "12 Main Road" exists in dozens of towns, and the first hit was often a
- * different province - which made nearly every customer come back "too
- * far". Now we:
- *   1. search only inside a box around the cafe first (~55 km each way),
- *   2. retry with the cafe's town/province appended if that finds nothing,
- *   3. only then search all of South Africa,
- * and in every case we return the candidate CLOSEST to the cafe rather than
- * whichever one the geocoder ranked first.
- * -----------------------------------------------------------------------
- */
+// POST /api/delivery/geocode
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { sanitizeText } from "../../_lib/security.js";
 
@@ -74,11 +57,7 @@ async function search(apiKey, query, box) {
   return Array.isArray(data) ? data : [];
 }
 
-/**
- * Shared phone location -> address parts for the checkout fields. The
- * coordinates are what price the delivery; the address is for the driver,
- * so a failed lookup still returns the coordinates.
- */
+// Shared phone location -> address parts for the checkout fields
 async function reverseGeocode(apiKey, lat, lng) {
   const params = new URLSearchParams({ key: apiKey, lat: String(lat), lon: String(lng), format: "json", addressdetails: "1" });
   try {
@@ -127,11 +106,7 @@ function boxAround(cafe) {
 
 const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
-/**
- * How well a geocoder result matches what the customer typed: street name,
- * postal code, suburb, town and province each add points. Used to pick the
- * right place when a street name exists in several towns.
- */
+// How well a geocoder result matches what the customer typed: street name, postal code, suburb
 function scoreResult(r, parts) {
   const hay = ` ${norm(r.display_name)} ${norm(Object.values(r.address || {}).join(" "))} `;
   const has = (v) => {
@@ -185,7 +160,7 @@ async function geocodeParts(env, apiKey, parts) {
           best = { lat, lng, km, score, streetMatched, display_name: r.display_name };
         }
       }
-      if (results.length) break; // found something near the cafe - no need to search the whole country for this query
+      if (results.length) break; // found something near the cafe
     }
     // Street plus postal code/suburb/town all matched: that's the place.
     if (best && best.streetMatched && best.score >= 7) break;

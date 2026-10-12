@@ -2331,11 +2331,7 @@ input[type="text"]::-ms-reveal {
   }
 }
 
-/* =====================================================================
-   Multi-page premium refresh: page heroes, home flow bands, the menu
-   toolbar, the dark "order ticket" cart, and interaction polish.
-   Appended last on purpose - these override earlier rules where needed.
-   ===================================================================== */
+/* Multi-page premium refresh: page heroes, home flow bands, the menu toolbar */
 
 /* Sub-page hero band (menu / reviews / catering / contact) */
 .page-hero {
@@ -2418,8 +2414,7 @@ input[type="text"]::-ms-reveal {
   margin-bottom: 48px;
 }
 
-/* Dark-outline button for light backgrounds (btn-secondary is the
-   white-outline variant used on dark backgrounds) */
+/* Dark-outline button for light backgrounds */
 .btn-outline {
   background: transparent;
   color: var(--black);
@@ -2642,8 +2637,7 @@ textarea:focus-visible {
   }
 }
 
-/* Keep catering card titles scaled down on small screens (the serif base
-   rule above is later in the cascade than the original media queries) */
+/* Keep catering card titles scaled down on small screens */
 @media (max-width: 900px) {
   .catering-card h3 {
     font-size: 1.05rem;
@@ -2656,10 +2650,7 @@ textarea:focus-visible {
   }
 }
 
-/* =====================================================================
-   Menu: per-dish photo slideshow, per-dish quantity stepper,
-   quantity-only cart lines, and the phone "Your Order" page + bar
-   ===================================================================== */
+/* Menu: per-dish photo slideshow, per-dish quantity stepper */
 
 /* --- Photo slideshow inside the dish card (no full-screen lightbox) --- */
 .order-card .order-card-image {
@@ -2957,11 +2948,7 @@ textarea:focus-visible {
 }
 
 
-/* ---------------------------------------------------------------------
-   Site notices - ONE style for every "heads up" message (sign-in prompt,
-   account not found, out of service, session expired ...). Gold outline,
-   soft cream fill, charcoal text - same look as .auth-intro.
-   --------------------------------------------------------------------- */
+/* Site notices - ONE style for every "heads up" message (sign-in prompt */
 .site-notice,
 #signInError,
 #signUpError,
@@ -2980,9 +2967,7 @@ textarea:focus-visible {
   margin-bottom: 2px;
 }
 
-/* Out-of-service box: red background, white text. Scoped to these two
-   specific out-of-service elements only, so the shared .site-notice look
-   (sign-in prompt, account errors, etc.) is untouched. */
+/* Out-of-service box: red background, white text */
 #heroServiceNotice,
 .service-banner {
   background: #d92d20;
@@ -2997,9 +2982,7 @@ textarea:focus-visible {
   text-align: center;
 }
 
-/* Give the hero note text room to breathe above the out-of-service box on
-   wider (desktop) screens, where it can otherwise look cramped; phone view
-   already looks fine so this is scoped to desktop widths only. */
+/* Give the hero note text room to breathe above the out-of-service box on wider */
 @media (min-width: 901px) {
   .hero .site-notice {
     margin-top: 28px;
@@ -3013,8 +2996,7 @@ textarea:focus-visible {
   text-align: center;
 }
 
-/* Admin announcement: white rounded bar under the hero buttons, red text.
-   Only exists in the DOM while the admin has a message set. */
+/* Admin announcement: white rounded bar under the hero buttons, red text */
 .hero-announcement {
   display: inline-block;
   max-width: 560px;
@@ -3032,8 +3014,7 @@ textarea:focus-visible {
   text-align: center;
 }
 
-/* My Account modal - Settings button: solid black, clearly visible, with
-   breathing room below the "View My Orders" button. */
+/* My Account modal - Settings button: solid black, clearly visible */
 .btn-account-settings {
   background: #000;
   color: #fff;
@@ -3339,10 +3320,7 @@ textarea:focus-visible {
   }
 }
 
-/* =====================================================================
-   Phones: keep the page rigid - exactly the screen's width, no sideways
-   drift, no zoom-in when a form field is tapped.
-   ===================================================================== */
+/* Phones: keep the page rigid - exactly the screen's width, no sideways drift */
 html {
   -webkit-text-size-adjust: 100%; /* iPhone: don't enlarge text on rotate */
   text-size-adjust: 100%;

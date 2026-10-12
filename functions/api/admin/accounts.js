@@ -12,9 +12,7 @@ import { sendAccountVerificationEmail } from "../../_lib/accountVerification.js"
 /** Main admin = full access ({"all": true}). Only they can edit, delete or create admin accounts. */
 const isMainAdmin = (permissions) => Boolean(permissions && permissions.all);
 
-// Helper (non-main) admins can never reach Settings, Marketing or manage
-// other Admin Accounts, no matter what's submitted - "menu" is left alone
-// so a helper with menu access can still reach Settings > Categories.
+// Helper (non-main) admins can never reach Settings, Marketing or manage other Admin Accounts
 const RESTRICTED_FOR_HELPERS = ["settings", "marketing", "admin_accounts"];
 
 // A main admin can create at most this many helper (non-full-access)
@@ -42,15 +40,7 @@ const countHelperAdmins = async (env) =>
     (await runQuery(env, "SELECT COUNT(*)::int AS n FROM admin_accounts WHERE is_active = TRUE AND COALESCE((permissions->>'all')::boolean, FALSE) IS FALSE;")).rows[0].n,
   );
 
-/**
- * PUT    { id, username?, password?, permissions?, is_active?, unlock? }  - edit
- * DELETE { id }                                               - delete
- * Main admin only. Nobody can delete themselves, and the last active
- * main admin can't be deleted, disabled or have full access removed -
- * so the dashboard can never be locked out. The email address can't be
- * changed once an account exists - only username/password/permissions/
- * active state (and unlocking a locked account).
- */
+// PUT { id, username?, password?, permissions?, is_active?, unlock?
 async function manageAccount(request, env, actor) {
   if (!isMainAdmin(actor.permissions)) {
     return jsonResponse({ error: "Only the main admin (full access) can edit or delete admin accounts." }, 403);
@@ -93,9 +83,7 @@ async function manageAccount(request, env, actor) {
     return jsonResponse({ success: true });
   }
 
-  // PUT - edit. The email address is fixed once the account exists - it's
-  // never read from the request body, so tampering with it client-side
-  // has no effect.
+  // PUT - edit
   const email = target.email;
   await ensureLockoutColumns(env, "admin_accounts");
   if (body.unlock === true) {
@@ -198,9 +186,7 @@ export async function onRequest(context) {
     return manageAccount(request, env, auth.actor);
   }
 
-  // POST - create. Only the main admin can create new admin accounts at
-  // all, and a helper (non-full-access) account can only be created while
-  // fewer than MAX_HELPER_ADMINS already exist.
+  // POST - create
   if (!isMainAdmin(auth.actor.permissions)) {
     return jsonResponse({ error: "Only the main admin (full access) can create admin accounts." }, 403);
   }

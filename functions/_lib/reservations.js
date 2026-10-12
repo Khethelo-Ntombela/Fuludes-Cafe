@@ -1,17 +1,4 @@
-/**
- * functions/_lib/reservations.js
- * -----------------------------------------------------------------------
- * Table bookings with a food pre-order.
- *
- * A booking made with "pre-order food" starts as status 'AwaitingPayment':
- * it's hidden from the admin until the pre-order is actually PAID (the
- * Yoco payment webhook, or admin "Mark paid"), then it becomes
- * 'Confirmed' automatically - no manual confirmation needed.
- *
- * If the admin cancels a prepaid booking, its pre-order is cancelled and
- * refunded through Yoco (cancelAndRefundOrder).
- * -----------------------------------------------------------------------
- */
+// Table bookings with a food pre-order
 import { runQuery } from "./db.js";
 import { logAudit } from "./audit.js";
 import { queuePush } from "./push.js";
@@ -45,12 +32,7 @@ export async function confirmPreorderReservation(context, orderId) {
   }
 }
 
-/**
- * Cancels an order and, when it was paid, refunds it through Yoco.
- * Returns { outcome: "refunded" | "refund_needed" | "not_paid" | "none", error? }.
- * A failed refund leaves refund_needed = TRUE so it shows in admin Order
- * History with the "Refund via Yoco" button.
- */
+// Cancels an order and, when it was paid, refunds it through Yoco
 export async function cancelAndRefundOrder(env, orderId, cancelledBy, reason = null) {
   await ensureCancelledByColumn(env);
   await ensureYocoTables(env).catch(() => {});

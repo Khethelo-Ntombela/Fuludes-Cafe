@@ -3,12 +3,7 @@ import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { logAudit } from "../../_lib/audit.js";
 import { getRequestIp } from "../../_lib/security.js";
 
-/**
- * DELETE /api/admin/audit  { confirm: "CLEAR" }
- * Permanently wipes the audit log (admins with the Audit permission only).
- * The admin UI asks "are you sure" first; the confirm token guards against
- * a stray request. One fresh entry records who cleared it and how much.
- */
+// DELETE /api/admin/audit { confirm: "CLEAR" } Permanently wipes the audit log
 async function clearAuditLog(request, env) {
   let body = {};
   try {

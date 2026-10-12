@@ -1,20 +1,4 @@
-/**
- * functions/api/admin/upload.js
- * -----------------------------------------------------------------------
- * POST /api/admin/upload?filename=prawns.webp
- * Body: raw image bytes (the admin panel already compresses the photo to
- * WebP under 300KB in-browser via canvas before sending it here - see
- * public/js/admin.js `compressImageToWebP()`).
- *
- * Streams the file straight into the R2 bucket bound as
- * `FULUDE_BUCKET` (configure this binding in Cloudflare Pages > Settings
- * > Functions > R2 bucket bindings) and returns its public CDN URL.
- *
- * Requires env.R2_PUBLIC_URL - the public base URL for the bucket
- * (either the bucket's r2.dev URL or a custom domain you attached to it).
- * admin.js then PUTs that URL onto the menu item via /api/admin/menu.
- * -----------------------------------------------------------------------
- */
+// POST /api/admin/upload?filename=prawns.webp
 import { jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 

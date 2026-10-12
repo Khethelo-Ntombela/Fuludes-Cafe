@@ -1,12 +1,4 @@
-/**
- * functions/api/admin/order-delivered.js
- * -----------------------------------------------------------------------
- * POST /api/admin/order-delivered   { order_id, delivered: true | false }
- * The "Delivered" tick in admin Order History. Sets/clears orders.delivered_at,
- * which ends the delivery ETA on the customer's order tracker. Separate from
- * Completed (that only clears the live kitchen screens).
- * -----------------------------------------------------------------------
- */
+// POST /api/admin/order-delivered
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { ensureScheduleColumns } from "../../_lib/scheduledOrders.js";

@@ -1,8 +1,4 @@
--- =====================================================================
--- dish_ingredients: static "what's inside what" lookup
--- No stock quantities, no per-ingredient inventory.
--- Just which ingredients belong to which menu item.
--- =====================================================================
+-- dish_ingredients: which ingredients go into which dish (no stock tracking)
 
 CREATE TABLE IF NOT EXISTS dish_ingredients (
   id               SERIAL PRIMARY KEY,
