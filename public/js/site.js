@@ -975,7 +975,7 @@ document.getElementById("logoutBtn").addEventListener("click", async () => {
   customerToken = null;
   currentCustomer = null;
   localStorage.removeItem(CUSTOMER_TOKEN_KEY);
-    updateAccountNav(); // Update the account navigation to reflect the new session
+  // The cart and the pre-order booking belong to the account, which has just
   // signed out - don't leave them behind for the next person on this device.
   // (They are still on the account for the next sign-in.)
   ["fulude_cart", "fulude_cart_sync", "fulude_cart_dirty", ACTIVE_RES_KEY].forEach((k) => localStorage.removeItem(k));

@@ -891,6 +891,10 @@ body {
 .order-grid.is-drinks {
   grid-template-columns: 1fr;
 }
+/* Search results: drinks sit under the dishes, spanning the full width of the grid */
+.search-drinks {
+  grid-column: 1 / -1;
+}
 .drinks-list {
   background: var(--white);
   border: 1px solid var(--border);

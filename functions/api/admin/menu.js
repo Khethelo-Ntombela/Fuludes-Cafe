@@ -314,7 +314,7 @@ export async function onRequestPost(context) {
         400,
       );
     }
-    if (name.length > 100) return jsonResponse({ error: "Dish names can be at most 100 characters." }, 400);
+    if (name.length > 100) return jsonResponse({ error: "Item names can be at most 100 characters." }, 400);
     if (price > 100000) return jsonResponse({ error: "That price looks too high - please check it." }, 400);
 
     const stockResult = parseStockQuantity(body.stock_quantity);
@@ -453,7 +453,7 @@ export async function onRequestPut(context) {
         400,
       );
     }
-    if (name.length > 100) return jsonResponse({ error: "Dish names can be at most 100 characters." }, 400);
+    if (name.length > 100) return jsonResponse({ error: "Item names can be at most 100 characters." }, 400);
     if (price > 100000) return jsonResponse({ error: "That price looks too high - please check it." }, 400);
 
     const stockResult = parseStockQuantity(body.stock_quantity);
