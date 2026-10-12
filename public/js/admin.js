@@ -66,7 +66,7 @@ function describeOrderType(order) {
   return "Collection";
 }
 
-/** Where a pay-at-X badge should say the customer will pay (legacy orders only - payment is online-only now). */
+/** Payment label for legacy non-online orders. */
 function orderTypePaymentLabel(order) {
   if (order.order_type === "delivery") return "Delivery";
   if (order.order_type === "dine_in") return "Table";
@@ -176,7 +176,7 @@ async function loadAdminPermissions() {
   }
 }
 
-/** Hides sidebar tabs, settings tabs and shortcut buttons this admin can't use; opens the first allowed tab. */
+/** Applies permissions to admin navigation and shortcuts. */
 function applyAdminPermissions() {
   document.querySelectorAll(".admin-tab-btn").forEach((btn) => {
     btn.style.display = allowed(TAB_PERMISSIONS[btn.dataset.tab]) ? "" : "none";
@@ -711,7 +711,7 @@ function renderOrders(orders) {
   });
 }
 
-/** The kitchen lifecycle is New -> Preparing -> Ready -> Collection/Delivery -> Completed; this renders the one "advance" button for wherever an order currently sits. */
+/** Kitchen stages before collection, delivery, and completion. */
 const NEXT_STAGE = { New: "Preparing", Preparing: "Ready" };
 const NEXT_STAGE_LABEL = {
   New: "Start Preparing",
@@ -1268,7 +1268,7 @@ function renderSalesPieChart(categories, monthlyBreakdown, selectedMonths) {
   });
 }
 
-/** Builds an SVG arc path "wedge" from centre (cx,cy), for a pie slice spanning startAngle..endAngle (degrees, 0 = 3 o'clock). */
+/** Builds a pie-slice SVG arc from angles in degrees. */
 function describeArc(cx, cy, r, startAngle, endAngle) {
   // A full-circle single-category case needs special handling - an SVG arc
   // can't sweep a full 360° in one path, so nudge it just under 360.

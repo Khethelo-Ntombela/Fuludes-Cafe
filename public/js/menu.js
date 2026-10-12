@@ -641,7 +641,7 @@ function syncCardControls() {
   });
 }
 
-/** Takes one unit off a dish. For dishes with several variants (spice/extras) it trims the most recently added one. */
+/** Removes one unit from the most recently added matching cart line. */
 function decrementItem(itemId) {
   for (let i = cart.length - 1; i >= 0; i--) {
     if (cart[i].itemId === itemId) {
@@ -1394,7 +1394,7 @@ function setLocationStatus(text, kind = "info") {
   el.innerHTML = text;
 }
 
-/** Shares the phone's location: coordinates price the delivery, the address fields get filled for the driver. */
+/** Uses device location for delivery pricing and address lookup. */
 async function useMyLocation() {
   if (!navigator.geolocation) {
     showCheckoutError("Your browser can't share your location - please type your address instead.");
@@ -1622,7 +1622,7 @@ function invalidateQuoteOnEdit() {
   }
 }
 
-/** Opens the checkout modal, prefilling the name field from the account (still editable, e.g. ordering for someone else). */
+/** Opens checkout with the account name prefilled but editable. */
 function proceedToCheckout() {
   checkoutError.style.display = "none";
   const dupPanel = document.getElementById("duplicateOrderPanel");

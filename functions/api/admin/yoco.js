@@ -1,21 +1,4 @@
-/**
- * functions/api/admin/yoco.js
- * -----------------------------------------------------------------------
- * Admin > Settings > Payments.
- *
- * GET  /api/admin/yoco
- *   Payment setup at a glance: test/live key, whether Yoco has a webhook
- *   pointing at this site, whether we hold its signing secret, and the
- *   payment notifications from the current month (from the audit log; the list starts fresh on the 1st, the log itself is kept) - so "paid on Yoco
- *   but the order isn't in the app" can be diagnosed without logs.
- *
- * POST /api/admin/yoco  { action: "connect" }
- *   Registers this site's /api/payment/notify with Yoco (replacing any
- *   older registration of the same URL) and saves the signing secret Yoco
- *   returns in yoco_webhooks - no Cloudflare variable needed. Test and live
- *   keys have separate webhooks, so connect again after switching keys.
- * -----------------------------------------------------------------------
- */
+/** Admin payment setup and Yoco webhook management. Test and live keys use separate webhooks. */
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { logAudit } from "../../_lib/audit.js";

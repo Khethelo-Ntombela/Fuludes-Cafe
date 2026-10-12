@@ -36,7 +36,7 @@ async function verifyStandardWebhook(rawBody, request, secretValue) {
   return signatures.split(" ").some((entry) => entry.split(",")[1] === expected);
 }
 
-/** True when the request is signed with any of our webhook secrets (env var or saved in Settings > Payments). */
+/** Accepts signatures from configured or saved webhook secrets. */
 async function verifySignature(rawBody, request, secrets) {
   for (const secret of secrets) {
     if (await verifySignatureWith(rawBody, request, secret)) return true;

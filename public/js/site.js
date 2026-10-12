@@ -168,7 +168,7 @@ addPasswordVisibilityToggle("signin-password");
 addPasswordVisibilityToggle("signup-password");
 addPasswordVisibilityToggle("reset-new-password");
 
-/** Runs once on page load: confirms any stored token is still valid, and opens the reset-password form if we landed here from an emailed link. */
+/** Restores the session and handles password-reset links on page load. */
 async function initAuth() {
   const googleResult = takeGoogleRedirectResult();
   if (googleResult.token) {
@@ -396,7 +396,7 @@ async function openMyBuffetBookings() {
 if (myBuffetClose)
   myBuffetClose.addEventListener("click", () => setOverlay(myBuffetModal, false));
 
-/** Shared by both account entry points - the text+icon link inside the nav, and the standalone icon button next to the mobile menu toggle. */
+/** Shared account link for desktop navigation and the mobile menu. */
 function openAccountMenu() {
   if (currentCustomer) {
     accountWelcome.textContent = `Signed in as ${currentCustomer.name} (${currentCustomer.email})`;
@@ -632,7 +632,7 @@ forgotPasswordForm.addEventListener("submit", async (e) => {
   }
 });
 
-/** Shared success path for both sign-in and sign-up - stores the session, then either closes the modal or, if "Checkout" is what triggered sign-in (menu page), chains straight into checkout. */
+/** Stores the session and resumes checkout when sign-in was required. */
 function onAuthSuccess(token, customer) {
   customerToken = token;
   currentCustomer = customer;
@@ -970,7 +970,7 @@ document.getElementById("logoutBtn").addEventListener("click", async () => {
       headers: { Authorization: `Bearer ${customerToken}` },
     });
   } catch {
-    // Even if the request fails, forget the token locally - logging out should always work from the customer's point of view.
+    // Clear the local token even if the logout request fails.
   }
   customerToken = null;
   currentCustomer = null;
@@ -993,7 +993,7 @@ const navReservationLink = document.getElementById("navReservationLink");
 const heroReservationBtn = document.getElementById("heroReservationBtn");
 const menuReservationBtn = document.getElementById("menuReservationBtn");
 const reservationBtn = document.getElementById("reservationBtn");
-const reservationModal = document.getElementById("reservationModal");
+    updateAccountNav(); // Update the account navigation to reflect the new session
 const reservationModalClose = document.getElementById("reservationModalClose");
 const reservationForm = document.getElementById("reservationForm");
 const reservationError = document.getElementById("reservationError");

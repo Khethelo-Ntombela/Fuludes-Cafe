@@ -312,7 +312,7 @@ function trendHtml(months, key) {
 
 window.adminAwaiting = { awaiting: [], failed: [] };
 
-/** Orders placed but not yet paid (and ones whose payment failed). Fetched by payment status so old ones aren't lost past the 200-order history window. */
+/** Loads unpaid and failed orders outside the order-history window. */
 async function fetchAwaitingOrders() {
   const get = async (status) => {
     try {
@@ -949,7 +949,7 @@ function poClearManualFee() {
   if (input) input.value = "";
 }
 
-/** Same public menu the customers see (all dishes, spice levels, extras, sides) - photos are simply not drawn. */
+/** Loads customer-facing menu data without rendering photos. */
 async function loadAdminMenu() {
   adminMenuLoadError = "";
   try {
@@ -1252,7 +1252,7 @@ function poMissingAddressParts() {
     .map(([, label]) => label);
 }
 
-/** OK button: every required field filled in, then look it up and price it. Nothing is calculated before this. */
+/** Validates the address before requesting a delivery quote. */
 async function poConfirmAddress() {
   const missing = poMissingAddressParts();
   if (missing.length) {

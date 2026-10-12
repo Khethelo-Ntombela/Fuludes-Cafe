@@ -266,7 +266,7 @@ export async function onRequestPut(context) {
   }
 }
 
-/** Everything that makes two orders "the same": type, address/table, timing, note and every line with its options. */
+/** Builds a stable signature for duplicate-order detection. */
 function orderSignature({ orderType, deliveryAddress, tableNumber, pickupTime, specialInstructions, totalAmount, lines }) {
   const norm = (v) => String(v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
   const items = lines
