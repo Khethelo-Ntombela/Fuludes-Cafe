@@ -1,12 +1,7 @@
--- =====================================================================
--- Fulude's Cafe — Neon Postgres schema
--- Run this once in the Neon SQL editor (or via `psql`) before deploying.
--- Free tier: Neon's free plan covers this comfortably for a single cafe.
--- =====================================================================
+-- Fulude's Cafe database schema for fresh installations.
+-- Incremental changes are preserved in db/migrations/.
 
--- ---------------------------------------------------------------------
--- categories: the browsing tabs on the customer menu (Chicken, Ribs, ...)
--- ---------------------------------------------------------------------
+-- Menu
 CREATE TABLE IF NOT EXISTS categories (
   id          SERIAL PRIMARY KEY,
   name        TEXT NOT NULL UNIQUE,        -- "Chicken"
@@ -15,21 +10,12 @@ CREATE TABLE IF NOT EXISTS categories (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- ---------------------------------------------------------------------
--- spice_levels: global list an admin edits once, reused by any dish
--- that accepts a spice choice (e.g. wings, chicken).
--- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS spice_levels (
   id          SERIAL PRIMARY KEY,
   name        TEXT NOT NULL UNIQUE,        -- "Mild", "Medium", "Hot", "Extra Hot"
   sort_order  INTEGER NOT NULL DEFAULT 0
 );
 
--- ---------------------------------------------------------------------
--- addons: global list of paid extras/sides an admin manages once
--- (e.g. "Extra Chips R25", "Cheese Sauce R15"). Attached to individual
--- menu items via menu_item_addons so only relevant items show them.
--- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS addons (
   id          SERIAL PRIMARY KEY,
   name        TEXT NOT NULL,
@@ -38,37 +24,20 @@ CREATE TABLE IF NOT EXISTS addons (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- ---------------------------------------------------------------------
--- menu_items: the dishes themselves
--- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS menu_items (
   id               SERIAL PRIMARY KEY,
   category_id      INTEGER NOT NULL REFERENCES categories(id) ON DELETE RESTRICT,
   name             TEXT NOT NULL,
   description      TEXT NOT NULL DEFAULT '',
   price            NUMERIC(10,2) NOT NULL,
-  special_price    NUMERIC(10,2),                 -- NULL = not on special. When set, this is the
-                                                    -- ACTUAL selling price (used for checkout and
-                                                    -- decremented stock) - `price` above becomes the
-                                                    -- "was" price shown struck through so customers
-                                                    -- can see what they're saving. Admin sets/clears
-                                                    -- this from the Specials tab.
-  image_url        TEXT,                        -- R2 CDN URL
-  is_available     BOOLEAN NOT NULL DEFAULT TRUE, -- "Sold Out" badge on the customer menu - now
-                                                   -- data-driven (see stock_quantity) rather than
-                                                   -- a manual toggle: derived automatically by
-                                                   -- functions/api/admin/menu.js and decremented
-                                                   -- automatically by functions/api/order.js
-  stock_quantity   INTEGER,                        -- how many are left; NULL = not tracked, always
-                                                     -- available (e.g. drinks the cafe never runs out
-                                                     -- of). When set, hitting 0 auto-flips is_available
-                                                     -- to false; admin can edit this number any time
-                                                     -- to restock.
-  is_visible       BOOLEAN NOT NULL DEFAULT TRUE, -- shows on customer menu at all
-                                                   -- (used for desserts/seasonal items admin
-                                                   -- flips on only when actually offered)
-  accepts_spice    BOOLEAN NOT NULL DEFAULT FALSE, -- show spice-level picker on this item
-  accepts_addons   BOOLEAN NOT NULL DEFAULT FALSE, -- show extras checkboxes on this item
+  special_price    NUMERIC(10,2),
+  image_url        TEXT,
+  is_available     BOOLEAN NOT NULL DEFAULT TRUE,
+  stock_quantity   INTEGER,
+  is_visible       BOOLEAN NOT NULL DEFAULT TRUE,
+  accepts_spice    BOOLEAN NOT NULL DEFAULT FALSE,
+  accepts_addons   BOOLEAN NOT NULL DEFAULT FALSE,
+  drink_type       TEXT,
   sort_order       INTEGER NOT NULL DEFAULT 0,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -76,31 +45,14 @@ CREATE TABLE IF NOT EXISTS menu_items (
 
 CREATE INDEX IF NOT EXISTS idx_menu_items_category ON menu_items(category_id);
 
--- Safe to re-run: adds stock_quantity to a menu_items table that already
--- existed from an earlier version of this schema, and does a one-time
--- best-guess migration from the old manual is_available toggle - items
--- already marked sold out become tracked with 0 in stock; everything
--- else stays untracked/unlimited (NULL) so nobody has to enter a number
--- for dishes they never intended to count (like drinks).
+-- Upgrade support for databases created from an earlier schema.
 ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS stock_quantity INTEGER;
 
--- Safe to re-run: adds special_price for the Specials feature to a
--- menu_items table that already existed from an earlier version of this
--- schema. Nothing to backfill - every existing item just starts off with
--- no special (NULL), same as it was before this column existed.
 ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS special_price NUMERIC(10,2);
--- Scheduling for specials: optional start/end timestamps (TIMESTAMPTZ)
 ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS special_starts_at TIMESTAMPTZ;
 ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS special_ends_at TIMESTAMPTZ;
 UPDATE menu_items SET stock_quantity = 0 WHERE is_available = FALSE AND stock_quantity IS NULL;
 
--- ---------------------------------------------------------------------
--- menu_item_images: photo gallery per dish (up to a handful of photos).
--- menu_items.image_url stays in sync as a denormalized "cover photo"
--- (sort_order = 0) so the menu grid query doesn't need a join just to
--- show the thumbnail; the full set here powers the tap-to-enlarge
--- gallery on the customer site.
--- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS menu_item_images (
   id            SERIAL PRIMARY KEY,
   menu_item_id  INTEGER NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
@@ -111,19 +63,13 @@ CREATE TABLE IF NOT EXISTS menu_item_images (
 
 CREATE INDEX IF NOT EXISTS idx_menu_item_images_item ON menu_item_images(menu_item_id);
 
--- ---------------------------------------------------------------------
--- menu_item_addons: which global addons apply to which dish
--- (admin ticks these when creating/editing an item)
--- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS menu_item_addons (
   menu_item_id  INTEGER NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
   addon_id      INTEGER NOT NULL REFERENCES addons(id) ON DELETE CASCADE,
   PRIMARY KEY (menu_item_id, addon_id)
 );
 
--- ---------------------------------------------------------------------
--- sides: FREE choice-of-side options (Chips / Pap / Rice ...), ticked per dish
--- ---------------------------------------------------------------------
+-- Optional sides
 CREATE TABLE IF NOT EXISTS sides (
   id          SERIAL PRIMARY KEY,
   name        TEXT NOT NULL UNIQUE,
@@ -137,11 +83,17 @@ CREATE TABLE IF NOT EXISTS menu_item_sides (
   PRIMARY KEY (menu_item_id, side_id)
 );
 
--- ---------------------------------------------------------------------
--- customers: real accounts, required to check out. password_hash/salt
--- use PBKDF2-SHA256 via the Web Crypto API (functions/_lib/password.js) -
--- no bcrypt, since Cloudflare Workers can't use native/binary bindings.
--- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS dish_ingredients (
+  id               SERIAL PRIMARY KEY,
+  menu_item_id     INTEGER NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
+  ingredient_name  TEXT NOT NULL,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (menu_item_id, ingredient_name)
+);
+CREATE INDEX IF NOT EXISTS idx_dish_ingredients_item ON dish_ingredients(menu_item_id);
+CREATE INDEX IF NOT EXISTS idx_dish_ingredients_name ON dish_ingredients(ingredient_name);
+
+-- Customers and sessions
 CREATE TABLE IF NOT EXISTS customers (
   id                    SERIAL PRIMARY KEY,
   name                  TEXT NOT NULL,
@@ -152,6 +104,7 @@ CREATE TABLE IF NOT EXISTS customers (
   is_verified           BOOLEAN NOT NULL DEFAULT FALSE,
   phone_number          TEXT,
   delivery_address      TEXT,
+  marketing_email_opt_in BOOLEAN NOT NULL DEFAULT FALSE,
   failed_login_attempts INTEGER NOT NULL DEFAULT 0,
   is_locked             BOOLEAN NOT NULL DEFAULT FALSE, -- true after 4 failed logins in a row;
                                                           -- only a password reset clears this
@@ -165,14 +118,9 @@ ALTER TABLE customers ADD COLUMN IF NOT EXISTS delivery_address TEXT;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS marketing_email_opt_in BOOLEAN NOT NULL DEFAULT FALSE;
 -- (SMS marketing was removed - see db/migrations/005_remove_sms_marketing.sql)
 
--- Allow OAuth-only customers to exist without a stored password
 ALTER TABLE customers ALTER COLUMN password_hash DROP NOT NULL;
 ALTER TABLE customers ALTER COLUMN password_salt DROP NOT NULL;
 
--- customer_sessions: one row per signed-in browser. "Stay signed in until
--- you sign out" just means this row has no expiry - it's only removed by
--- logout (functions/api/auth/logout.js) or a password reset, which wipes
--- every session for that account.
 CREATE TABLE IF NOT EXISTS customer_sessions (
   token         TEXT PRIMARY KEY,
   customer_id   INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
@@ -194,7 +142,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   actor_type   TEXT,
   actor_id     INTEGER,
   actor_role   TEXT,
-  actor_name   TEXT, -- username/name at the time of the action, kept even if the account is later renamed or deleted
+  actor_name   TEXT,
   actor_ip     TEXT,
   action       TEXT NOT NULL,
   target_type  TEXT,
@@ -203,8 +151,6 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- password_resets: short-lived one-time tokens emailed to a customer by
--- functions/api/auth/forgot-password.js, redeemed by reset-password.js.
 CREATE TABLE IF NOT EXISTS password_resets (
   token         TEXT PRIMARY KEY,
   customer_id   INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
@@ -215,11 +161,6 @@ CREATE TABLE IF NOT EXISTS password_resets (
 
 CREATE INDEX IF NOT EXISTS idx_password_resets_customer ON password_resets(customer_id);
 
--- password_change_requests: a signed-in customer asked to change their
--- password from Settings. The NEW password is hashed immediately and parked
--- here; it is only copied onto the customer row once they click the link
--- we emailed them (functions/api/auth/confirm-password-change.js). If the
--- link is never opened, the password never changes.
 CREATE TABLE IF NOT EXISTS password_change_requests (
   token         TEXT PRIMARY KEY,
   customer_id   INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
@@ -257,6 +198,8 @@ CREATE TABLE IF NOT EXISTS customer_reservations (
   advance_order_details  TEXT,
   advance_order_id       INTEGER,
   status                 TEXT NOT NULL DEFAULT 'Pending',
+  admin_cleared          BOOLEAN NOT NULL DEFAULT FALSE,
+  hidden_by_customer     BOOLEAN NOT NULL DEFAULT FALSE,
   created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -271,6 +214,9 @@ CREATE TABLE IF NOT EXISTS admin_accounts (
   password_salt TEXT NOT NULL,
   permissions JSONB NOT NULL DEFAULT '{"all": true}',
   is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+  failed_login_attempts INTEGER NOT NULL DEFAULT 0,
+  is_locked     BOOLEAN NOT NULL DEFAULT FALSE,
+  email_verified BOOLEAN NOT NULL DEFAULT TRUE,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -304,6 +250,9 @@ CREATE TABLE IF NOT EXISTS staff_accounts (
   password_salt TEXT NOT NULL,
   permissions JSONB NOT NULL DEFAULT '{"orders": true}',
   is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+  failed_login_attempts INTEGER NOT NULL DEFAULT 0,
+  is_locked     BOOLEAN NOT NULL DEFAULT FALSE,
+  email_verified BOOLEAN NOT NULL DEFAULT TRUE,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -328,6 +277,10 @@ CREATE TABLE IF NOT EXISTS orders (
   customer_phone    TEXT NOT NULL,
   order_type        TEXT NOT NULL DEFAULT 'collection', -- 'collection' | 'delivery' | 'dine_in'
   delivery_address  TEXT,
+  delivery_lat      NUMERIC(9,6),
+  delivery_lng      NUMERIC(9,6),
+  delivery_distance_km NUMERIC(6,2),
+  delivery_fee      NUMERIC(10,2) NOT NULL DEFAULT 0.00,
   table_number      TEXT,                                -- optional, only meaningful for dine_in
   pickup_time       TEXT NOT NULL DEFAULT 'As soon as possible',
   special_instructions TEXT,
@@ -335,32 +288,53 @@ CREATE TABLE IF NOT EXISTS orders (
   status            TEXT NOT NULL DEFAULT 'New', -- New | Preparing | Ready | Collection | Delivery | Completed | Cancelled
                                                    -- (kitchen order lifecycle - see the Staff Portal
                                                    -- section of README.md)
-  payment_method    TEXT NOT NULL DEFAULT 'pickup',   -- 'pickup' (pay in person) | 'online' (gateway)
-  payment_status    TEXT NOT NULL DEFAULT 'not_required', -- not_required | awaiting | paid | failed | cancelled
-  payment_ref       TEXT,                              -- gateway reference once paid
+  payment_method    TEXT NOT NULL DEFAULT 'online',
+  payment_status    TEXT NOT NULL DEFAULT 'awaiting',
+  payment_ref       TEXT,
+  yoco_checkout_id  TEXT,
   payment_confirmed_at TIMESTAMPTZ,
   kitchen_release_at TIMESTAMPTZ,
-  scheduled_for     TIMESTAMPTZ,                       -- when a pre-order / timed order is due (migration 015)
-  preparing_at      TIMESTAMPTZ,                       -- when the kitchen pressed Start Preparing (migration 015)
-  out_for_delivery_at TIMESTAMPTZ,                     -- when the order left for delivery (migration 016)
-  delivered_at      TIMESTAMPTZ,                       -- when the cafe ticked it Delivered (migration 016)
+  scheduled_for     TIMESTAMPTZ,
+  preparing_at      TIMESTAMPTZ,
+  out_for_delivery_at TIMESTAMPTZ,
+  delivered_at      TIMESTAMPTZ,
+  new_order_push_sent_at TIMESTAMPTZ,
   stock_decremented BOOLEAN NOT NULL DEFAULT FALSE,
-refund_needed     BOOLEAN NOT NULL DEFAULT FALSE,     -- true when a paid order is cancelled and a manual refund is still owed
-  refund_processed_at TIMESTAMPTZ,                      -- set when a refund has been completed outside the app
+  cancelled_by      TEXT,
+  cancel_reason     TEXT,
+  refund_needed     BOOLEAN NOT NULL DEFAULT FALSE,
+  refund_processed_at TIMESTAMPTZ,
+  refund_ref        TEXT,
+  refund_error      TEXT,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Safe to re-run: adds the payment columns above to an orders table that
 -- already existed from an earlier version of this schema.
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method TEXT NOT NULL DEFAULT 'pickup';
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'not_required';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method TEXT NOT NULL DEFAULT 'online';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'awaiting';
+ALTER TABLE orders ALTER COLUMN payment_method SET DEFAULT 'online';
+ALTER TABLE orders ALTER COLUMN payment_status SET DEFAULT 'awaiting';
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_ref TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS yoco_checkout_id TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_lat NUMERIC(9,6);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_lng NUMERIC(9,6);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_distance_km NUMERIC(6,2);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_fee NUMERIC(10,2) NOT NULL DEFAULT 0.00;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_confirmed_at TIMESTAMPTZ;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS kitchen_release_at TIMESTAMPTZ;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMPTZ;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS new_order_push_sent_at TIMESTAMPTZ;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS stock_decremented BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS refund_needed BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS refund_processed_at TIMESTAMPTZ;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS refund_ref TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS refund_error TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancelled_by TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS preparing_at TIMESTAMPTZ;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS out_for_delivery_at TIMESTAMPTZ;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS table_number TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL;
 ALTER TABLE customer_reservations ADD COLUMN IF NOT EXISTS advance_order_id INTEGER;
@@ -371,9 +345,6 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id);
 
--- One-time rename of the old 2-stage status vocabulary to the new
--- 4-stage kitchen lifecycle used by the Staff Portal. Safe to re-run -
--- once renamed, these UPDATEs simply match zero rows.
 UPDATE orders SET status = 'New' WHERE status = 'Pending';
 UPDATE orders SET status = 'Preparing' WHERE status = 'Acknowledged';
 UPDATE orders SET status = 'Delivery' WHERE status = 'Out for Delivery';
@@ -422,13 +393,35 @@ CREATE TABLE IF NOT EXISTS app_config (
   is_out_of_service  BOOLEAN NOT NULL DEFAULT FALSE,
   out_of_service_reason TEXT,
   announcement_message  TEXT,
+  cafe_latitude      NUMERIC(9,6),
+  cafe_longitude     NUMERIC(9,6),
+  cafe_phone         TEXT,
+  cafe_email         TEXT,
   CONSTRAINT single_row CHECK (id = 1)
 );
 ALTER TABLE app_config ADD COLUMN IF NOT EXISTS is_out_of_service BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE app_config ADD COLUMN IF NOT EXISTS out_of_service_reason TEXT;
 ALTER TABLE app_config ADD COLUMN IF NOT EXISTS announcement_message TEXT;
-INSERT INTO app_config (id, is_buffet_visible) VALUES (1, FALSE)
+ALTER TABLE app_config ADD COLUMN IF NOT EXISTS cafe_latitude NUMERIC(9,6);
+ALTER TABLE app_config ADD COLUMN IF NOT EXISTS cafe_longitude NUMERIC(9,6);
+ALTER TABLE app_config ADD COLUMN IF NOT EXISTS cafe_phone TEXT;
+ALTER TABLE app_config ADD COLUMN IF NOT EXISTS cafe_email TEXT;
+INSERT INTO app_config (id, is_buffet_visible, cafe_latitude, cafe_longitude, cafe_phone, cafe_email)
+VALUES (1, FALSE, -22.98341, 30.35963, '+27 663 649 016', 'info@fuludescafe.co.za')
   ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS delivery_fee_bands (
+  id          SERIAL PRIMARY KEY,
+  up_to_km    INTEGER NOT NULL UNIQUE,
+  fee         NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+  sort_order  INTEGER NOT NULL DEFAULT 0,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO delivery_fee_bands (up_to_km, fee, sort_order)
+SELECT km, 0.00, km / 3 FROM generate_series(3, 51, 3) AS bands(km)
+ON CONFLICT (up_to_km) DO NOTHING;
 
 -- Payment links: one-time or time-limited links admins can create
 -- when building a cart on a customer's behalf. The link points to the
@@ -436,10 +429,12 @@ INSERT INTO app_config (id, is_buffet_visible) VALUES (1, FALSE)
 CREATE TABLE IF NOT EXISTS payment_links (
   token        TEXT PRIMARY KEY,
   order_id     INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  checkout_url TEXT,
   expires_at   TIMESTAMPTZ NOT NULL,
   used         BOOLEAN NOT NULL DEFAULT FALSE,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS checkout_url TEXT;
 
 -- ---------------------------------------------------------------------
 -- buffet_events: scheduled buffet sessions customers can book
@@ -475,26 +470,7 @@ CREATE TABLE IF NOT EXISTS buffet_bookings (
 -- booking lifecycle status: pending|confirmed|cancelled|expired (new bookings start as pending; admin confirms)
 ALTER TABLE buffet_bookings ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'confirmed';
 
--- ---------------------------------------------------------------------
--- Seed the 7 categories for Fulude's Cafe (safe to re-run).
---
--- This replaces an earlier 14-category, protein-based list (Wings,
--- Chicken, Ribs, Beef, Stew, Seafood, Tilapia Fish, Tripe & Cow Heels,
--- etc.) with a simpler course-based list. Individual dishes (e.g.
--- "Tilapia Fish Stew", "Tripe & Pap") now just live under "Mains" - the
--- dish name carries that detail instead of the category.
---
--- The DELETE below cleans up the old protein-based categories on a
--- database that already ran the previous version of this file. It's
--- safe to re-run: categories.menu_items has ON DELETE RESTRICT, so this
--- only succeeds while no dish has been assigned to one of the old
--- categories yet - if any had, the DELETE would fail loudly instead of
--- silently losing menu items, and those dishes would need to be
--- reassigned to a new category first.
--- ---------------------------------------------------------------------
-DELETE FROM categories
-WHERE slug NOT IN ('starters', 'mains', 'pizza', 'platters', 'sides', 'dessert', 'drinks');
-
+-- Seed menu defaults
 INSERT INTO categories (name, slug, sort_order) VALUES
   ('Starters', 'starters', 1),
   ('Mains',    'mains',    2),
@@ -505,15 +481,9 @@ INSERT INTO categories (name, slug, sort_order) VALUES
   ('Drinks',   'drinks',   7)
 ON CONFLICT (slug) DO NOTHING;
 
--- Starter spice levels (edit freely from the admin panel later)
 INSERT INTO spice_levels (name, sort_order) VALUES
   ('Mild', 1), ('Medium', 2), ('Hot', 3), ('Extra Hot', 4)
 ON CONFLICT (name) DO NOTHING;
-
--- ---------------------------------------------------------------------
--- Drinks sub-type (migration 008) and push notifications (migration 009)
--- ---------------------------------------------------------------------
-ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS drink_type TEXT; -- beverage | cocktail | alcohol | other (drinks only)
 
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   id          SERIAL PRIMARY KEY,
@@ -531,9 +501,8 @@ CREATE TABLE IF NOT EXISTS push_config (
 );
 
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancelled_by TEXT; -- customer | staff | admin (migration 010)
+ALTER TABLE customer_reservations ADD COLUMN IF NOT EXISTS hidden_by_customer BOOLEAN NOT NULL DEFAULT FALSE;
 
--- Failed-login lockout + email verification for admin/staff accounts (migration 014).
--- Existing accounts default to verified; only newly created ones start unverified.
 ALTER TABLE admin_accounts ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE admin_accounts ADD COLUMN IF NOT EXISTS is_locked BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE admin_accounts ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT TRUE;
@@ -554,5 +523,20 @@ CREATE TABLE IF NOT EXISTS staff_email_verifications (
   staff_id    INTEGER NOT NULL REFERENCES staff_accounts(id) ON DELETE CASCADE,
   expires_at  TIMESTAMPTZ NOT NULL,
   used        BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS customer_carts (
+  customer_id  INTEGER PRIMARY KEY REFERENCES customers(id) ON DELETE CASCADE,
+  items        JSONB NOT NULL DEFAULT '[]'::jsonb,
+  version      INTEGER NOT NULL DEFAULT 1,
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS yoco_webhooks (
+  id          TEXT PRIMARY KEY,
+  mode        TEXT,
+  url         TEXT NOT NULL,
+  secret      TEXT NOT NULL,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

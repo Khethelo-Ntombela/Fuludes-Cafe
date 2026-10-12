@@ -66,7 +66,7 @@ function describeOrderType(order) {
   return "Collection";
 }
 
-/** Where a pay-at-X badge should say the customer will pay (legacy orders only - payment is online-only now). */
+/** Payment label for legacy non-online orders. */
 function orderTypePaymentLabel(order) {
   if (order.order_type === "delivery") return "Delivery";
   if (order.order_type === "dine_in") return "Table";
@@ -176,7 +176,7 @@ async function loadAdminPermissions() {
   }
 }
 
-/** Hides sidebar tabs, settings tabs and shortcut buttons this admin can't use; opens the first allowed tab. */
+/** Applies permissions to admin navigation and shortcuts. */
 function applyAdminPermissions() {
   document.querySelectorAll(".admin-tab-btn").forEach((btn) => {
     btn.style.display = allowed(TAB_PERMISSIONS[btn.dataset.tab]) ? "" : "none";
@@ -581,7 +581,7 @@ function renderIngredientSuggestions(ingredients) {
   if (!listEl) return;
 
   if (!ingredients.length) {
-    listEl.innerHTML = `<p class="menu-empty">No ingredients flagged. All dishes are well-stocked and selling normally.</p>`;
+    listEl.innerHTML = `<p class="menu-empty">No ingredients flagged. All items are well-stocked and selling normally.</p>`;
     return;
   }
 
@@ -596,14 +596,14 @@ function renderIngredientSuggestions(ingredients) {
           <span class="badge badge-status-${urgencyClass}">${urgencyLabel} urgency</span>
         </div>
         <div class="ingredient-meta">
-          <span>${ing.dish_count} dish${ing.dish_count === 1 ? "" : "es"} use this</span>
+          <span>${ing.dish_count} item${ing.dish_count === 1 ? "" : "s"} use this</span>
           <span>Urgency score: ${ing.urgency_score}</span>
         </div>
         <details class="ingredient-dishes">
-          <summary>Show dishes (${ing.dishes.length})</summary>
+          <summary>Show items (${ing.dishes.length})</summary>
           <table class="sa-table" style="margin-top: 8px; font-size: 0.85rem;">
             <thead>
-              <tr><th>Dish</th><th style="text-align:center">Units Sold</th><th style="text-align:center">Stock Qty</th><th>Reasons</th></tr>
+              <tr><th>Item</th><th style="text-align:center">Units Sold</th><th style="text-align:center">Stock Qty</th><th>Reasons</th></tr>
             </thead>
             <tbody>
               ${ing.dishes.map(d => `
@@ -711,7 +711,7 @@ function renderOrders(orders) {
   });
 }
 
-/** The kitchen lifecycle is New -> Preparing -> Ready -> Collection/Delivery -> Completed; this renders the one "advance" button for wherever an order currently sits. */
+/** Kitchen stages before collection, delivery, and completion. */
 const NEXT_STAGE = { New: "Preparing", Preparing: "Ready" };
 const NEXT_STAGE_LABEL = {
   New: "Start Preparing",
@@ -1268,7 +1268,7 @@ function renderSalesPieChart(categories, monthlyBreakdown, selectedMonths) {
   });
 }
 
-/** Builds an SVG arc path "wedge" from centre (cx,cy), for a pie slice spanning startAngle..endAngle (degrees, 0 = 3 o'clock). */
+/** Builds a pie-slice SVG arc from angles in degrees. */
 function describeArc(cx, cy, r, startAngle, endAngle) {
   // A full-circle single-category case needs special handling - an SVG arc
   // can't sweep a full 360° in one path, so nudge it just under 360.
@@ -1455,7 +1455,7 @@ function renderMenuItemsList() {
   renderStockCards();
 
   if (menuItems.length === 0) {
-    list.innerHTML = `<p class="menu-empty">No menu items yet - add your first dish with the Add Item button.</p>`;
+    list.innerHTML = `<p class="menu-empty">No menu items yet - add your first item with the Add Item button.</p>`;
     return;
   }
 
@@ -1603,7 +1603,7 @@ function renderSpecialsList() {
   );
 
   if (specialItems.length === 0) {
-    list.innerHTML = `<p class="menu-empty">No dishes are on special right now.</p>`;
+    list.innerHTML = `<p class="menu-empty">No items are on special right now.</p>`;
     return;
   }
 
@@ -1670,7 +1670,7 @@ document.getElementById("specialForm").addEventListener("submit", async (e) => {
   );
   const item = menuItems.find((i) => i.id === itemId);
   if (!item) {
-    hint.textContent = "Pick a dish first.";
+    hint.textContent = "Pick an item first.";
     return;
   }
 
@@ -1791,7 +1791,7 @@ function renderImageThumbs() {
     .map(
       (url, idx) => `
     <div class="admin-thumb">
-      <img src="${url}" alt="Dish photo ${idx + 1}" />
+      <img src="${url}" alt="Item photo ${idx + 1}" />
       <button type="button" class="thumb-remove" data-idx="${idx}" aria-label="Remove photo">&times;</button>
       ${idx === 0 ? `<span class="cover-badge">Cover</span>` : ""}
     </div>
@@ -1905,7 +1905,7 @@ document.getElementById("itemImage").addEventListener("change", async (e) => {
   }
   const filesToUpload = files.slice(0, room);
   if (files.length > filesToUpload.length) {
-    statusEl.textContent = `Only uploading ${filesToUpload.length} - the ${MAX_ITEM_IMAGES}-photo limit per dish.`;
+    statusEl.textContent = `Only uploading ${filesToUpload.length} - the ${MAX_ITEM_IMAGES}-photo limit per item.`;
   }
 
   for (let i = 0; i < filesToUpload.length; i++) {

@@ -312,7 +312,7 @@ function trendHtml(months, key) {
 
 window.adminAwaiting = { awaiting: [], failed: [] };
 
-/** Orders placed but not yet paid (and ones whose payment failed). Fetched by payment status so old ones aren't lost past the 200-order history window. */
+/** Loads unpaid and failed orders outside the order-history window. */
 async function fetchAwaitingOrders() {
   const get = async (status) => {
     try {
@@ -949,7 +949,7 @@ function poClearManualFee() {
   if (input) input.value = "";
 }
 
-/** Same public menu the customers see (all dishes, spice levels, extras, sides) - photos are simply not drawn. */
+/** Loads customer-facing menu data without rendering photos. */
 async function loadAdminMenu() {
   adminMenuLoadError = "";
   try {
@@ -1252,7 +1252,7 @@ function poMissingAddressParts() {
     .map(([, label]) => label);
 }
 
-/** OK button: every required field filled in, then look it up and price it. Nothing is calculated before this. */
+/** Validates the address before requesting a delivery quote. */
 async function poConfirmAddress() {
   const missing = poMissingAddressParts();
   if (missing.length) {
@@ -1503,7 +1503,7 @@ function initPlaceOrderTab() {
     <div class="place-order-layout">
       <div class="place-order-main">
         <div class="admin-panel-header"><h3>Menu</h3></div>
-        <input type="search" id="adminMenuSearch" class="po-search" placeholder="Search dishes&hellip;" />
+        <input type="search" id="adminMenuSearch" class="po-search" placeholder="Search items&hellip;" />
         <div id="adminMenuCats" class="po-chips"></div>
         <div id="adminMenuGrid" class="admin-menu-grid"><p class="menu-loading">Loading&hellip;</p></div>
       </div>
@@ -1729,3 +1729,32 @@ showDashboard = function () {
   _showDashboardForRestore();
   setTimeout(restoreAdminTab, 0);
 };
+
+
+/* Shrink big money figures on the KPI cards so the digits always fit inside the card. */
+(function fitKpiValues() {
+  const MIN_PX = 11;
+  function fitAll() {
+    document.querySelectorAll(".kpi-value").forEach((el) => {
+      el.style.fontSize = "";
+      if (!el.clientWidth) return; // hidden tab: fitted when it is shown
+      let size = parseFloat(getComputedStyle(el).fontSize);
+      while (el.scrollWidth > el.clientWidth && size > MIN_PX) {
+        size -= 0.5;
+        el.style.fontSize = size + "px";
+      }
+    });
+  }
+  let queued = false;
+  function schedule() {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => {
+      queued = false;
+      fitAll();
+    });
+  }
+  new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true, characterData: true });
+  window.addEventListener("resize", schedule);
+  schedule();
+})();

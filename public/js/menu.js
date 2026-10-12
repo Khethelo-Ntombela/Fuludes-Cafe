@@ -3,7 +3,8 @@
  * -----------------------------------------------------------------------
  * Menu-page logic: loads the live menu from /api/menu, renders category
  * tabs + dish cards, typo-tolerant search, specials, an on-page cart
- * (persisted in localStorage so it survives navigating between pages),
+ * (kept in localStorage so it survives navigating between pages, and on the
+ * customer's account when signed in so it follows them between devices),
  * and checkout via POST /api/order with the hosted Yoco payment hand-off.
  *
  * Requires site.js to be loaded first (accounts, lightbox, helpers).
@@ -45,7 +46,272 @@ function saveCart() {
   } catch {
     /* storage full/blocked - cart still works for this page view */
   }
+  // This change came FROM the account (adoptServerCart) - nothing to send back.
+  if (suppressCartPush) {
+    suppressCartPush = false;
+    return;
+  }
+  // Signed in: the account's copy follows every change (a moment later, so
+  // tapping + a few times is one save, not several).
+  if (currentCustomer && customerToken) {
+    try {
+      localStorage.setItem(CART_DIRTY_KEY, "1");
+    } catch {
+      /* not critical */
+    }
+    scheduleCartPush();
+  }
 }
+
+// ---------------------------------------------------------------------
+// Cart on the customer's account (GET/PUT/POST /api/cart)
+//
+// Signed in, the cart is kept on the account, so the phone and the PC show
+// the same one. localStorage stays as the instant local copy (and the only
+// copy while signed out).
+//
+//   - First time this device meets the account (just signed in, or the
+//     first visit after this feature shipped): the cart here is MERGED into
+//     the account's cart - identical lines add up, nothing is overwritten.
+//   - After that, the account's cart is the truth: it is loaded on page
+//     open and whenever the tab gets focus / every 30s, and every change
+//     made here is saved back.
+//   - The server rebuilds the cart from the live menu each time, so sold-out
+//     dishes drop out (we say so) and prices are always today's.
+//   - The server empties the cart when an order is placed (api/order.js).
+//
+// Rules that keep two devices from fighting:
+//   - Nothing is saved until the account's cart has been loaded once
+//     (otherwise a new, empty device would wipe the account's cart).
+//   - A pull never replaces edits that haven't been saved yet.
+//   - If two devices edit at the same moment, the last save wins.
+// ---------------------------------------------------------------------
+const CART_SYNC_KEY = "fulude_cart_sync"; // { customerId, version } - set once this device is linked to that account's cart
+const CART_DIRTY_KEY = "fulude_cart_dirty"; // "1" while changes made here haven't reached the account yet
+let cartSyncReady = false; // the account's cart has been loaded on this page
+let cartSyncCustomerId = null;
+let cartSyncPromise = null;
+let cartVersion = 0; // version of the account cart this page last saw
+let cartPushTimer = null;
+let cartPushInFlight = false;
+let cartPushQueued = false;
+let suppressCartPush = false;
+
+function cartToCompact() {
+  return cart.map((l) => ({
+    itemId: l.itemId,
+    quantity: l.quantity,
+    spiceLevel: l.spiceLevel || null,
+    sideId: l.side ? l.side.id : null,
+    extraIds: (l.extras || []).map((e) => e.id)
+  }));
+}
+
+function cartIsDirty() {
+  try {
+    return localStorage.getItem(CART_DIRTY_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function setCartDirty(on) {
+  try {
+    if (on) localStorage.setItem(CART_DIRTY_KEY, "1");
+    else localStorage.removeItem(CART_DIRTY_KEY);
+  } catch {
+    /* not critical */
+  }
+}
+
+function readCartLink() {
+  try {
+    return JSON.parse(localStorage.getItem(CART_SYNC_KEY) || "null");
+  } catch {
+    return null;
+  }
+}
+
+function writeCartLink(customerId, version) {
+  try {
+    localStorage.setItem(CART_SYNC_KEY, JSON.stringify({ customerId, version }));
+  } catch {
+    /* not critical */
+  }
+}
+
+function cartRequest(method, items) {
+  // keepalive: a DELETE sent just before the browser leaves for the payment page still goes through.
+  const options = { method, headers: { Authorization: `Bearer ${customerToken}` }, cache: "no-store", keepalive: method === "DELETE" };
+  if (items) {
+    options.headers["Content-Type"] = "application/json";
+    options.body = JSON.stringify({ items });
+  }
+  return fetch("/api/cart", options);
+}
+
+/** Shows the account's cart on this page (no save back - it came from there). */
+function adoptServerCart(data) {
+  cart = Array.isArray(data.items) ? data.items : [];
+  cartVersion = Number(data.version) || 0;
+  if (currentCustomer) writeCartLink(currentCustomer.id, cartVersion);
+  suppressCartPush = true;
+  renderCart();
+  suppressCartPush = false;
+  if (Array.isArray(data.notices) && data.notices.length) {
+    const more = data.notices.length > 1 ? ` (+${data.notices.length - 1} more change${data.notices.length > 2 ? "s" : ""})` : "";
+    showCartToast(data.notices[0] + more, "info");
+  }
+}
+
+/**
+ * Makes sure this device is linked to the signed-in customer's cart.
+ * Safe to call any number of times; resolves true once the account's cart
+ * has been loaded.
+ */
+function ensureCartLinked() {
+  if (!currentCustomer || !customerToken) return Promise.resolve(false);
+  if (cartSyncReady && cartSyncCustomerId === currentCustomer.id) return Promise.resolve(true);
+  if (!cartSyncPromise) {
+    cartSyncPromise = linkCart().finally(() => {
+      cartSyncPromise = null;
+    });
+  }
+  return cartSyncPromise;
+}
+
+async function linkCart() {
+  const customerId = currentCustomer.id;
+  try {
+    const link = readCartLink();
+    const linked = link && link.customerId === customerId;
+    const before = JSON.stringify(cartToCompact());
+    let res;
+    if (linked && cartIsDirty()) res = await cartRequest("PUT", cartToCompact()); // changes made offline / before leaving
+    else if (linked) res = await cartRequest("GET");
+    else res = await cartRequest("POST", cartToCompact()); // first meeting: merge
+    if (!res.ok) return false; // not signed in any more, or the server is down - keep the local cart
+    const data = await res.json();
+    if (!currentCustomer || currentCustomer.id !== customerId) return false; // signed out meanwhile
+
+    cartSyncReady = true;
+    cartSyncCustomerId = customerId;
+    setCartDirty(false);
+    adoptServerCart(data);
+    if (!linked && before !== JSON.stringify(cartToCompact())) {
+      showCartToast(before === "[]" ? "Your saved cart is here" : "We combined your saved cart with the items on this device", "info");
+    }
+    return true;
+  } catch {
+    return false; // offline - the local cart keeps working, linking is retried on the next page open
+  }
+}
+
+function scheduleCartPush() {
+  clearTimeout(cartPushTimer);
+  cartPushTimer = setTimeout(() => {
+    cartPushTimer = null;
+    pushCart();
+  }, 600);
+}
+
+async function pushCart() {
+  if (!cartSyncReady || !currentCustomer || !customerToken) return;
+  if (cartPushInFlight) {
+    cartPushQueued = true;
+    return;
+  }
+  cartPushInFlight = true;
+  try {
+    const sent = JSON.stringify(cartToCompact());
+    const res = await cartRequest("PUT", cartToCompact());
+    if (res.ok) {
+      const data = await res.json();
+      cartVersion = Number(data.version) || 0;
+      writeCartLink(currentCustomer.id, cartVersion);
+      const unchangedSince = JSON.stringify(cartToCompact()) === sent;
+      if (unchangedSince) {
+        setCartDirty(false);
+        // The server removed something that can't be ordered any more: show the real cart.
+        if (data.notices && data.notices.length) adoptServerCart(data);
+      } else {
+        cartPushQueued = true; // edited again while saving - save once more
+      }
+    }
+  } catch {
+    /* offline: stays marked unsaved, retried on the next change or page open */
+  } finally {
+    cartPushInFlight = false;
+    if (cartPushQueued) {
+      cartPushQueued = false;
+      scheduleCartPush();
+    }
+  }
+}
+
+/**
+ * The order was placed (or the customer is paying an existing one): empty the
+ * cart here and on the account. The server already empties the account's cart
+ * when it creates an order; the DELETE is a second, harmless attempt. Nothing
+ * is left marked "unsaved", so a later page load can't push an empty cart
+ * over items the customer has since added on another device.
+ */
+function clearCartAfterOrder() {
+  cart = [];
+  clearTimeout(cartPushTimer);
+  cartPushTimer = null;
+  suppressCartPush = true;
+  saveCart();
+  suppressCartPush = false;
+  setCartDirty(false);
+  if (currentCustomer && customerToken) cartRequest("DELETE").catch(() => {});
+}
+
+/** Saves any pending change right now (called before signing out). */
+async function flushCartSync() {
+  if (cartPushTimer) {
+    clearTimeout(cartPushTimer);
+    cartPushTimer = null;
+  }
+  if (cartSyncReady && cartIsDirty()) await pushCart();
+}
+
+/** Picks up changes made on the customer's other device. */
+async function pullCart() {
+  if (!cartSyncReady || !currentCustomer || !customerToken) return;
+  if (cartPushInFlight || cartPushTimer || cartIsDirty()) return; // never replace edits that haven't been saved
+  try {
+    const res = await cartRequest("GET");
+    if (!res.ok) return;
+    const data = await res.json();
+    if (cartPushInFlight || cartPushTimer || cartIsDirty()) return; // edited while we were asking
+    if (Number(data.version) !== cartVersion) {
+      const changedHere = JSON.stringify(data.items.map((l) => [l.lineId, l.quantity])) !== JSON.stringify(cart.map((l) => [l.lineId, l.quantity]));
+      adoptServerCart(data);
+      if (changedHere) showCartToast("Your cart was updated from your other device", "info");
+    }
+  } catch {
+    /* offline - try again later */
+  }
+}
+
+// Link the cart when sign-in state becomes known or changes (site.js fires this).
+window.addEventListener("fulude:auth-changed", () => {
+  if (currentCustomer) {
+    ensureCartLinked();
+  } else {
+    cartSyncReady = false;
+    cartSyncCustomerId = null;
+    cartVersion = 0;
+  }
+});
+setInterval(() => {
+  if (!document.hidden) pullCart();
+}, 30000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) pullCart();
+});
+window.addEventListener("focus", pullCart);
 
 // ---------------------------------------------------------------------
 // Load menu from the server
@@ -211,13 +477,13 @@ const DRINK_GROUPS = [
 ];
 
 /** Drinks tab: a plain price list (no photos) grouped Beverages -> Cocktails -> Alcohol -> Others. */
-function renderDrinksList(grid, items) {
+function drinksListHtml(items) {
   const byType = {};
   for (const item of items) {
     const type = DRINK_GROUPS.some(([key]) => key === item.drink_type) ? item.drink_type : "other";
     (byType[type] || (byType[type] = [])).push(item);
   }
-  grid.innerHTML = `<div class="drinks-list">${DRINK_GROUPS.filter(([key]) => byType[key])
+  return `<div class="drinks-list">${DRINK_GROUPS.filter(([key]) => byType[key])
     .map(
       ([key, label]) => `
       <section class="drinks-group">
@@ -246,6 +512,10 @@ function renderDrinksList(grid, items) {
     .join("")}</div>`;
 }
 
+function renderDrinksList(grid, items) {
+  grid.innerHTML = drinksListHtml(items);
+}
+
 function renderOrderItems() {
   const grid = document.getElementById("orderItems");
   grid.classList.remove("is-drinks");
@@ -255,7 +525,14 @@ function renderOrderItems() {
     // Search spans every category, ranked by relevance (best matches first).
     items = searchMenuItems(searchQuery, menuItems, categories);
     if (items.length === 0) {
-      grid.innerHTML = `<p class="menu-empty">No dishes matched "${searchQuery}". Try a different word, or browse by category above.</p>`;
+      grid.innerHTML = `<p class="menu-empty">No items matched "${searchQuery}". Try a different word, or browse by category above.</p>`;
+      return;
+    }
+    // Drinks have no photo, so they go after every dish as the same compact price list as the Drinks tab.
+    const drinkResults = items.filter(isDrinkItem);
+    if (drinkResults.length > 0) {
+      const foodResults = items.filter((item) => !isDrinkItem(item));
+      grid.innerHTML = renderFoodCards(foodResults) + `<div class="search-drinks">${drinksListHtml(drinkResults)}</div>`;
       return;
     }
   } else {
@@ -268,7 +545,7 @@ function renderOrderItems() {
         : menuItems.filter((item) => item.category_id === categoryBySlug[activeCategorySlug]);
 
     if (items.length === 0) {
-      grid.innerHTML = `<p class="menu-empty">No dishes in this category yet.</p>`;
+      grid.innerHTML = `<p class="menu-empty">No items in this category yet.</p>`;
       return;
     }
     if (drinkCategoryIds.has(categoryBySlug[activeCategorySlug])) {
@@ -278,29 +555,17 @@ function renderOrderItems() {
     }
   }
 
-  grid.innerHTML = items
+  grid.innerHTML = renderFoodCards(items);
+}
+
+function renderFoodCards(items) {
+  return items
     .map((item) => {
       const photos = getPhotos(item);
       const onSpecial = item.is_on_special === true;
       const priceHtml = onSpecial
         ? `<span class="was-price">${money(item.price)}</span>${money(item.effective_price)}`
         : money(item.price);
-      if (isDrinkItem(item)) {
-        // e.g. a drink in search results: text-only card, no grey photo box
-        return `
-    <div class="order-card no-image${item.is_available ? "" : " sold-out"}" data-item="${item.id}">
-      <div class="order-card-body">
-        <div class="order-card-header">
-          <span class="order-card-name">${item.name}</span>
-          <span class="order-card-dots" aria-hidden="true"></span>
-          <span class="order-card-price">${priceHtml}</span>
-        </div>
-        <p class="order-card-desc">${item.description || ""}</p>
-        ${item.is_available ? "" : `<p class="order-card-desc"><strong>Sold out</strong></p>`}
-        <div class="order-card-footer" data-id="${item.id}">${cardControlsHtml(item)}</div>
-      </div>
-    </div>`;
-      }
       return `
     <div class="order-card${item.is_available ? "" : " sold-out"}" data-item="${item.id}">
       <div class="order-card-image${photos.length > 1 ? " has-slides" : ""}">
@@ -376,7 +641,7 @@ function syncCardControls() {
   });
 }
 
-/** Takes one unit off a dish. For dishes with several variants (spice/extras) it trims the most recently added one. */
+/** Removes one unit from the most recently added matching cart line. */
 function decrementItem(itemId) {
   for (let i = cart.length - 1; i >= 0; i--) {
     if (cart[i].itemId === itemId) {
@@ -470,7 +735,7 @@ function renderSpecialsBar() {
 function openSpecialsModal() {
   const specials = getActiveSpecials();
   if (specials.length === 0) {
-    specialsModalList.innerHTML = `<p class="menu-empty">No dishes are on special right now.</p>`;
+    specialsModalList.innerHTML = `<p class="menu-empty">No items are on special right now.</p>`;
   } else {
     specialsModalList.innerHTML = specials
       .map((item) => {
@@ -1129,7 +1394,7 @@ function setLocationStatus(text, kind = "info") {
   el.innerHTML = text;
 }
 
-/** Shares the phone's location: coordinates price the delivery, the address fields get filled for the driver. */
+/** Uses device location for delivery pricing and address lookup. */
 async function useMyLocation() {
   if (!navigator.geolocation) {
     showCheckoutError("Your browser can't share your location - please type your address instead.");
@@ -1357,7 +1622,7 @@ function invalidateQuoteOnEdit() {
   }
 }
 
-/** Opens the checkout modal, prefilling the name field from the account (still editable, e.g. ordering for someone else). */
+/** Opens checkout with the account name prefilled but editable. */
 function proceedToCheckout() {
   checkoutError.style.display = "none";
   const dupPanel = document.getElementById("duplicateOrderPanel");
@@ -1488,6 +1753,13 @@ async function submitOrderCheckout(event) {
     showCheckoutError("Your cart is empty.");
     return;
   }
+  // Just signed in? Let the account's cart finish loading first, so what is
+  // paid for is exactly what the order summary shows.
+  await ensureCartLinked();
+  if (cart.length === 0) {
+    showCheckoutError("Your cart is empty.");
+    return;
+  }
 
   // Delivery: make sure the address has been located and priced (the
   // customer may tap "Continue" straight after typing, before the field
@@ -1569,8 +1841,7 @@ async function submitOrderCheckout(event) {
     // Order is already saved (payment_status = 'awaiting'); hand the
     // browser off to the hosted Yoco payment page. Clear the cart now
     // since the order itself exists regardless of payment outcome.
-    cart = [];
-    saveCart();
+    clearCartAfterOrder();
     localStorage.removeItem(ACTIVE_RES_KEY); // pre-order done - this booking no longer drives checkout
     redirectToYoco(result.payment);
   } catch (err) {
@@ -1625,8 +1896,7 @@ function showDuplicateOrderChoice(existing) {
       });
       const data = await safeJson(res);
       if (!res.ok || !(data.payment?.redirect_url || data.payment?.action_url)) throw new Error(data.error || "Couldn't start the payment.");
-      cart = [];
-      saveCart();
+      clearCartAfterOrder();
       localStorage.removeItem(ACTIVE_RES_KEY);
       redirectToYoco(data.payment);
     } catch (err) {
@@ -1711,6 +1981,7 @@ window.addEventListener("fulude:preorder", showPreorderCart);
 
 loadMenu();
 renderCart(); // restore any cart carried over from a previous visit
+if (currentCustomer) ensureCartLinked(); // sign-in already confirmed before this script ran
 refreshPreorderUI();
 if (location.hash === "#your-order" && window.matchMedia("(max-width: 900px)").matches) {
   // Page was refreshed while viewing the cart - stay on the cart.
