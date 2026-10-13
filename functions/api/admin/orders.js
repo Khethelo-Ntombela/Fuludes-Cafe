@@ -59,6 +59,12 @@ export async function onRequestGet(context) {
       params.push(refundFilter === "true");
       conditions.push(`refund_needed = $${params.length}`);
     }
+    // Optional: only orders placed on or after this date (used by the Reports tab)
+    const since = url.searchParams.get("since");
+    if (since && !Number.isNaN(Date.parse(since))) {
+      params.push(new Date(since).toISOString());
+      conditions.push(`created_at >= $${params.length}`);
+    }
     if (search) {
       params.push(`%${search}%`);
       const likeIndex = params.length;

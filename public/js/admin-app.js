@@ -635,9 +635,32 @@ function updateKitchenCompletedToday(history) {
   el.textContent = history.filter((o) => o.status === "Completed" && isToday(o.created_at)).length;
 }
 
+// Reports tab: every order from the last REPORT_DAYS days, fetched 100 at a time
+const REPORT_DAYS = 30;
+const REPORT_MAX_PAGES = 30;
+
+async function fetchReportOrders() {
+  const since = new Date();
+  since.setDate(since.getDate() - REPORT_DAYS);
+  since.setHours(0, 0, 0, 0);
+  const orders = [];
+  try {
+    for (let page = 0; page < REPORT_MAX_PAGES; page++) {
+      const res = await adminFetch(`/api/admin/orders?limit=100&offset=${page * 100}&since=${encodeURIComponent(since.toISOString())}`);
+      const data = await res.json();
+      const batch = data.orders || [];
+      orders.push(...batch);
+      if (batch.length < 100) return { orders, since, failed: false, truncated: false };
+    }
+    return { orders, since, failed: false, truncated: true };
+  } catch {
+    return { orders, since, failed: true, truncated: false };
+  }
+}
+
 // Sales & Reports derived widgets
 async function loadReportWidgets() {
-  const history = await fetchHistoryAll();
+  const { orders: history, since, failed, truncated } = await fetchReportOrders();
   const active = history.filter(isPaidOrder);
 
   // Top selling items by revenue
@@ -655,11 +678,26 @@ async function loadReportWidgets() {
     { label: "9-11", from: 9 }, { label: "11-13", from: 11 }, { label: "13-15", from: 13 },
     { label: "15-17", from: 15 }, { label: "17-19", from: 17 }, { label: "19-21", from: 19 }
   ].map((b) => ({ ...b, value: 0 }));
+  let outsideHours = 0;
   active.forEach((o) => {
     const h = new Date(o.created_at).getHours();
     const bucket = buckets.find((b) => h >= b.from && h < b.from + 2);
     if (bucket) bucket.value += 1;
+    else outsideHours += 1;
   });
+
+  const day = (d) => d.toLocaleDateString("en-ZA", { day: "numeric", month: "short" });
+  const note = $id("reportPeriodNote");
+  if (note) {
+    if (failed) note.textContent = "Could not load all orders for these reports. Try refreshing.";
+    else if (!active.length) note.textContent = `No paid orders in the last ${REPORT_DAYS} days.`;
+    else {
+      const count = `${active.length} paid order${active.length === 1 ? "" : "s"}`;
+      const range = truncated ? "the most recent orders" : `${day(since)} to ${day(new Date())}`;
+      const extra = outsideHours ? ` ${outsideHours} placed outside 9:00-21:00 ${outsideHours === 1 ? "is" : "are"} left out of Peak Ordering Hours.` : "";
+      note.textContent = `Based on ${count} from the last ${REPORT_DAYS} days (${range}).${extra}`;
+    }
+  }
   $id("reportPeakHours").innerHTML = barsHtml(buckets.map((b) => ({ label: b.label, value: b.value, alt: true })));
 
   // Payment methods + order types
