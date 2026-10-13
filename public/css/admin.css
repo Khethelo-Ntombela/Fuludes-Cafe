@@ -912,6 +912,48 @@
   opacity: 0.75;
 }
 
+/* Month-on-month comparison */
+.sa-bars.compare {
+  height: 192px;
+}
+
+.sa-bar.partial {
+  opacity: 0.55;
+}
+
+.sa-bar-change {
+  font-size: 0.68rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--sa-muted);
+}
+
+.sa-bar-change.up {
+  color: var(--sa-green-deep);
+}
+
+.sa-bar-change.down {
+  color: var(--sa-red);
+}
+
+.sa-bar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin: 10px 0 0;
+  font-size: 0.7rem;
+  color: var(--sa-muted);
+}
+
+.sa-bar-legend .up {
+  color: var(--sa-green-deep);
+}
+
+.sa-bar-legend .down {
+  color: var(--sa-red);
+}
+
 .sa-bar-label {
   font-size: 0.7rem;
   color: var(--sa-muted);

@@ -1,4 +1,4 @@
-// SaaS shell + analytics layer on top of admin.js (which owns auth
+// Dashboard shell and analytics, built on top of admin.js (which handles login)
 
 // Small helpers
 const $id = (id) => document.getElementById(id);
@@ -31,19 +31,47 @@ function sparklineSvg(values) {
   return `<svg class="kpi-spark" viewBox="0 0 100 28" preserveAspectRatio="none"><polyline points="${pts}"/></svg>`;
 }
 
+// Adds each month's % change on the month before it.
+function withChange(items, currentMonthKey) {
+  return items.map((item, idx) => {
+    const prev = idx ? items[idx - 1].value : 0;
+    return {
+      ...item,
+      change: prev > 0 ? ((item.value - prev) / prev) * 100 : null,
+      partial: item.key === currentMonthKey,
+    };
+  });
+}
+
+function changeDirection(change) {
+  if (change == null) return "";
+  if (Math.abs(change) < 0.5) return "flat";
+  return change > 0 ? "up" : "down";
+}
+
 function barsHtml(items, valueFmt) {
   if (!items.length) return `<p class="menu-empty">No data yet.</p>`;
   const max = Math.max(...items.map((i) => i.value), 1);
-  return `<div class="sa-bars">${items
-    .map(
-      (i) => `
-      <div class="sa-bar-col" title="${i.label}: ${valueFmt ? valueFmt(i.value) : i.value}">
+  const compare = items.some((i) => i.change !== undefined);
+  const arrows = { up: "▲", down: "▼", flat: "–" };
+  const bars = items
+    .map((i) => {
+      const dir = compare ? changeDirection(i.change) : "";
+      const changeText = dir ? `${arrows[dir]} ${Math.abs(i.change).toFixed(0)}%` : "";
+      const tip = changeText ? ` (${changeText} on previous month)` : "";
+      return `
+      <div class="sa-bar-col" title="${i.label}: ${valueFmt ? valueFmt(i.value) : i.value}${tip}">
         <span class="sa-bar-value">${valueFmt ? valueFmt(i.value) : i.value}</span>
-        <div class="sa-bar${i.alt ? " alt" : ""}" style="height:${Math.max(4, Math.round((i.value / max) * 108))}px"></div>
+        <div class="sa-bar${i.alt && !compare ? " alt" : ""}${i.partial ? " partial" : ""}" style="height:${Math.max(4, Math.round((i.value / max) * 108))}px"></div>
         <span class="sa-bar-label">${i.label}</span>
-      </div>`
-    )
-    .join("")}</div>`;
+        ${compare ? `<span class="sa-bar-change ${dir}">${changeText || "&nbsp;"}</span>` : ""}
+      </div>`;
+    })
+    .join("");
+  const legend = compare
+    ? `<p class="sa-bar-legend"><span><b class="up">▲</b> Up on previous month</span><span><b class="down">▼</b> Down on previous month</span>${items.some((i) => i.partial) ? "<span>Lighter bar: month still in progress</span>" : ""}</p>`
+    : "";
+  return `<div class="sa-bars${compare ? " compare" : ""}">${bars}</div>${legend}`;
 }
 
 function rowsHtml(items, valueFmt) {
@@ -514,13 +542,15 @@ function renderAwaitingModal() {
 }
 
 function renderDashCharts(months) {
-  $id("dashRevChart").innerHTML = barsHtml(
-    months.map((m) => ({ label: monthLabel(m.month), value: Number(m.revenue || 0) })),
-    (v) => `R${Math.round(v)}`
-  );
-  $id("dashOrdChart").innerHTML = barsHtml(
-    months.map((m) => ({ label: monthLabel(m.month), value: Number(m.order_count || 0), alt: true }))
-  );
+  const now = new Date();
+  const currentKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const series = (field, extra = {}) =>
+    withChange(
+      months.map((m) => ({ key: m.month, label: monthLabel(m.month), value: Number(m[field] || 0), ...extra })),
+      currentKey
+    );
+  $id("dashRevChart").innerHTML = barsHtml(series("revenue"), (v) => `R${Math.round(v)}`);
+  $id("dashOrdChart").innerHTML = barsHtml(series("order_count"));
 }
 
 function renderDashLists(history, reviews) {
