@@ -1086,10 +1086,26 @@ function renderMonthlyTrendHtml(monthlyBreakdown) {
     ...monthlyBreakdown.map((m) => Number(m.revenue || 0)),
     1,
   );
+  // % change on the month before. Only worked out when that month is the one directly before.
+  const monthIndex = (key) => {
+    const [y, mo] = key.split("-");
+    return Number(y) * 12 + Number(mo);
+  };
+  const today = new Date();
+  const currentKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+  const arrows = { up: "▲", down: "▼", flat: "–" };
+
   const cols = monthlyBreakdown
-    .map((m) => {
+    .map((m, idx) => {
       const revenue = Number(m.revenue || 0);
-      const heightPct = Math.max(2, Math.round((revenue / maxRevenue) * 100));
+      const barHeight = Math.max(4, Math.round((revenue / maxRevenue) * 110));
+      const prev = idx > 0 ? monthlyBreakdown[idx - 1] : null;
+      const prevRevenue = prev ? Number(prev.revenue || 0) : 0;
+      const hasCompare = prev && prevRevenue > 0 && monthIndex(m.month) - monthIndex(prev.month) === 1;
+      const change = hasCompare ? ((revenue - prevRevenue) / prevRevenue) * 100 : null;
+      const dir = change === null ? "" : Math.abs(change) < 0.5 ? "flat" : change > 0 ? "up" : "down";
+      const changeText = dir ? `${arrows[dir]} ${Math.abs(change).toFixed(0)}%` : "";
+      const inProgress = m.month === currentKey;
       const [year, monthNumber] = m.month.split("-");
       const label = new Date(
         Number(year),
@@ -1097,10 +1113,11 @@ function renderMonthlyTrendHtml(monthlyBreakdown) {
         1,
       ).toLocaleString("en-ZA", { month: "short" });
       return `
-        <div class="admin-trend-col" title="${m.month}: ${m.order_count} order${m.order_count === 1 ? "" : "s"} · R${revenue.toFixed(2)}">
+        <div class="admin-trend-col" title="${m.month}: ${m.order_count} order${m.order_count === 1 ? "" : "s"} · R${revenue.toFixed(2)}${changeText ? ` (${changeText} on previous month)` : ""}">
           <span class="admin-trend-value">R${Math.round(revenue)}</span>
-          <div class="admin-trend-bar" style="height: ${heightPct}%"></div>
+          <div class="admin-trend-bar${inProgress ? " partial" : ""}" style="height: ${barHeight}px"></div>
           <span class="admin-trend-label">${label} '${year.slice(2)}</span>
+          <span class="admin-trend-change ${dir}">${changeText || "&nbsp;"}</span>
           <span class="admin-trend-orders">${m.order_count} order${m.order_count === 1 ? "" : "s"}</span>
         </div>
       `;
@@ -1110,7 +1127,12 @@ function renderMonthlyTrendHtml(monthlyBreakdown) {
   return `
     <div style="width: 100%; margin-bottom: 28px;">
       <h3 style="margin-bottom: 4px;">Revenue by Month</h3>
-      <div class="admin-trend-chart">${cols}</div>
+      <div class="admin-trend-chart compare">${cols}</div>
+      <p class="admin-trend-legend">
+        <span><b class="up">▲</b> Up on previous month</span>
+        <span><b class="down">▼</b> Down on previous month</span>
+        ${monthlyBreakdown.some((m) => m.month === currentKey) ? "<span>Lighter bar: month still in progress</span>" : ""}
+      </p>
     </div>
   `;
 }

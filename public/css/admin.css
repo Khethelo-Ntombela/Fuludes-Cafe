@@ -912,48 +912,6 @@
   opacity: 0.75;
 }
 
-/* Month-on-month comparison */
-.sa-bars.compare {
-  height: 192px;
-}
-
-.sa-bar.partial {
-  opacity: 0.55;
-}
-
-.sa-bar-change {
-  font-size: 0.68rem;
-  font-weight: 600;
-  white-space: nowrap;
-  color: var(--sa-muted);
-}
-
-.sa-bar-change.up {
-  color: var(--sa-green-deep);
-}
-
-.sa-bar-change.down {
-  color: var(--sa-red);
-}
-
-.sa-bar-legend {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 12px;
-  margin: 10px 0 0;
-  font-size: 0.7rem;
-  color: var(--sa-muted);
-}
-
-.sa-bar-legend .up {
-  color: var(--sa-green-deep);
-}
-
-.sa-bar-legend .down {
-  color: var(--sa-red);
-}
-
 .sa-bar-label {
   font-size: 0.7rem;
   color: var(--sa-muted);
@@ -2444,6 +2402,46 @@
   color: var(--sa-faint);
   margin-top: 2px;
   white-space: nowrap;
+}
+
+/* Month-on-month comparison */
+.admin-trend-chart.compare {
+  height: 214px;
+}
+
+.admin-trend-chart.compare .admin-trend-bar {
+  flex-shrink: 0;
+}
+
+.admin-trend-bar.partial {
+  opacity: 0.55;
+}
+
+.admin-trend-change {
+  font-size: 0.68rem;
+  font-weight: 600;
+  margin-top: 2px;
+  white-space: nowrap;
+  color: var(--sa-muted);
+}
+
+.admin-trend-change.up,
+.admin-trend-legend .up {
+  color: var(--sa-green-deep);
+}
+
+.admin-trend-change.down,
+.admin-trend-legend .down {
+  color: var(--sa-red);
+}
+
+.admin-trend-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 10px 0 0;
+  font-size: 0.7rem;
+  color: var(--sa-muted);
 }
 
 .menu-loading,
