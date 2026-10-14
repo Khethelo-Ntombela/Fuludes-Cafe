@@ -91,7 +91,7 @@ async function requireDatabaseRole(env, token, isAdmin) {
         SELECT a.id, a.email, a.permissions, ${nameColumn} AS actor_name
         FROM ${sessionTable} s
         JOIN ${accountTable} a ON a.id = s.${accountId}
-        WHERE s.token = $1 AND s.expires_at > NOW() AND a.is_active = TRUE;
+        WHERE s.token = $1 AND s.expires_at > NOW() AND a.is_active = TRUE AND a.email_verified = TRUE;
       `,
       [token],
     );

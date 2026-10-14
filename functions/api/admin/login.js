@@ -172,12 +172,17 @@ export async function onRequest(context) {
                password_salt = EXCLUDED.password_salt,
                permissions = '{"all": true}',
                is_active = TRUE,
-               email_verified = TRUE,
                updated_at = NOW()
-             RETURNING id, permissions;`,
+             RETURNING id, permissions, email_verified;`,
             [emailText, migrated.hash, migrated.salt],
           );
           const migratedAccount = migratedResult.rows[0];
+          if (migratedAccount.email_verified === false) {
+            return jsonResponse(
+              { error: "Please verify your email address before signing in. Check your inbox for the verification link.", needs_verification: true },
+              403,
+            );
+          }
           const token = generateToken();
           await runQuery(
             env,

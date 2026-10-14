@@ -5,6 +5,9 @@ import { verifyPassword, generateToken, hashPassword } from "../../_lib/password
 import { saveSession, isDbAvailable } from "../../_lib/sessionStore.js";
 import { ensureLockoutColumns, recordFailedLogin, clearFailedLogins, LOCKED_MESSAGE } from "../../_lib/accountLockout.js";
 
+const VERIFY_MESSAGE =
+  "Please verify your email address before signing in. Check your inbox for the verification link.";
+
 export async function onRequest(context) {
   const { request, env } = context;
   if (request.method !== "POST") {
@@ -113,7 +116,7 @@ export async function onRequest(context) {
       await ensureLockoutColumns(env, "staff_accounts");
       const result = await runQuery(
         env,
-        "SELECT id, password_hash, password_salt, permissions, failed_login_attempts, is_locked FROM staff_accounts WHERE email = $1 AND is_active = TRUE LIMIT 1;",
+        "SELECT id, password_hash, password_salt, permissions, failed_login_attempts, is_locked, email_verified FROM staff_accounts WHERE email = $1 AND is_active = TRUE LIMIT 1;",
         [emailText],
       );
       const account = result.rows[0];
@@ -122,6 +125,13 @@ export async function onRequest(context) {
         // until the main admin unlocks them.
         if (account.is_locked) {
           return jsonResponse({ error: LOCKED_MESSAGE, locked: true }, 423);
+        }
+        // New accounts must click the emailed verification link first.
+        if (account.email_verified === false) {
+          return jsonResponse(
+            { error: VERIFY_MESSAGE, needs_verification: true },
+            403,
+          );
         }
         const valid = await verifyPassword(
           passwordText,
@@ -169,10 +179,16 @@ export async function onRequest(context) {
              permissions = '{"orders": true}',
              is_active = TRUE,
              updated_at = NOW()
-           RETURNING id, permissions;`,
+           RETURNING id, permissions, email_verified;`,
           [emailText, emailText, migrated.hash, migrated.salt],
         );
         const migratedAccount = migratedResult.rows[0];
+        if (migratedAccount.email_verified === false) {
+          return jsonResponse(
+            { error: VERIFY_MESSAGE, needs_verification: true },
+            403,
+          );
+        }
         const token = generateToken();
         await runQuery(
           env,
