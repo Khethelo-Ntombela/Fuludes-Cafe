@@ -508,6 +508,12 @@ newOnes.forEach((id) => {
       });
 }
 
+    knownPaidNewOrderIds = paidNewIds;
+  } catch (err) {
+    // Non-fatal; the next poll will retry.
+  }
+}
+
 /** Load and render ingredient stock-up suggestions */
 let suggestionsRequestId = 0;
 const suggestionsOpen = new Set(); // ingredients the user has expanded - kept across refreshes
@@ -537,12 +543,20 @@ function renderIngredientSuggestions(ingredients) {
   if (!listEl) return;
 
   if (!ingredients.length) {
-    listEl.innerHTML = `<p class="menu-empty">No low-stock items right now. Everything is well stocked.</p>`;
+    listEl.innerHTML = `<p class="menu-empty">No ingredients need stocking up right now.</p>`;
     return;
   }
 
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const LABELS = { high: "High", medium: "Medium", low: "Low" };
+  const joinNames = (names) =>
+    names.length <= 1
+      ? names.join("")
+      : names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
+  const reasonText = (ing) => {
+    const names = ing.dishes.map((d) => esc(d.name));
+    return `Used ${ing.weekly_uses} times in the last 7 days. You might need to stock up on this because ${joinNames(names)} ${names.length === 1 ? "uses" : "use"} it and ${names.length === 1 ? "is" : "are"} running low.`;
+  };
 
   listEl.innerHTML = ingredients.map((ing) => {
     const level = LABELS[ing.urgency] ? ing.urgency : "low";
@@ -554,10 +568,10 @@ function renderIngredientSuggestions(ingredients) {
           <span class="sugg-head-main">
             <strong class="sugg-name">${esc(ing.ingredient_name)}</strong>
             <span class="sugg-badge sugg-badge-${level}">${LABELS[level]} urgency</span>
-            <span class="sugg-sub">${ing.dish_count} low-stock item${ing.dish_count === 1 ? "" : "s"} use this</span>
           </span>
           <i class="fas fa-chevron-down sugg-chevron" aria-hidden="true"></i>
         </button>
+        <p class="sugg-reason">${reasonText(ing)}</p>
         <div class="sugg-rows">
           ${ing.dishes.map((d) => `
             <div class="sugg-row">
@@ -592,11 +606,6 @@ document.querySelectorAll('.admin-tab-btn[data-tab="menu"]').forEach(btn => {
     setTimeout(loadIngredientSuggestions, 100);
   });
 });
-    knownPaidNewOrderIds = paidNewIds;
-  } catch (err) {
-    // Non-fatal; the next poll will retry.
-  }
-}
 
 /** Sticky kitchen control bar above the board: instant operational visibility. */
 const KITCHEN_CAPACITY = 12; // active tickets considered a "full" kitchen

@@ -7,7 +7,7 @@
     <title>Fulude's Cafe | Admin</title>
   
     <link rel="stylesheet" href="css/style.css?v=26" />
-    <link rel="stylesheet" href="css/admin.css?v=27" />
+    <link rel="stylesheet" href="css/admin.css?v=29" />
     <link
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css"
@@ -671,13 +671,27 @@
 
             <!-- Stock-up Suggestions Panel -->
             <div class="sa-card sa-section" id="ingredientSuggestionsCard">
-              <div class="sa-card-title">
+              <div class="sa-card-title" style="flex-wrap: wrap">
                 Stock-up Suggestions
+                <span class="sugg-key">
+                  <span class="sugg-key-item"
+                    ><span class="sugg-badge sugg-badge-high">High</span> - runs
+                    out within 2 days</span
+                  >
+                  <span class="sugg-key-item"
+                    ><span class="sugg-badge sugg-badge-medium">Medium</span> -
+                    runs out within a week</span
+                  >
+                  <span class="sugg-key-item"
+                    ><span class="sugg-badge sugg-badge-low">Low</span> - slow
+                    seller, stock will last</span
+                  >
+                </span>
                 <span
                   class="admin-hint"
                   style="margin-left: 8px; font-size: 0.8rem"
                 >
-                  Ingredients for meals with 10 or fewer left. 10 or below is low stock
+                  Ingredients used 30 or more times in the last 7 days by meals with fewer than 30 left
                 </span>
               </div>
               <div class="sugg-toolbar">
@@ -1619,7 +1633,7 @@
     <script src="js/order-alert.js?v=1"></script>
     <script src="js/kds.js?v=23"></script>
     <script src="js/form-validation.js?v=1"></script>
-    <script src="js/admin.js?v=34"></script>
+    <script src="js/admin.js?v=35"></script>
     <script src="js/admin-app.js?v=28"></script>
   <script>
   if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));

@@ -3663,7 +3663,25 @@ input[readonly] {
 .sugg-badge-medium { background: #fffaeb; color: #b54708; }
 .sugg-badge-low { background: #ecfdf3; color: #067647; }
 
+.sugg-key {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--sa-muted);
+}
+.sugg-key-item {
+  white-space: nowrap;
+}
+
 .sugg-sub {
+  font-size: 0.8rem;
+  color: var(--sa-muted);
+}
+.sugg-reason {
+  margin: 8px 0 0;
   font-size: 0.8rem;
   color: var(--sa-muted);
 }
