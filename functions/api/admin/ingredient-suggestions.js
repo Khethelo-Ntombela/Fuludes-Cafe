@@ -40,73 +40,80 @@ export async function onRequestGet(context) {
       lowStockRes.rows.map(r => [r.id, { name: r.name, stock_quantity: r.stock_quantity }])
     );
 
-    // 3. Combine trigger dishes (sold well OR low stock)
-    const allTriggerDishIds = new Set([
-      ...soldWellMap.keys(),
-      ...lowStockMap.keys()
-    ]);
-
-    if (allTriggerDishIds.size === 0) {
+    // 3. Only LOW-STOCK dishes are flagged. How fast they sell decides the urgency.
+    const lowStockIds = [...lowStockMap.keys()];
+    if (lowStockIds.length === 0) {
       return jsonResponse({ ingredients: [], days, low_stock_threshold: lowStockThreshold });
     }
 
-    // 4. Get ingredient usage for trigger dishes
-    const placeholders = [...allTriggerDishIds].map((_, i) => `$${i + 1}`).join(",");
+    // Urgency from "days of stock left" = stock now / units sold per day:
+    //   high   - runs out within 2 days (fast seller, or already at 0 and selling)
+    //   medium - runs out within a week
+    //   low    - slow seller (or not selling at all), stock will last
+    const RANK = { high: 3, medium: 2, low: 1 };
+    function dishUrgency(stock, unitsSold) {
+      const perDay = unitsSold / days;
+      if (perDay <= 0) return { level: "low", perDay: 0, daysLeft: null };
+      const daysLeft = stock / perDay;
+      const level = daysLeft <= 2 ? "high" : daysLeft <= 7 ? "medium" : "low";
+      return { level, perDay, daysLeft };
+    }
+
+    // 4. Ingredients used by those low-stock dishes
+    const placeholders = lowStockIds.map((_, i) => `$${i + 1}`).join(",");
     const ingredientRes = await runQuery(env, `
-      SELECT
-        di.ingredient_name,
-        di.menu_item_id,
-        mi.name AS dish_name,
-        mi.stock_quantity
+      SELECT di.ingredient_name, di.menu_item_id, mi.name AS dish_name, mi.stock_quantity
       FROM dish_ingredients di
       JOIN menu_items mi ON mi.id = di.menu_item_id
       WHERE di.menu_item_id IN (${placeholders})
-    `, [...allTriggerDishIds]);
+    `, lowStockIds);
 
-    // 5. Aggregate by ingredient
-    const ingredientMap = new Map(); // ingredient_name -> { dish_count, urgency_score
-    
+    // 5. Aggregate by ingredient - an ingredient takes its most urgent dish's level
+    const ingredientMap = new Map();
     for (const row of ingredientRes.rows) {
       const { ingredient_name, menu_item_id, dish_name, stock_quantity } = row;
-      const soldWellData = soldWellMap.get(menu_item_id);
-      const lowStockData = lowStockMap.get(menu_item_id);
-      
-      const reasons = [];
-      if (soldWellData) reasons.push(`sold_well (${soldWellData.units_sold} units in ${days}d)`);
-      if (lowStockData) reasons.push(`low_stock (${lowStockData.stock_quantity} left)`);
-      
-      const urgencyIncrement = soldWellData && lowStockData ? 2 : 1; // both = higher urgency
+      const unitsSold = soldWellMap.get(menu_item_id)?.units_sold || 0;
+      const u = dishUrgency(Number(stock_quantity), unitsSold);
 
       if (!ingredientMap.has(ingredient_name)) {
         ingredientMap.set(ingredient_name, {
           ingredient_name,
           dish_count: 0,
-          urgency_score: 0,
+          urgency: "low",
+          min_days_left: null,
           dishes: []
         });
       }
-
       const ing = ingredientMap.get(ingredient_name);
       ing.dish_count += 1;
-      ing.urgency_score += urgencyIncrement;
+      if (RANK[u.level] > RANK[ing.urgency]) ing.urgency = u.level;
+      if (u.daysLeft !== null && (ing.min_days_left === null || u.daysLeft < ing.min_days_left)) {
+        ing.min_days_left = u.daysLeft;
+      }
       ing.dishes.push({
         menu_item_id,
         name: dish_name,
-        units_sold: soldWellData?.units_sold || 0,
+        units_sold: unitsSold,
+        sold_per_day: Math.round(u.perDay * 10) / 10,
         stock_quantity: stock_quantity ?? null,
-        reasons
+        days_left: u.daysLeft === null ? null : Math.round(u.daysLeft * 10) / 10,
+        urgency: u.level
       });
     }
 
-    // 6. Sort by urgency_score desc, then dish_count desc
-    const sortedIngredients = [...ingredientMap.values()]
-      .sort((a, b) => b.urgency_score - a.urgency_score || b.dish_count - a.dish_count);
+    // 6. Most urgent first; within a level, the soonest to run out first
+    const sortedIngredients = [...ingredientMap.values()].sort(
+      (a, b) =>
+        RANK[b.urgency] - RANK[a.urgency] ||
+        (a.min_days_left ?? Infinity) - (b.min_days_left ?? Infinity) ||
+        b.dish_count - a.dish_count
+    );
 
     return jsonResponse({
       ingredients: sortedIngredients,
       days,
       low_stock_threshold: lowStockThreshold,
-      trigger_dish_count: allTriggerDishIds.size
+      trigger_dish_count: lowStockIds.length
     });
 
   } catch (err) {

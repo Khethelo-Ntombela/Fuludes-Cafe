@@ -539,33 +539,39 @@ function renderIngredientSuggestions(ingredients) {
     return;
   }
 
-  listEl.innerHTML = ingredients.map((ing, idx) => {
-    const urgencyClass = ing.urgency_score >= 3 ? "high" : ing.urgency_score >= 2 ? "medium" : "low";
-    const urgencyLabel = ing.urgency_score >= 3 ? "High" : ing.urgency_score >= 2 ? "Medium" : "Low";
-    
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const LABELS = { high: "High", medium: "Medium", low: "Low" };
+  const speedText = (d) =>
+    d.sold_per_day > 0
+      ? `${d.sold_per_day}/day${d.days_left !== null ? ` · ~${d.days_left} day${d.days_left === 1 ? "" : "s"} left` : ""}`
+      : "Not selling";
+
+  listEl.innerHTML = ingredients.map((ing) => {
+    const urgencyClass = LABELS[ing.urgency] ? ing.urgency : "low";
+    const urgencyLabel = LABELS[urgencyClass];
+
     return `
       <div class="ingredient-suggestion-item urgency-${urgencyClass}">
         <div class="ingredient-header">
-          <strong>${ing.ingredient_name}</strong>
+          <strong>${esc(ing.ingredient_name)}</strong>
           <span class="badge badge-status-${urgencyClass}">${urgencyLabel} urgency</span>
         </div>
         <div class="ingredient-meta">
-          <span>${ing.dish_count} item${ing.dish_count === 1 ? "" : "s"} use this</span>
-          <span>Urgency score: ${ing.urgency_score}</span>
+          <span>${ing.dish_count} low-stock item${ing.dish_count === 1 ? "" : "s"} use this</span>
         </div>
         <details class="ingredient-dishes">
           <summary>Show items (${ing.dishes.length})</summary>
           <table class="sa-table" style="margin-top: 8px; font-size: 0.85rem;">
             <thead>
-              <tr><th>Item</th><th style="text-align:center">Units Sold</th><th style="text-align:center">Stock Qty</th><th>Reasons</th></tr>
+              <tr><th>Item</th><th style="text-align:center">Stock Qty</th><th>Selling speed</th><th>Urgency</th></tr>
             </thead>
             <tbody>
               ${ing.dishes.map(d => `
                 <tr>
-                  <td>${d.name}</td>
-                  <td style="text-align:center">${d.units_sold || "—"}</td>
+                  <td>${esc(d.name)}</td>
                   <td style="text-align:center">${d.stock_quantity !== null ? d.stock_quantity : "Untracked"}</td>
-                  <td>${d.reasons.join("; ")}</td>
+                  <td>${speedText(d)}</td>
+                  <td>${LABELS[d.urgency] || "Low"}</td>
                 </tr>
               `).join("")}
             </tbody>
