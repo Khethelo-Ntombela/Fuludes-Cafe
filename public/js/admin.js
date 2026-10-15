@@ -513,7 +513,6 @@ let suggestionsRequestId = 0;
 const suggestionsOpen = new Set(); // ingredients the user has expanded - kept across refreshes
 async function loadIngredientSuggestions() {
   const listEl = document.getElementById("ingredientSuggestionsList");
-  const days = document.getElementById("suggestionsDays")?.value || "7";
   if (!listEl) return;
 
   const requestId = ++suggestionsRequestId;
@@ -522,7 +521,7 @@ async function loadIngredientSuggestions() {
   }
 
   try {
-    const res = await adminFetch(`/api/admin/ingredient-suggestions?days=${encodeURIComponent(days)}`);
+    const res = await adminFetch("/api/admin/ingredient-suggestions");
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Failed to load");
     if (requestId !== suggestionsRequestId) return; // a newer request is in flight
@@ -564,7 +563,6 @@ function renderIngredientSuggestions(ingredients) {
             <div class="sugg-row">
               <span class="sugg-row-name">${esc(d.name)}</span>
               <span class="sugg-row-stock">${d.stock_quantity !== null ? d.stock_quantity + " left" : "Untracked"}</span>
-              <span class="sugg-row-urgency sugg-text-${LABELS[d.urgency] ? d.urgency : "low"}">${LABELS[d.urgency] || "Low"}</span>
             </div>`).join("")}
         </div>
       </div>`;
@@ -573,7 +571,6 @@ function renderIngredientSuggestions(ingredients) {
 
 // Event listeners for suggestions panel
 document.getElementById("refreshSuggestionsBtn")?.addEventListener("click", loadIngredientSuggestions);
-document.getElementById("suggestionsDays")?.addEventListener("change", loadIngredientSuggestions);
 
 // Expand / collapse an ingredient. One handler on the list, attached once, and the
 // card is updated in place (no re-render), so it opens and closes on the first click.
@@ -1371,6 +1368,8 @@ async function loadMenuItems() {
   renderMenuItemsList();
   renderSpecialItemSelect();
   renderSpecialsList();
+  // Stock may have just changed - re-check so restocked items drop off the suggestions
+  if (typeof loadIngredientSuggestions === "function") loadIngredientSuggestions();
 }
 
 /* Stock button states: unlimited/healthy (gold), low (amber, 5 or fewer left), out (red). */

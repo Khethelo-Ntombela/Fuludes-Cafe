@@ -3677,7 +3677,7 @@ input[readonly] {
 }
 .sugg-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 90px 70px;
+  grid-template-columns: minmax(0, 1fr) 90px;
   gap: 12px;
   align-items: center;
   padding: 8px 0;
@@ -3700,6 +3700,6 @@ input[readonly] {
 
 @media (max-width: 600px) {
   .sugg-row {
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 }
