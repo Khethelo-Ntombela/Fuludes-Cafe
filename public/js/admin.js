@@ -1372,8 +1372,8 @@ async function loadMenuItems() {
   if (typeof loadIngredientSuggestions === "function") loadIngredientSuggestions();
 }
 
-/* Stock button states: unlimited/healthy (gold), low (amber, 5 or fewer left), out (red). */
-const LOW_STOCK_THRESHOLD = 5;
+/* Stock button states: unlimited/healthy (gold), low (amber, 10 or fewer left), out (red). */
+const LOW_STOCK_THRESHOLD = 10;
 
 function stockButtonClass(item) {
   if (item.stock_quantity === null || item.stock_quantity === undefined) {
