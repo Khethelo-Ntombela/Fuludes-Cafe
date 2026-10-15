@@ -1,4 +1,6 @@
-// GET /api/admin/ingredient-suggestions?days=7&low_stock_threshold=5
+// GET /api/admin/ingredient-suggestions?days=7
+// "Low stock" is always LOW_STOCK_THRESHOLD or fewer left - no filter to pick.
+const LOW_STOCK_THRESHOLD = 10;
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 
@@ -9,7 +11,7 @@ export async function onRequestGet(context) {
 
   const url = new URL(request.url);
   const days = Math.max(1, Math.min(365, parseInt(url.searchParams.get("days") || "7", 10)));
-  const lowStockThreshold = Math.max(0, parseInt(url.searchParams.get("low_stock_threshold") || "5", 10));
+  const lowStockThreshold = LOW_STOCK_THRESHOLD;
 
   try {
     // 1

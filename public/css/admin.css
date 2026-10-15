@@ -3566,3 +3566,118 @@ input[readonly] {
 /* "Delivered" tick on delivery orders in Order History */
 .admin-delivered-tick { display:flex; align-items:center; gap:8px; margin:8px 0; font-weight:600; cursor:pointer; }
 .admin-delivered-tick input { width:18px; height:18px; }
+
+
+/* ---------------- Stock-up suggestions ---------------- */
+.sugg-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.sugg-toolbar-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--sa-muted);
+}
+.sugg-days {
+  display: inline-flex;
+  border: 1px solid var(--sa-border-strong);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--sa-card);
+}
+.sugg-days-btn {
+  padding: 7px 14px;
+  border: 0;
+  border-right: 1px solid var(--sa-border);
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--sa-muted);
+  cursor: pointer;
+}
+.sugg-days-btn:last-child {
+  border-right: 0;
+}
+.sugg-days-btn.active {
+  background: var(--sa-text);
+  color: #fff;
+}
+
+.sugg-card {
+  background: var(--sa-card);
+  border: 1px solid var(--sa-border);
+  border-left: 4px solid var(--sa-border-strong);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.sugg-card.sugg-high { border-left-color: var(--sa-red); }
+.sugg-card.sugg-medium { border-left-color: var(--sa-amber); }
+.sugg-card.sugg-low { border-left-color: #12b76a; }
+
+.sugg-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.sugg-name {
+  font-size: 1rem;
+  text-transform: capitalize;
+}
+.sugg-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 100px;
+  white-space: nowrap;
+}
+.sugg-badge-high { background: var(--sa-red-soft); color: var(--sa-red); }
+.sugg-badge-medium { background: #fffaeb; color: #b54708; }
+.sugg-badge-low { background: #ecfdf3; color: #067647; }
+
+.sugg-sub {
+  font-size: 0.8rem;
+  color: var(--sa-muted);
+  margin: 4px 0 10px;
+}
+.sugg-rows {
+  border-top: 1px solid var(--sa-border);
+}
+.sugg-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) 90px minmax(0, 2fr) 70px;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 0;
+  font-size: 0.84rem;
+  border-bottom: 1px solid var(--sa-border);
+}
+.sugg-row:last-child {
+  border-bottom: 0;
+}
+.sugg-row-stock,
+.sugg-row-speed {
+  color: var(--sa-muted);
+}
+.sugg-row-urgency {
+  font-weight: 600;
+  text-align: right;
+}
+.sugg-text-high { color: var(--sa-red); }
+.sugg-text-medium { color: #b54708; }
+.sugg-text-low { color: #067647; }
+
+@media (max-width: 600px) {
+  .sugg-row {
+    grid-template-columns: 1fr auto;
+  }
+  .sugg-row-speed {
+    grid-column: 1 / -1;
+    order: 3;
+  }
+}

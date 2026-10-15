@@ -509,24 +509,26 @@ newOnes.forEach((id) => {
 }
 
 /** Load and render ingredient stock-up suggestions */
+let suggestionsRequestId = 0;
 async function loadIngredientSuggestions() {
   const listEl = document.getElementById("ingredientSuggestionsList");
   const days = document.getElementById("suggestionsDays")?.value || "7";
-  const threshold = document.getElementById("suggestionsLowStockThreshold")?.value || "5";
-  
   if (!listEl) return;
-  
-  listEl.innerHTML = `<p class="menu-loading">Loading suggestions…</p>`;
+
+  const requestId = ++suggestionsRequestId;
+  if (!listEl.children.length || listEl.querySelector(".menu-loading, .form-error")) {
+    listEl.innerHTML = `<p class="menu-loading">Loading suggestions…</p>`;
+  }
 
   try {
-    const res = await adminFetch(`/api/admin/ingredient-suggestions?days=${days}&low_stock_threshold=${threshold}`);
+    const res = await adminFetch(`/api/admin/ingredient-suggestions?days=${encodeURIComponent(days)}`);
     const data = await res.json();
-    
     if (!res.ok) throw new Error(data.error || "Failed to load");
-    
+    if (requestId !== suggestionsRequestId) return; // a newer request is in flight
     renderIngredientSuggestions(data.ingredients || []);
   } catch (err) {
-    listEl.innerHTML = `<p class="form-error">Failed to load: ${err.message}</p>`;
+    if (requestId !== suggestionsRequestId) return;
+    listEl.innerHTML = `<p class="form-error">Failed to load: ${String(err.message).replace(/[<>&]/g, "")}</p>`;
   }
 }
 
@@ -535,7 +537,7 @@ function renderIngredientSuggestions(ingredients) {
   if (!listEl) return;
 
   if (!ingredients.length) {
-    listEl.innerHTML = `<p class="menu-empty">No ingredients flagged. All items are well-stocked and selling normally.</p>`;
+    listEl.innerHTML = `<p class="menu-empty">No low-stock items right now. Everything is well stocked.</p>`;
     return;
   }
 
@@ -547,45 +549,37 @@ function renderIngredientSuggestions(ingredients) {
       : "Not selling";
 
   listEl.innerHTML = ingredients.map((ing) => {
-    const urgencyClass = LABELS[ing.urgency] ? ing.urgency : "low";
-    const urgencyLabel = LABELS[urgencyClass];
-
+    const level = LABELS[ing.urgency] ? ing.urgency : "low";
     return `
-      <div class="ingredient-suggestion-item urgency-${urgencyClass}">
-        <div class="ingredient-header">
-          <strong>${esc(ing.ingredient_name)}</strong>
-          <span class="badge badge-status-${urgencyClass}">${urgencyLabel} urgency</span>
+      <div class="sugg-card sugg-${level}">
+        <div class="sugg-card-head">
+          <strong class="sugg-name">${esc(ing.ingredient_name)}</strong>
+          <span class="sugg-badge sugg-badge-${level}">${LABELS[level]} urgency</span>
         </div>
-        <div class="ingredient-meta">
-          <span>${ing.dish_count} low-stock item${ing.dish_count === 1 ? "" : "s"} use this</span>
+        <div class="sugg-sub">${ing.dish_count} low-stock item${ing.dish_count === 1 ? "" : "s"} use this</div>
+        <div class="sugg-rows">
+          ${ing.dishes.map((d) => `
+            <div class="sugg-row">
+              <span class="sugg-row-name">${esc(d.name)}</span>
+              <span class="sugg-row-stock">${d.stock_quantity !== null ? d.stock_quantity + " left" : "Untracked"}</span>
+              <span class="sugg-row-speed">${speedText(d)}</span>
+              <span class="sugg-row-urgency sugg-text-${LABELS[d.urgency] ? d.urgency : "low"}">${LABELS[d.urgency] || "Low"}</span>
+            </div>`).join("")}
         </div>
-        <details class="ingredient-dishes">
-          <summary>Show items (${ing.dishes.length})</summary>
-          <table class="sa-table" style="margin-top: 8px; font-size: 0.85rem;">
-            <thead>
-              <tr><th>Item</th><th style="text-align:center">Stock Qty</th><th>Selling speed</th><th>Urgency</th></tr>
-            </thead>
-            <tbody>
-              ${ing.dishes.map(d => `
-                <tr>
-                  <td>${esc(d.name)}</td>
-                  <td style="text-align:center">${d.stock_quantity !== null ? d.stock_quantity : "Untracked"}</td>
-                  <td>${speedText(d)}</td>
-                  <td>${LABELS[d.urgency] || "Low"}</td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-        </details>
-      </div>
-    `;
+      </div>`;
   }).join("");
 }
 
 // Event listeners for suggestions panel
 document.getElementById("refreshSuggestionsBtn")?.addEventListener("click", loadIngredientSuggestions);
-document.getElementById("suggestionsDays")?.addEventListener("change", loadIngredientSuggestions);
-document.getElementById("suggestionsLowStockThreshold")?.addEventListener("change", loadIngredientSuggestions);
+document.querySelectorAll(".sugg-days-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".sugg-days-btn").forEach((b) => b.classList.toggle("active", b === btn));
+    const hidden = document.getElementById("suggestionsDays");
+    if (hidden) hidden.value = btn.dataset.days;
+    loadIngredientSuggestions();
+  });
+});
 
 // Load suggestions when Menu & Stock tab is activated
 document.querySelectorAll('.admin-tab-btn[data-tab="menu"]').forEach(btn => {
@@ -3559,3 +3553,16 @@ if (typeof FuludeValidation !== "undefined") {
   });
 }
 
+
+/* Stop the mouse wheel / trackpad scroll from changing a focused number field
+   (price, stock, etc.). Un-focusing it lets the page scroll normally instead. */
+document.addEventListener(
+  "wheel",
+  (e) => {
+    const el = document.activeElement;
+    if (el && el.tagName === "INPUT" && el.type === "number" && e.target === el) {
+      el.blur();
+    }
+  },
+  { passive: true },
+);
