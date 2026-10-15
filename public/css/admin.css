@@ -1719,9 +1719,10 @@
 }
 
 .admin-mini-btn.stock-low {
-  background: var(--sa-amber-soft);
-  border-color: transparent;
+  background: #fef0c7;
+  border-color: #f79009;
   color: #b54708;
+  font-weight: 600;
 }
 
 .admin-mini-btn.stock-out {
