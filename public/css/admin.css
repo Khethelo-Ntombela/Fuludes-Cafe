@@ -3622,8 +3622,31 @@ input[readonly] {
 .sugg-card-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+.sugg-head-main {
+  display: flex;
+  align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  min-width: 0;
+}
+.sugg-chevron {
+  flex: none;
+  color: var(--sa-muted);
+  transition: transform 0.15s;
+}
+.sugg-card.open .sugg-chevron {
+  transform: rotate(180deg);
 }
 .sugg-name {
   font-size: 1rem;
@@ -3643,14 +3666,18 @@ input[readonly] {
 .sugg-sub {
   font-size: 0.8rem;
   color: var(--sa-muted);
-  margin: 4px 0 10px;
 }
 .sugg-rows {
+  display: none;
   border-top: 1px solid var(--sa-border);
+  margin-top: 10px;
+}
+.sugg-card.open .sugg-rows {
+  display: block;
 }
 .sugg-row {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) 90px minmax(0, 2fr) 70px;
+  grid-template-columns: minmax(0, 1fr) 90px 70px;
   gap: 12px;
   align-items: center;
   padding: 8px 0;
@@ -3660,8 +3687,7 @@ input[readonly] {
 .sugg-row:last-child {
   border-bottom: 0;
 }
-.sugg-row-stock,
-.sugg-row-speed {
+.sugg-row-stock {
   color: var(--sa-muted);
 }
 .sugg-row-urgency {
@@ -3674,10 +3700,6 @@ input[readonly] {
 
 @media (max-width: 600px) {
   .sugg-row {
-    grid-template-columns: 1fr auto;
-  }
-  .sugg-row-speed {
-    grid-column: 1 / -1;
-    order: 3;
+    grid-template-columns: minmax(0, 1fr) auto auto;
   }
 }

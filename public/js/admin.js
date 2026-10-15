@@ -510,6 +510,7 @@ newOnes.forEach((id) => {
 
 /** Load and render ingredient stock-up suggestions */
 let suggestionsRequestId = 0;
+const suggestionsOpen = new Set(); // ingredients the user has expanded - kept across refreshes
 async function loadIngredientSuggestions() {
   const listEl = document.getElementById("ingredientSuggestionsList");
   const days = document.getElementById("suggestionsDays")?.value || "7";
@@ -543,26 +544,26 @@ function renderIngredientSuggestions(ingredients) {
 
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const LABELS = { high: "High", medium: "Medium", low: "Low" };
-  const speedText = (d) =>
-    d.sold_per_day > 0
-      ? `${d.sold_per_day}/day${d.days_left !== null ? ` · ~${d.days_left} day${d.days_left === 1 ? "" : "s"} left` : ""}`
-      : "Not selling";
 
   listEl.innerHTML = ingredients.map((ing) => {
     const level = LABELS[ing.urgency] ? ing.urgency : "low";
+    const key = String(ing.ingredient_name).toLowerCase();
+    const open = suggestionsOpen.has(key);
     return `
-      <div class="sugg-card sugg-${level}">
-        <div class="sugg-card-head">
-          <strong class="sugg-name">${esc(ing.ingredient_name)}</strong>
-          <span class="sugg-badge sugg-badge-${level}">${LABELS[level]} urgency</span>
-        </div>
-        <div class="sugg-sub">${ing.dish_count} low-stock item${ing.dish_count === 1 ? "" : "s"} use this</div>
+      <div class="sugg-card sugg-${level}${open ? " open" : ""}">
+        <button type="button" class="sugg-card-head" data-key="${esc(key)}" aria-expanded="${open}">
+          <span class="sugg-head-main">
+            <strong class="sugg-name">${esc(ing.ingredient_name)}</strong>
+            <span class="sugg-badge sugg-badge-${level}">${LABELS[level]} urgency</span>
+            <span class="sugg-sub">${ing.dish_count} low-stock item${ing.dish_count === 1 ? "" : "s"} use this</span>
+          </span>
+          <i class="fas fa-chevron-down sugg-chevron" aria-hidden="true"></i>
+        </button>
         <div class="sugg-rows">
           ${ing.dishes.map((d) => `
             <div class="sugg-row">
               <span class="sugg-row-name">${esc(d.name)}</span>
               <span class="sugg-row-stock">${d.stock_quantity !== null ? d.stock_quantity + " left" : "Untracked"}</span>
-              <span class="sugg-row-speed">${speedText(d)}</span>
               <span class="sugg-row-urgency sugg-text-${LABELS[d.urgency] ? d.urgency : "low"}">${LABELS[d.urgency] || "Low"}</span>
             </div>`).join("")}
         </div>
@@ -572,13 +573,20 @@ function renderIngredientSuggestions(ingredients) {
 
 // Event listeners for suggestions panel
 document.getElementById("refreshSuggestionsBtn")?.addEventListener("click", loadIngredientSuggestions);
-document.querySelectorAll(".sugg-days-btn").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".sugg-days-btn").forEach((b) => b.classList.toggle("active", b === btn));
-    const hidden = document.getElementById("suggestionsDays");
-    if (hidden) hidden.value = btn.dataset.days;
-    loadIngredientSuggestions();
-  });
+document.getElementById("suggestionsDays")?.addEventListener("change", loadIngredientSuggestions);
+
+// Expand / collapse an ingredient. One handler on the list, attached once, and the
+// card is updated in place (no re-render), so it opens and closes on the first click.
+document.getElementById("ingredientSuggestionsList")?.addEventListener("click", (e) => {
+  const head = e.target.closest(".sugg-card-head");
+  if (!head) return;
+  const card = head.closest(".sugg-card");
+  const key = head.dataset.key;
+  const nowOpen = !card.classList.contains("open");
+  card.classList.toggle("open", nowOpen);
+  head.setAttribute("aria-expanded", String(nowOpen));
+  if (nowOpen) suggestionsOpen.add(key);
+  else suggestionsOpen.delete(key);
 });
 
 // Load suggestions when Menu & Stock tab is activated
