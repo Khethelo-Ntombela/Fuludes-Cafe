@@ -3,12 +3,18 @@
 //   1. Meals that use it sold WEEKLY_USAGE_THRESHOLD or more units in the last 7 days
 //      (each unit sold counts as one use of the ingredient).
 //   2. At least one meal that uses it has fewer than STOCK_THRESHOLD left.
+// Urgency depends only on how little is left in the lowest meal that uses the ingredient:
+//   high   - HIGH_URGENCY_STOCK or fewer left
+//   medium - up to MEDIUM_URGENCY_STOCK left
+//   low    - anything above that (still under STOCK_THRESHOLD)
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 
 const WEEK_DAYS = 7;
 const WEEKLY_USAGE_THRESHOLD = 30;
 const STOCK_THRESHOLD = 30;
+const HIGH_URGENCY_STOCK = 10;
+const MEDIUM_URGENCY_STOCK = 20;
 
 export async function onRequestGet(context) {
   const { request, env } = context;
@@ -40,17 +46,10 @@ export async function onRequestGet(context) {
       JOIN menu_items mi ON mi.id = di.menu_item_id
     `);
 
-    // Urgency for a low meal = days of stock left at this week's selling pace:
-    //   high   - runs out within 2 days
-    //   medium - runs out within a week
-    //   low    - slow seller (or not selling), stock will last
+    // Urgency for a low meal comes from how many are left
     const RANK = { high: 3, medium: 2, low: 1 };
-    function dishUrgency(stock, unitsSold) {
-      const perDay = unitsSold / WEEK_DAYS;
-      if (perDay <= 0) return { level: "low", perDay: 0, daysLeft: null };
-      const daysLeft = stock / perDay;
-      const level = daysLeft <= 2 ? "high" : daysLeft <= 7 ? "medium" : "low";
-      return { level, perDay, daysLeft };
+    function dishUrgency(stock) {
+      return stock <= HIGH_URGENCY_STOCK ? "high" : stock <= MEDIUM_URGENCY_STOCK ? "medium" : "low";
     }
 
     // 3. Group by ingredient: total weekly uses across all meals, plus the low-stock meals
@@ -65,7 +64,7 @@ export async function onRequestGet(context) {
           weekly_uses: 0,
           dish_count: 0,
           urgency: "low",
-          min_days_left: null,
+          lowest_stock: null,
           dishes: []
         });
       }
@@ -75,20 +74,17 @@ export async function onRequestGet(context) {
       const tracked = stock_quantity !== null && stock_quantity !== undefined;
       if (!tracked || Number(stock_quantity) >= STOCK_THRESHOLD) continue;
 
-      const u = dishUrgency(Number(stock_quantity), unitsSold);
+      const stock = Number(stock_quantity);
+      const level = dishUrgency(stock);
       ing.dish_count += 1;
-      if (RANK[u.level] > RANK[ing.urgency]) ing.urgency = u.level;
-      if (u.daysLeft !== null && (ing.min_days_left === null || u.daysLeft < ing.min_days_left)) {
-        ing.min_days_left = u.daysLeft;
-      }
+      if (RANK[level] > RANK[ing.urgency]) ing.urgency = level;
+      if (ing.lowest_stock === null || stock < ing.lowest_stock) ing.lowest_stock = stock;
       ing.dishes.push({
         menu_item_id,
         name: dish_name,
         units_sold: unitsSold,
-        sold_per_day: Math.round(u.perDay * 10) / 10,
-        stock_quantity: Number(stock_quantity),
-        days_left: u.daysLeft === null ? null : Math.round(u.daysLeft * 10) / 10,
-        urgency: u.level
+        stock_quantity: stock,
+        urgency: level
       });
     }
 
@@ -97,11 +93,11 @@ export async function onRequestGet(context) {
       ing => ing.weekly_uses >= WEEKLY_USAGE_THRESHOLD && ing.dish_count > 0
     );
 
-    // 5. Most urgent first; within a level, the soonest to run out, then most used
+    // 5. Most urgent first; within a level, the lowest stock, then the most used
     qualifying.sort(
       (a, b) =>
         RANK[b.urgency] - RANK[a.urgency] ||
-        (a.min_days_left ?? Infinity) - (b.min_days_left ?? Infinity) ||
+        (a.lowest_stock ?? Infinity) - (b.lowest_stock ?? Infinity) ||
         b.weekly_uses - a.weekly_uses
     );
 
@@ -109,7 +105,9 @@ export async function onRequestGet(context) {
       ingredients: qualifying,
       days: WEEK_DAYS,
       weekly_usage_threshold: WEEKLY_USAGE_THRESHOLD,
-      stock_threshold: STOCK_THRESHOLD
+      stock_threshold: STOCK_THRESHOLD,
+      high_urgency_stock: HIGH_URGENCY_STOCK,
+      medium_urgency_stock: MEDIUM_URGENCY_STOCK
     });
 
   } catch (err) {
