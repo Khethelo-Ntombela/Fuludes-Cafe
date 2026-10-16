@@ -7,6 +7,20 @@ import { getRequestIp, sanitizeText, isValidEmail, isValidName, normalizePhone, 
 import { ensureLockoutColumns } from "../../_lib/accountLockout.js";
 import { sendAccountVerificationEmail } from "../../_lib/accountVerification.js";
 
+
+// Turns a permissions object (or its stored JSON text) into a short readable list for the audit log.
+function permissionsText(value) {
+  try {
+    const p = typeof value === "string" ? JSON.parse(value) : value;
+    if (!p || typeof p !== "object") return "none";
+    if (p.all) return "all";
+    const on = Object.keys(p).filter((k) => p[k]);
+    return on.length ? on.join(", ") : "none";
+  } catch {
+    return "none";
+  }
+}
+
 function normalizeEmail(value) {
   return sanitizeText(value || "")
     .trim()
@@ -109,6 +123,9 @@ export async function onRequest(context) {
         actor_role: "admin",
         actor_ip: requestIp,
         action: "staff_account_created",
+        target_type: "staff",
+        target_id: inserted.rows[0].id,
+        details: { name, email, permissions: permissionsText(permissions) },
       });
       return jsonResponse({ success: true });
     } catch (err) {
@@ -140,6 +157,7 @@ export async function onRequest(context) {
           "UPDATE staff_accounts SET is_locked = FALSE, failed_login_attempts = 0 WHERE id = $1;",
           [id],
         );
+        const unlocked = await runQuery(env, "SELECT name, email FROM staff_accounts WHERE id = $1;", [id]);
         await logAudit(env, {
           actor_type: "admin",
           actor_role: "admin",
@@ -147,6 +165,7 @@ export async function onRequest(context) {
           action: "staff_account_unlocked",
           target_type: "staff",
           target_id: id,
+          details: { name: unlocked.rows[0]?.name, email: unlocked.rows[0]?.email },
         });
         return jsonResponse({ success: true });
       }
@@ -182,13 +201,25 @@ export async function onRequest(context) {
         params.splice(2, 0, hash, salt);
       }
 
+      const before = (await runQuery(env, "SELECT name, email, permissions FROM staff_accounts WHERE id = $1;", [id])).rows[0];
       await runQuery(env, query, params);
 
+      const changes = [];
+      if (before && before.name !== name) changes.push({ label: "Name", from: before.name, to: name });
+      const oldPerms = permissionsText(before?.permissions);
+      const newPerms = permissionsText(permissions);
+      if (before && oldPerms !== newPerms) changes.push({ label: "Permissions", from: oldPerms, to: newPerms });
+      if (password) changes.push({ label: "Password", from: "-", to: "changed" });
       await logAudit(env, {
         actor_type: "admin",
         actor_role: "admin",
         actor_ip: requestIp,
         action: "staff_account_updated",
+        target_type: "staff",
+        target_id: id,
+        details: changes.length
+          ? { summary: before?.email ? `Staff account ${before.email}` : undefined, changes }
+          : { summary: "Saved without changing anything" },
       });
       return jsonResponse({ success: true });
     } catch (err) {
@@ -212,6 +243,7 @@ export async function onRequest(context) {
       if (!id) {
         return jsonResponse({ error: "Staff account id is required." }, 400);
       }
+      const removed = (await runQuery(env, "SELECT name, email FROM staff_accounts WHERE id = $1;", [id])).rows[0];
       await runQuery(env, "DELETE FROM staff_accounts WHERE id = $1;", [id]);
 
       await logAudit(env, {
@@ -219,6 +251,9 @@ export async function onRequest(context) {
         actor_role: "admin",
         actor_ip: requestIp,
         action: "staff_account_deleted",
+        target_type: "staff",
+        target_id: id,
+        details: { name: removed?.name, email: removed?.email },
       });
       return jsonResponse({ success: true });
     } catch (err) {

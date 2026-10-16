@@ -69,21 +69,27 @@ export async function onRequest(context) {
   await runQuery(env, "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS actor_name TEXT;").catch(() => {});
   await runQuery(env, "ALTER TABLE admin_accounts ADD COLUMN IF NOT EXISTS username TEXT;").catch(() => {});
 
-  // actor_name is the name recorded when the action happened. Older entries (and customers, whose
-  // names are not recorded) fall back to the account's current name, so nobody shows as just "#1".
+  // The same person should read the same everywhere. For admins and staff the account's CURRENT
+  // username/name wins (matched by id, or by email for entries that only saved the email), so adding a
+  // username updates their past entries too. The name saved at the time is the fallback for
+  // accounts that no longer exist, and customers/guests use the name that was saved or their account name.
   const withNames = `
     SELECT a.id, a.actor_type, a.actor_id, a.actor_role,
            COALESCE(
+             CASE a.actor_type
+               WHEN 'admin' THEN COALESCE(NULLIF(ad.username, ''), NULLIF(ad2.username, ''))
+               WHEN 'staff' THEN NULLIF(st.name, '')
+             END,
              NULLIF(a.actor_name, ''),
              CASE a.actor_type
-               WHEN 'admin' THEN COALESCE(NULLIF(ad.username, ''), ad.email)
-               WHEN 'staff' THEN st.name
+               WHEN 'admin' THEN COALESCE(ad.email, ad2.email)
                WHEN 'customer' THEN cu.name
              END
            ) AS actor_name,
            a.actor_ip, a.action, a.target_type, a.target_id, a.details, a.created_at
     FROM audit_logs a
     LEFT JOIN admin_accounts ad ON a.actor_type = 'admin' AND ad.id = a.actor_id
+    LEFT JOIN admin_accounts ad2 ON a.actor_type = 'admin' AND LOWER(ad2.email) = LOWER(a.actor_name)
     LEFT JOIN staff_accounts st ON a.actor_type = 'staff' AND st.id = a.actor_id
     LEFT JOIN customers cu ON a.actor_type = 'customer' AND cu.id = a.actor_id
     ${where}

@@ -3803,3 +3803,5 @@ input[readonly] {
   #tab-audit .filter-card input[type="datetime-local"] { line-height: 1.2; }
   #tab-audit .filter-card > div:last-child { flex-wrap: wrap; }
 }
+
+.admin-body .audit-none { color: var(--sa-faint); font-style: italic; font-size: 0.85rem; }

@@ -89,6 +89,10 @@ export async function onRequest(context) {
       actor_role: "admin",
       actor_ip: requestIp,
       action: "admin_password_changed",
+      actor_id: account?.id,
+      target_type: "admin",
+      target_id: account?.id,
+      details: { password: "changed" },
     });
 
     return jsonResponse({ success: true });

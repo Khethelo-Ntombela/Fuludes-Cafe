@@ -191,7 +191,7 @@ export async function onRequestPost(context) {
         action: "order_completed",
         target_type: "order",
         target_id: orderId,
-        details: {},
+        details: { previousStatus: currentStatus },
       });
     } else if (nextStatus === "Cancelled") {
       await logAudit(env, {

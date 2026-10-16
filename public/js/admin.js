@@ -3474,11 +3474,11 @@ function auditChangesHtml(details) {
   const lines = Object.entries(details)
     .filter(([k, v]) => !skip.has(k) && v !== null && v !== undefined && v !== "")
     .map(([k, v]) => {
-      const label = k.replace(/_/g, " ");
+      const label = k.replace(/_/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
       const val = typeof v === "object" ? JSON.stringify(v) : String(v);
       return `<span class="audit-change-line"><b>${escapeHtml(label.charAt(0).toUpperCase() + label.slice(1))}:</b> ${escapeHtml(val)}</span>`;
     });
-  return lines.join("") || "-";
+  return lines.join("") || '<span class="audit-none">No details were saved for this entry</span>';
 }
 
 function parseAuditDetails(d) {
