@@ -1379,6 +1379,7 @@ async function loadMenuItems() {
   renderSpecialsList();
   // Stock may have just changed - re-check so restocked items drop off the suggestions
   if (typeof loadIngredientSuggestions === "function") loadIngredientSuggestions();
+  renderIngredientPicker(); // new ingredients saved on any item join the tick list
 }
 
 /* Stock button states: unlimited/healthy (gold), low (amber, 10 or fewer left), out (red). */
@@ -1676,6 +1677,63 @@ document.getElementById("specialForm").addEventListener("submit", async (e) => {
   document.getElementById("specialForm").reset();
 });
 
+/* ---- Ingredient picker: tick from the existing list, or add a new one ----
+   The hidden #itemIngredients textarea holds the selection (one name per line), so saving is unchanged.
+   The list is every ingredient already used on any menu item, so a new one shows up next time. */
+function getSelectedIngredients() {
+  return document.getElementById("itemIngredients").value.split("\n").map((s) => s.trim()).filter(Boolean);
+}
+function setSelectedIngredients(list) {
+  const seen = new Set();
+  const clean = [];
+  for (const n of list) {
+    const name = String(n).trim();
+    const key = name.toLowerCase();
+    if (name && !seen.has(key)) { seen.add(key); clean.push(name); }
+  }
+  document.getElementById("itemIngredients").value = clean.join("\n");
+  renderIngredientPicker();
+}
+function renderIngredientPicker() {
+  const box = document.getElementById("itemIngredientChecks");
+  if (!box) return;
+  const known = new Map(); // lower-case -> name as first saved
+  for (const it of menuItems) {
+    for (const n of Array.isArray(it.ingredients) ? it.ingredients : []) {
+      const name = String(n).trim();
+      if (name && !known.has(name.toLowerCase())) known.set(name.toLowerCase(), name);
+    }
+  }
+  const selected = getSelectedIngredients();
+  for (const n of selected) if (!known.has(n.toLowerCase())) known.set(n.toLowerCase(), n);
+  const selectedKeys = new Set(selected.map((n) => n.toLowerCase()));
+  const names = [...known.values()].sort((a, b) => a.localeCompare(b));
+  box.innerHTML = names.length
+    ? names
+        .map((n) => `<label class="checkbox-option"><input type="checkbox" value="${escapeHtml(n)}" ${selectedKeys.has(n.toLowerCase()) ? "checked" : ""} /> ${escapeHtml(n)}</label>`)
+        .join("")
+    : `<p class="admin-hint">No ingredients yet. Add the first one below.</p>`;
+}
+function addNewIngredient() {
+  const input = document.getElementById("newIngredientInput");
+  const name = (input.value || "").trim().replace(/\s+/g, " ");
+  if (!name) return;
+  // Same name in a different case is the same ingredient: tick the existing one instead of duplicating it
+  const existing = [...document.querySelectorAll("#itemIngredientChecks input")].find(
+    (el) => el.value.toLowerCase() === name.toLowerCase(),
+  );
+  setSelectedIngredients([...getSelectedIngredients(), existing ? existing.value : name]);
+  input.value = "";
+  input.focus();
+}
+document.getElementById("itemIngredientChecks")?.addEventListener("change", () => {
+  setSelectedIngredients([...document.querySelectorAll("#itemIngredientChecks input:checked")].map((el) => el.value));
+});
+document.getElementById("addIngredientBtn")?.addEventListener("click", addNewIngredient);
+document.getElementById("newIngredientInput")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); addNewIngredient(); }
+});
+
 function renderSideCheckboxesForForm(selectedIds = []) {
   const container = document.getElementById("itemSideCheckboxes");
   if (!container) return;
@@ -1726,7 +1784,7 @@ function populateFormForEdit(item) {
   document.getElementById("itemVisible").checked = item.is_visible;
   document.getElementById("itemAcceptsSpice").checked = item.accepts_spice;
   document.getElementById("itemAcceptsAddons").checked = item.accepts_addons;
-  document.getElementById("itemIngredients").value = item.ingredients || "";
+  setSelectedIngredients(Array.isArray(item.ingredients) ? item.ingredients : String(item.ingredients || "").split("\n"));
   document.getElementById("itemDrinkType").value = item.drink_type || "beverage";
   updateMenuFormForCategory();
 
@@ -1748,7 +1806,7 @@ function resetMenuForm() {
   document.getElementById("menuItemForm").reset();
   document.getElementById("itemId").value = "";
   document.getElementById("itemSpecialPrice").value = "";
-  document.getElementById("itemIngredients").value = "";
+  setSelectedIngredients([]);
   document.getElementById("cancelEditBtn").style.display = "none";
   formImages = [];
   renderImageThumbs();

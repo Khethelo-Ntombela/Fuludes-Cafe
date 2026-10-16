@@ -799,17 +799,15 @@
                 </div>
 
                 <div class="form-group">
-                  <label for="itemIngredients"
-                    >Ingredients (optional, one per line)</label
-                  >
-                  <textarea
-                    id="itemIngredients"
-                    rows="4"
-                    placeholder="e.g.&#10;Beef ribs&#10;Cooking oil&#10;Potatoes&#10;Sauce"
-                  ></textarea>
+                  <label>Ingredients (optional)</label>
+                  <div id="itemIngredientChecks" class="checkbox-options ingredient-picker"></div>
+                  <div class="ingredient-add-row">
+                    <input type="text" id="newIngredientInput" maxlength="60" placeholder="Not in the list? Type a new ingredient" autocomplete="off" />
+                    <button type="button" id="addIngredientBtn" class="btn btn-primary admin-mini-btn">Add</button>
+                  </div>
+                  <textarea id="itemIngredients" hidden></textarea>
                   <span class="admin-hint"
-                    >Used for stock-up suggestions. Leave blank if not tracking
-                    ingredients for this item.</span
+                    >Tick the ingredients this item uses. New ones you add are saved with the item and will appear in this list for every other item. Used for stock-up suggestions.</span
                   >
                 </div>
 
