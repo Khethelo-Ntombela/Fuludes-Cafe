@@ -3498,3 +3498,17 @@ html {
   opacity: 0.85;
   white-space: nowrap;
 }
+
+/* Delivery message and checkout error now sit just above the Continue to Payment button */
+#checkoutForm > .address-status {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.04);
+}
+#checkoutForm > .address-status.ok {
+  background: rgba(26, 127, 55, 0.08);
+}
+#checkoutForm > .form-error {
+  margin: 0 0 12px;
+}

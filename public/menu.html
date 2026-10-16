@@ -12,7 +12,7 @@
     <meta name="robots" content="index, follow" />
     <link rel="canonical" href="https://fuludescafe.co.za/menu" />
 
-    <link rel="stylesheet" href="css/style.css?v=26" />
+    <link rel="stylesheet" href="css/style.css?v=27" />
     <link
       href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap"
       rel="stylesheet"
@@ -276,7 +276,6 @@
       <div class="modal">
         <button class="modal-close" id="modalClose">&times;</button>
         <h3>Checkout</h3>
-        <p id="checkoutError" class="form-error" style="display: none"></p>
         <form id="checkoutForm">
           <div class="form-row">
             <div class="form-group">
@@ -344,7 +343,6 @@
             <button type="button" class="btn btn-primary btn-block address-ok-btn" id="addressOkBtn">
               OK - calculate delivery fee
             </button>
-            <p class="address-status" id="locationStatus" style="display: none"></p>
             <input type="hidden" id="delivery-address" />
           </div>
           <div class="form-group" id="tableNumberField" style="display: none">
@@ -382,6 +380,8 @@
               order is sent to the kitchen.
             </p>
           </div>
+          <p class="address-status" id="locationStatus" style="display: none"></p>
+          <p id="checkoutError" class="form-error" style="display: none"></p>
           <button
             type="submit"
             class="btn btn-primary btn-block"
@@ -640,7 +640,7 @@
 
     <script src="js/form-validation.js?v=1"></script>
     <script src="js/site.js?v=30"></script>
-    <script src="js/menu.js?v=15"></script>
+    <script src="js/menu.js?v=16"></script>
   <script>
   if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 </script>

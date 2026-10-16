@@ -1295,6 +1295,8 @@ function setLocationStatus(text, kind = "info") {
   el.style.display = text ? "block" : "none";
   el.className = `address-status ${kind}`;
   el.innerHTML = text;
+  // The message sits above the pay button, so bring it into view if the customer is further up the form
+  if (text && !text.includes("fa-spinner")) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
 /** Uses device location for delivery pricing and address lookup. */
@@ -1817,6 +1819,7 @@ function redirectToYoco(payment) {
 function showCheckoutError(message) {
   checkoutError.textContent = message;
   checkoutError.style.display = "block";
+  checkoutError.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
 checkoutForm.addEventListener("submit", submitOrderCheckout);
