@@ -3726,3 +3726,27 @@ input[readonly] {
   flex: 1;
   min-width: 0;
 }
+
+.admin-body .ingredient-toggle {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #e5e5e5);
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.admin-body .ingredient-panel {
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px solid var(--border, #e5e5e5);
+  border-radius: 8px;
+  background: #fff;
+}
+.admin-body .ingredient-panel[hidden] { display: none; }
+.admin-body .ingredient-panel input[type="text"] { width: 100%; margin-bottom: 8px; }
+.admin-body .ingredient-panel .ingredient-picker { border: 0; padding: 0; }

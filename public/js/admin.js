@@ -1707,12 +1707,21 @@ function renderIngredientPicker() {
   const selected = getSelectedIngredients();
   for (const n of selected) if (!known.has(n.toLowerCase())) known.set(n.toLowerCase(), n);
   const selectedKeys = new Set(selected.map((n) => n.toLowerCase()));
-  const names = [...known.values()].sort((a, b) => a.localeCompare(b));
+  const query = (document.getElementById("ingredientSearch")?.value || "").trim().toLowerCase();
+  const names = [...known.values()]
+    .filter((n) => !query || n.toLowerCase().includes(query))
+    .sort((a, b) => a.localeCompare(b));
+  const scroll = box.scrollTop;
   box.innerHTML = names.length
     ? names
         .map((n) => `<label class="checkbox-option"><input type="checkbox" value="${escapeHtml(n)}" ${selectedKeys.has(n.toLowerCase()) ? "checked" : ""} /> ${escapeHtml(n)}</label>`)
         .join("")
-    : `<p class="admin-hint">No ingredients yet. Add the first one below.</p>`;
+    : `<p class="admin-hint">${known.size ? "No match. Use the field below to add it as a new ingredient." : "No ingredients yet. Add the first one below."}</p>`;
+  box.scrollTop = scroll;
+  const toggleText = document.getElementById("ingredientToggleText");
+  if (toggleText) toggleText.textContent = selected.length ? `${selected.length} ingredient${selected.length === 1 ? "" : "s"} selected` : "Select ingredients";
+  const summary = document.getElementById("ingredientSelectedSummary");
+  if (summary) summary.textContent = selected.length ? `Selected: ${selected.join(", ")}` : "";
 }
 function addNewIngredient() {
   const input = document.getElementById("newIngredientInput");
@@ -1724,11 +1733,25 @@ function addNewIngredient() {
   );
   setSelectedIngredients([...getSelectedIngredients(), existing ? existing.value : name]);
   input.value = "";
+  const search = document.getElementById("ingredientSearch");
+  if (search) { search.value = ""; renderIngredientPicker(); }
   input.focus();
 }
-document.getElementById("itemIngredientChecks")?.addEventListener("change", () => {
-  setSelectedIngredients([...document.querySelectorAll("#itemIngredientChecks input:checked")].map((el) => el.value));
+document.getElementById("itemIngredientChecks")?.addEventListener("change", (e) => {
+  const el = e.target;
+  if (!el || el.tagName !== "INPUT") return;
+  const key = el.value.toLowerCase();
+  const rest = getSelectedIngredients().filter((n) => n.toLowerCase() !== key);
+  setSelectedIngredients(el.checked ? [...rest, el.value] : rest);
 });
+document.getElementById("ingredientToggle")?.addEventListener("click", () => {
+  const panel = document.getElementById("ingredientPanel");
+  const open = panel.hidden;
+  panel.hidden = !open;
+  document.getElementById("ingredientToggle").setAttribute("aria-expanded", String(open));
+  if (open) document.getElementById("ingredientSearch")?.focus();
+});
+document.getElementById("ingredientSearch")?.addEventListener("input", renderIngredientPicker);
 document.getElementById("addIngredientBtn")?.addEventListener("click", addNewIngredient);
 document.getElementById("newIngredientInput")?.addEventListener("keydown", (e) => {
   if (e.key === "Enter") { e.preventDefault(); addNewIngredient(); }

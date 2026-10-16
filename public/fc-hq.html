@@ -800,7 +800,14 @@
 
                 <div class="form-group">
                   <label>Ingredients (optional)</label>
-                  <div id="itemIngredientChecks" class="checkbox-options ingredient-picker"></div>
+                  <button type="button" id="ingredientToggle" class="ingredient-toggle" aria-expanded="false">
+                    <span id="ingredientToggleText">Select ingredients</span> <span aria-hidden="true">&#9662;</span>
+                  </button>
+                  <div id="ingredientPanel" class="ingredient-panel" hidden>
+                    <input type="text" id="ingredientSearch" placeholder="Search ingredients..." autocomplete="off" />
+                    <div id="itemIngredientChecks" class="checkbox-options ingredient-picker"></div>
+                  </div>
+                  <div id="ingredientSelectedSummary" class="admin-hint"></div>
                   <div class="ingredient-add-row">
                     <input type="text" id="newIngredientInput" maxlength="60" placeholder="Not in the list? Type a new ingredient" autocomplete="off" />
                     <button type="button" id="addIngredientBtn" class="btn btn-primary admin-mini-btn">Add</button>
