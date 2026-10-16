@@ -3783,40 +3783,23 @@ input[readonly] {
 .admin-body .ingredient-add-row input { flex: 1; min-width: 0; }
 .admin-body .ingredient-add-row .btn { flex: none; width: auto; padding: 0 18px; }
 
-/* ---------------- Audit log on phones ---------------- */
+/* ---------------- Audit log filters on phones ---------------- */
 @media (max-width: 700px) {
-  /* Filters: one field per row so the date boxes can't spill over the dropdown */
-  #tab-audit .filter-card { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  /* One field per row. minmax(0, 1fr) stops the date boxes stretching the column past the card. */
+  #tab-audit .filter-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
   #tab-audit .filter-card .form-group { min-width: 0; width: 100%; }
   #tab-audit .filter-card input,
-  #tab-audit .filter-card select { width: 100%; min-width: 0; max-width: 100%; }
-  #tab-audit .filter-card > div:last-child { flex-wrap: wrap; }
-
-  /* Table: each entry becomes a card instead of a wide table you scroll sideways */
-  #auditTable thead { display: none; }
-  #auditTable, #auditTable tbody, #auditTable tr, #auditTable td { display: block; width: 100%; }
-  #auditTable tbody tr {
-    margin-bottom: 12px;
-    padding: 6px 12px;
-    border: 1px solid var(--sa-border);
-    border-radius: 12px;
-    background: var(--sa-card);
-  }
-  #auditTable tbody td {
-    width: 100% !important;
-    padding: 7px 0;
-    border-bottom: 1px solid var(--sa-border);
-  }
-  #auditTable tbody td:last-child { border-bottom: 0; }
-  #auditTable tbody td[data-label]::before {
-    content: attr(data-label);
+  #tab-audit .filter-card select {
     display: block;
-    margin-bottom: 2px;
-    font-size: 0.68rem;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: var(--sa-faint);
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+    height: 42px;
+    min-height: 42px;
+    -webkit-appearance: none;
+    appearance: none;
   }
-  #auditTable tbody tr:hover td { background: transparent; }
+  #tab-audit .filter-card input[type="datetime-local"] { line-height: 1.2; }
+  #tab-audit .filter-card > div:last-child { flex-wrap: wrap; }
 }
