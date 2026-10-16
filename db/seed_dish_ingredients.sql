@@ -4,8 +4,8 @@ DO $$
 DECLARE
   dish_record RECORD;
   ingredient_list TEXT[];
-  ingredient_name TEXT;
-  menu_item_id INTEGER;
+  v_ingredient_name TEXT;
+  v_menu_item_id INTEGER;
   matched_count INTEGER := 0;
   unmatched_dishes TEXT[] := '{}';
   total_ingredients INTEGER := 0;
@@ -37,26 +37,26 @@ BEGIN
     ) AS t(dish_name, ingredients)
   LOOP
     -- Try to find the menu_item by name (case-insensitive)
-    SELECT id INTO menu_item_id
+    SELECT id INTO v_menu_item_id
     FROM menu_items
     WHERE name ILIKE dish_record.dish_name
     LIMIT 1;
 
-    IF menu_item_id IS NOT NULL THEN
+    IF v_menu_item_id IS NOT NULL THEN
       -- Clear existing ingredients for this dish (idempotent)
-      DELETE FROM dish_ingredients WHERE menu_item_id = menu_item_id;
+      DELETE FROM dish_ingredients WHERE dish_ingredients.menu_item_id = v_menu_item_id;
 
       -- Insert ingredients
-      FOREACH ingredient_name IN ARRAY dish_record.ingredients
+      FOREACH v_ingredient_name IN ARRAY dish_record.ingredients
       LOOP
         INSERT INTO dish_ingredients (menu_item_id, ingredient_name)
-        VALUES (menu_item_id, ingredient_name)
+        VALUES (v_menu_item_id, v_ingredient_name)
         ON CONFLICT (menu_item_id, ingredient_name) DO NOTHING;
         total_ingredients := total_ingredients + 1;
       END LOOP;
 
       matched_count := matched_count + 1;
-      RAISE NOTICE 'Matched: % (id=%) - % ingredients', dish_record.dish_name, menu_item_id, array_length(dish_record.ingredients, 1);
+      RAISE NOTICE 'Matched: % (id=%) - % ingredients', dish_record.dish_name, v_menu_item_id, array_length(dish_record.ingredients, 1);
     ELSE
       unmatched_dishes := array_append(unmatched_dishes, dish_record.dish_name);
       RAISE WARNING 'NO MATCH for dish: %', dish_record.dish_name;
