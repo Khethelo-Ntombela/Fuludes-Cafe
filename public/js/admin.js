@@ -3501,12 +3501,12 @@ function renderAuditTable(rows) {
     const tone = auditTone(r.action);
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${new Date(r.created_at).toLocaleString()}</td>
-      <td><span class="audit-action-tag ${tone}">${escapeHtml(auditLabel(r.action))}</span>${summary ? `<span class="audit-summary">${escapeHtml(summary)}</span>` : ""}</td>
-      <td>${escapeHtml(r.actor_role || "")}</td>
-      <td>${escapeHtml(auditActor(r))}</td>
-      <td>${escapeHtml(r.target_type || "")}${r.target_id ? " #" + r.target_id : ""}</td>
-      <td class="audit-details audit-changes" data-raw="${escapeHtml(raw)}" title="Click to copy the raw details">${auditChangesHtml(details)}</td>
+      <td data-label="Time">${new Date(r.created_at).toLocaleString()}</td>
+      <td data-label="What happened"><span class="audit-action-tag ${tone}">${escapeHtml(auditLabel(r.action))}</span>${summary ? `<span class="audit-summary">${escapeHtml(summary)}</span>` : ""}</td>
+      <td data-label="Actor role">${escapeHtml(r.actor_role || "")}</td>
+      <td data-label="Actor">${escapeHtml(auditActor(r))}</td>
+      <td data-label="Target">${escapeHtml(r.target_type || "")}${r.target_id ? " #" + r.target_id : ""}</td>
+      <td data-label="What changed" class="audit-details audit-changes" data-raw="${escapeHtml(raw)}" title="Click to copy the raw details">${auditChangesHtml(details)}</td>
     `;
     body.appendChild(tr);
   });

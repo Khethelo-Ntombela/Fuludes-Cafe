@@ -185,6 +185,8 @@ export async function onRequestPost(context) {
       actor_type: linkedCustomerId ? "customer" : "guest",
       actor_id: linkedCustomerId || null,
       actor_role: linkedCustomerId ? "customer" : "guest",
+      // Guests have no account to look a name up from, so keep the name they typed on the booking form
+      actor_name: linkedCustomerId ? null : name,
       actor_ip: requestIp,
       action: "reservation_created",
       target_type: "reservation",
