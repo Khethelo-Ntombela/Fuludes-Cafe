@@ -1749,7 +1749,10 @@ document.getElementById("ingredientToggle")?.addEventListener("click", () => {
   const open = panel.hidden;
   panel.hidden = !open;
   document.getElementById("ingredientToggle").setAttribute("aria-expanded", String(open));
-  if (open) document.getElementById("ingredientSearch")?.focus();
+  if (open) {
+    renderIngredientPicker();
+    document.getElementById("ingredientSearch")?.focus();
+  }
 });
 document.getElementById("ingredientSearch")?.addEventListener("input", renderIngredientPicker);
 document.getElementById("addIngredientBtn")?.addEventListener("click", addNewIngredient);
