@@ -3809,3 +3809,5 @@ input[readonly] {
 /* Orders awaiting payment: price now vs price when placed */
 .admin-body .sa-price-was { display: block; font-size: 0.72rem; font-weight: 500; color: var(--sa-faint); text-decoration: line-through; }
 .admin-body .sa-price-warn { color: #b42318; }
+
+.admin-body .sa-subhead { margin: 18px 0 6px; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--sa-muted); }

@@ -11,7 +11,7 @@ export async function onRequestPost(context) {
     const { id } = await request.json();
     const result = await runQuery(
       env,
-      "SELECT id, customer_name, customer_phone, total_amount, payment_status, (created_at < NOW() - make_interval(hours => $3) AND NOT EXISTS (SELECT 1 FROM customer_reservations r WHERE r.advance_order_id = orders.id)) AS expired FROM orders WHERE id = $1 AND customer_id = $2;",
+      "SELECT id, customer_name, customer_phone, total_amount, payment_status, (COALESCE((SELECT ((r.reservation_date + r.reservation_time) AT TIME ZONE 'Africa/Johannesburg') FROM customer_reservations r WHERE r.advance_order_id = orders.id LIMIT 1), created_at + make_interval(hours => $3)) < NOW()) AS expired FROM orders WHERE id = $1 AND customer_id = $2;",
       [Number(id), customer.id, UNPAID_ORDER_HOURS],
     );
     const order = result.rows[0];
@@ -22,7 +22,7 @@ export async function onRequestPost(context) {
         400,
       );
     if (order.expired) {
-      return jsonResponse({ error: `This order is more than ${UNPAID_ORDER_HOURS} hours old and has expired. Please place a new order.` }, 410);
+      return jsonResponse({ error: "This order has expired (unpaid orders last 24 hours, and a table-booking pre-order ends at the booking time). Please place a new order." }, 410);
     }
 
     // Check today's prices before charging: a special may have started or ended since they went to checkout.

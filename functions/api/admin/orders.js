@@ -4,6 +4,10 @@ import { requireAdmin } from "../../_lib/auth.js";
 import { ensureCancelledByColumn } from "../../_lib/orderCancel.js";
 import { ensureScheduleColumns } from "../../_lib/scheduledOrders.js";
 import { priceUnpaidOrders, UNPAID_ORDER_HOURS } from "../../_lib/repriceOrder.js";
+import { expireStalePreorders } from "../../_lib/reservations.js";
+
+// When a table-booking pre-order stops being payable: the booking date and time (South African time).
+const PREORDER_DUE = `(SELECT ((r.reservation_date + r.reservation_time) AT TIME ZONE 'Africa/Johannesburg') FROM customer_reservations r WHERE r.advance_order_id = orders.id LIMIT 1)`;
 
 export async function onRequestGet(context) {
   const { request, env } = context;
@@ -29,11 +33,9 @@ export async function onRequestGet(context) {
       : [`payment_status NOT IN ('awaiting', 'failed')`];
     const params = [];
     // Unpaid orders expire after UNPAID_ORDER_HOURS, same as on the customer's side.
-        // (A table-booking pre-order is exempt: it can legitimately be paid days ahead of the booking.)
+        // A normal unpaid order lasts 24 hours; a table-booking pre-order lasts until the booking time.
     if (asksForUnpaid) {
-      conditions.push(
-        `(created_at > NOW() - INTERVAL '${UNPAID_ORDER_HOURS} hours' OR EXISTS (SELECT 1 FROM customer_reservations r WHERE r.advance_order_id = orders.id))`,
-      );
+      conditions.push(`COALESCE(${PREORDER_DUE}, created_at + INTERVAL '${UNPAID_ORDER_HOURS} hours') > NOW()`);
     }
 
     if (
@@ -98,13 +100,15 @@ export async function onRequestGet(context) {
 
     await ensureCancelledByColumn(env);
     await ensureScheduleColumns(env);
+    if (asksForUnpaid) await expireStalePreorders(env);
     const ordersResult = await runQuery(
       env,
       `
       SELECT id, customer_name, customer_phone, order_type, delivery_address, table_number,
              pickup_time, special_instructions, total_amount,
-             CASE WHEN EXISTS (SELECT 1 FROM customer_reservations r WHERE r.advance_order_id = orders.id)
-                  THEN NULL ELSE created_at + INTERVAL '${UNPAID_ORDER_HOURS} hours' END AS expires_at,
+             COALESCE(${PREORDER_DUE}, created_at + INTERVAL '${UNPAID_ORDER_HOURS} hours') AS expires_at,
+             (${PREORDER_DUE} IS NOT NULL) AS is_preorder,
+             ${PREORDER_DUE} AS booking_at,
              CASE WHEN status = 'Out for Delivery' THEN 'Delivery' ELSE status END AS status,
              payment_method, payment_status, payment_ref, refund_needed, refund_processed_at, refund_ref, refund_error, cancelled_by, cancel_reason, created_at, out_for_delivery_at, delivered_at
       FROM orders

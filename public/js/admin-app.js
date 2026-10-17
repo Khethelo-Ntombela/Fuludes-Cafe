@@ -338,8 +338,8 @@ function renderDashKpis(history, stats, months) {
   const avgOrder = todays.length ? revenueToday / todays.length : 0;
   const { awaiting } = window.adminAwaiting;
   const awaitingValue = awaiting.reduce((s, o) => s + Number(o.total_amount || 0), 0);
-  // The next unpaid order to expire (24 hours after it was placed); table-booking pre-orders never expire
-  const expiries = awaiting.map((o) => (o.expires_at ? new Date(o.expires_at).getTime() : null)).filter((t) => t !== null);
+  // The next normal unpaid order to expire (24 hours after it was placed). Pre-orders are listed inside the card.
+  const expiries = awaiting.filter((o) => !o.is_preorder && o.expires_at).map((o) => new Date(o.expires_at).getTime());
   const soonestExpiry = expiries.length ? new Date(Math.min(...expiries)) : null;
   const dismissedDelivery = getDismissedIds("delivery");
   const deliveryList = todays.filter((o) => o.order_type === "delivery" && !dismissedDelivery.has(o.id));
@@ -360,7 +360,7 @@ function renderDashKpis(history, stats, months) {
     {
       label: "Pending Orders", sub: "awaiting payment", icon: "fa-hourglass-half", value: awaiting.length,
       spark: "", trend: `<span class="kpi-hint">${awaiting.length ? `R${awaitingValue.toFixed(0)} unpaid · ` : ""}View <i class="fas fa-arrow-right"></i></span>`,
-      action: "awaiting", clear: awaiting.length ? "pending" : "", expiresAt: soonestExpiry ? soonestExpiry.toISOString() : "", note: awaiting.length ? (soonestExpiry ? "" : "Table-booking pre-order") : "Orders clear after 24 hours"
+      action: "awaiting", clear: awaiting.length ? "pending" : "", expiresAt: soonestExpiry ? soonestExpiry.toISOString() : "", note: soonestExpiry ? "" : "Orders clear after 24 hours"
     },
     { label: "Delivery Orders", sub: "paid", icon: "fa-motorcycle", value: deliveryToday, spark: "", trend: "", clear: deliveryToday ? "delivery" : "" },
     { label: "Reservations Today", icon: "fa-calendar-check", value: resToday, spark: "", trend: "", clear: resToday ? "reservations" : "" }
@@ -488,40 +488,51 @@ function loadDashboardKpisOnly() {
 
 function renderAwaitingModal() {
   const { awaiting, failed } = window.adminAwaiting;
+  const regular = awaiting.filter((o) => !o.is_preorder);
+  const preorders = awaiting.filter((o) => o.is_preorder);
   const total = awaiting.reduce((s, o) => s + Number(o.total_amount || 0), 0);
-  const oldest = awaiting.length ? awaiting[awaiting.length - 1] : null; // API returns newest first
-  const todayCount = awaiting.filter((o) => isToday(o.created_at)).length;
+  const oldestOf = (list) => (list.length ? list[list.length - 1] : null); // API returns newest first
+  const todayCount = regular.filter((o) => isToday(o.created_at)).length;
 
   const stat = (label, value) => `<div class="sa-mini-stat"><span>${label}</span><strong>${value}</strong></div>`;
-  const rows = awaiting.length
-    ? awaiting
-        .map((o) => {
-          const items = (o.items || []).map((i) => `${i.quantity}× ${escHtml(i.item_name)}`).join(", ");
-          const phone = escHtml(o.customer_phone || "");
-          return `
+  const row = (o, extraLine) => {
+    const items = (o.items || []).map((i) => `${i.quantity}× ${escHtml(i.item_name)}`).join(", ");
+    const phone = escHtml(o.customer_phone || "");
+    return `
           <div class="sa-list-item">
             <div class="sa-list-main">
               <div class="sa-list-title">#${o.id} · ${escHtml(o.customer_name)}</div>
               <div class="sa-list-sub">${items || "—"}</div>
               ${(o.problems || []).length ? `<div class="sa-list-sub sa-price-warn"><i class="fas fa-triangle-exclamation"></i> ${escHtml(o.problems[0])}</div>` : ""}
+              ${extraLine || ""}
               <div class="sa-list-sub">${new Date(o.created_at).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" })} · waiting ${waitingFor(o.created_at)}${phone ? ` · <a href="tel:${phone}">${phone}</a>` : ""}</div>
             </div>
-            <span class="sa-list-end">${money(o.total_amount)}${o.price_changed ? `<small class="sa-price-was">was ${money(o.original_total)}</small>` : ""}<br><button type="button" class="admin-mini-btn" data-mark-paid="${o.id}" data-recorded-amount="${money(o.original_total ?? o.total_amount)}" title="Customer paid on Yoco but it didn't come through"><i class="fas fa-check"></i> Mark paid</button> <button type="button" class="admin-mini-btn" data-clear-pending="${o.id}" title="Delete this unpaid order"><i class="fas fa-trash"></i></button></span>
+            <span class="sa-list-end">${money(o.total_amount)}${o.price_changed ? `<small class="sa-price-was">was ${money(o.original_total)}</small>` : ""}<br><button type="button" class="admin-mini-btn" data-mark-paid="${o.id}" data-recorded-amount="${money(o.original_total ?? o.total_amount)}" title="Customer paid on Yoco but it didn't come through"><i class="fas fa-check"></i> Mark paid</button> <button type="button" class="admin-mini-btn" data-clear-pending="${o.id}" title="Remove this unpaid order"><i class="fas fa-trash"></i></button></span>
           </div>`;
-        })
-        .join("")
-    : '<p class="menu-empty">Nothing is waiting for payment right now.</p>';
+  };
+  const bookingLine = (o) =>
+    o.booking_at
+      ? `<div class="sa-list-sub"><i class="fas fa-calendar-check"></i> Booking ${new Date(o.booking_at).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" })} · clears at booking time</div>`
+      : "";
+
+  const regularRows = regular.length
+    ? regular.map((o) => row(o)).join("")
+    : '<p class="menu-empty">No normal orders are waiting for payment.</p>';
+  const preorderRows = preorders.length ? preorders.map((o) => row(o, bookingLine(o))).join("") : "";
 
   $id("awaitingBody").innerHTML = `
     <div class="sa-mini-stats">
-      ${stat("Awaiting payment", awaiting.length)}
+      ${stat("Awaiting payment", regular.length)}
       ${stat("Unpaid value", money(total))}
       ${stat("Placed today", todayCount)}
-      ${stat("Longest wait", oldest ? waitingFor(oldest.created_at) : "—")}
+      ${stat("Longest wait", oldestOf(regular) ? waitingFor(oldestOf(regular).created_at) : "—")}
+      ${stat("Pre-orders", preorders.length)}
+      ${stat("Longest wait (pre-orders)", oldestOf(preorders) ? waitingFor(oldestOf(preorders).created_at) : "—")}
       ${stat("Payment failed", failed.length)}
     </div>
-    <p class="admin-hint">These customers placed an order but haven't paid yet, so they are <strong>not</strong> counted in sales, revenue or top customers. Prices shown are today's prices (specials included), and orders disappear after 24 hours. If a customer pays again they are charged today's price. Once payment is confirmed the order moves to Live Orders and the stats.</p>
-    <div class="sa-list">${rows}</div>`;
+    <p class="admin-hint">These customers placed an order but haven't paid yet, so they are <strong>not</strong> counted in sales, revenue or top customers. Prices shown are today's prices (specials included). Orders disappear after 24 hours, and a table-booking pre-order disappears when its booking time passes. If a customer pays again they are charged today's price.</p>
+    <div class="sa-list">${regularRows}</div>
+    ${preorders.length ? `<h4 class="sa-subhead">Table-booking pre-orders</h4><div class="sa-list">${preorderRows}</div>` : ""}`;
 }
 
 function renderDashCharts(months) {

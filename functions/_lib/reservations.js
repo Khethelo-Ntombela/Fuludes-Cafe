@@ -103,3 +103,18 @@ export async function cancelAndRefundOrder(env, orderId, cancelledBy, reason = n
   });
   return { outcome: "refunded" };
 }
+
+/**
+ * A booking whose food pre-order was never paid is dropped once its date and time have passed:
+ * it is cancelled and hidden from both the customer's and the admin's lists.
+ * (The unpaid order itself stops showing at the same moment, see api/admin/orders.js.)
+ */
+export async function expireStalePreorders(env) {
+  await runQuery(
+    env,
+    `UPDATE customer_reservations
+        SET status = 'Cancelled', hidden_by_customer = TRUE, admin_cleared = TRUE
+      WHERE status = 'AwaitingPayment'
+        AND ((reservation_date + reservation_time) AT TIME ZONE 'Africa/Johannesburg') < NOW();`,
+  ).catch(() => {});
+}
