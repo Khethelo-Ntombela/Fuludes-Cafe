@@ -441,7 +441,8 @@ async function openAwaitingModal() {
       const paidBtn = e.target.closest("[data-mark-paid]");
       if (paidBtn) {
         const id = parseInt(paidBtn.dataset.markPaid, 10);
-        if (!confirm(`Mark order #${id} as PAID?\n\nOnly do this after checking the payment in your Yoco dashboard (Transactions). The order will then go to the kitchen.`)) return;
+        const recorded = paidBtn.dataset.recordedAmount;
+        if (!confirm(`Mark order #${id} as PAID?\n\nIt will be recorded at ${recorded}, the price saved on the order.\n\nOnly do this after checking the payment in your Yoco dashboard (Transactions). The order will then go to the kitchen.`)) return;
         paidBtn.disabled = true;
         const res = await adminFetch("/api/admin/mark-paid", {
           method: "POST",
@@ -493,9 +494,10 @@ function renderAwaitingModal() {
             <div class="sa-list-main">
               <div class="sa-list-title">#${o.id} · ${escHtml(o.customer_name)}</div>
               <div class="sa-list-sub">${items || "—"}</div>
+              ${(o.problems || []).length ? `<div class="sa-list-sub sa-price-warn"><i class="fas fa-triangle-exclamation"></i> ${escHtml(o.problems[0])}</div>` : ""}
               <div class="sa-list-sub">${new Date(o.created_at).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" })} · waiting ${waitingFor(o.created_at)}${phone ? ` · <a href="tel:${phone}">${phone}</a>` : ""}</div>
             </div>
-            <span class="sa-list-end">${money(o.total_amount)}<br><button type="button" class="admin-mini-btn" data-mark-paid="${o.id}" title="Customer paid on Yoco but it didn't come through"><i class="fas fa-check"></i> Mark paid</button> <button type="button" class="admin-mini-btn" data-clear-pending="${o.id}" title="Delete this unpaid order"><i class="fas fa-trash"></i></button></span>
+            <span class="sa-list-end">${money(o.total_amount)}${o.price_changed ? `<small class="sa-price-was">was ${money(o.original_total)}</small>` : ""}<br><button type="button" class="admin-mini-btn" data-mark-paid="${o.id}" data-recorded-amount="${money(o.original_total ?? o.total_amount)}" title="Customer paid on Yoco but it didn't come through"><i class="fas fa-check"></i> Mark paid</button> <button type="button" class="admin-mini-btn" data-clear-pending="${o.id}" title="Delete this unpaid order"><i class="fas fa-trash"></i></button></span>
           </div>`;
         })
         .join("")
@@ -509,7 +511,7 @@ function renderAwaitingModal() {
       ${stat("Longest wait", oldest ? waitingFor(oldest.created_at) : "—")}
       ${stat("Payment failed", failed.length)}
     </div>
-    <p class="admin-hint">These customers placed an order but haven't paid yet, so they are <strong>not</strong> counted in sales, revenue or top customers. Once payment is confirmed the order moves to Live Orders and the stats.</p>
+    <p class="admin-hint">These customers placed an order but haven't paid yet, so they are <strong>not</strong> counted in sales, revenue or top customers. Prices shown are today's prices (specials included), and orders disappear after 24 hours. If a customer pays again they are charged today's price. Once payment is confirmed the order moves to Live Orders and the stats.</p>
     <div class="sa-list">${rows}</div>`;
 }
 

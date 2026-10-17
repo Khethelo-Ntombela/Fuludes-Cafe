@@ -191,7 +191,43 @@ export async function onRequestPost(context) {
     }
 
     const paidAmount = extractAmount(payload);
-    const expectedAmount = Number(order.total_amount);
+    let expectedAmount = Number(order.total_amount);
+    if (Number.isFinite(paidAmount) && Math.abs(paidAmount - expectedAmount) > 0.01) {
+      // The customer may have paid on an earlier checkout (a tab left open, or the order was re-priced when they
+      // tapped pay again). They must be charged what that checkout showed, so look for a checkout of this
+      // order with exactly the amount that was paid.
+      const earlier = await runQuery(
+        env,
+        `SELECT checkout_id, amount, lines FROM order_checkouts
+          WHERE order_id = $1 AND ABS(amount - $2) <= 0.01
+          ORDER BY (checkout_id = $3) DESC, created_at DESC LIMIT 1;`,
+        [orderId, paidAmount, payload.checkout_id || payload.id || ""],
+      ).catch(() => ({ rows: [] }));
+      const match = earlier.rows[0];
+      if (match) {
+        // Put the order back to the prices of that checkout so the total, the lines and any refund all agree.
+        await runQuery(
+          env,
+          "UPDATE orders SET total_amount = $1 WHERE id = $2 AND payment_status IN ('awaiting', 'failed');",
+          [match.amount, orderId],
+        );
+        for (const line of Array.isArray(match.lines) ? match.lines : []) {
+          await runQuery(
+            env,
+            "UPDATE order_items SET item_price = $1, extras = $2::jsonb, subtotal = $3 WHERE id = $4 AND order_id = $5;",
+            [line.item_price, JSON.stringify(line.extras ?? []), line.subtotal, line.id, orderId],
+          );
+        }
+        await logAudit(env, {
+          actor_type: "payment_gateway",
+          action: "payment_earlier_price_honoured",
+          target_type: "order",
+          target_id: orderId,
+          details: { paidAmount, orderTotalBefore: expectedAmount, checkout_id: match.checkout_id },
+        });
+        expectedAmount = Number(match.amount);
+      }
+    }
     if (
       !Number.isFinite(paidAmount) ||
       Math.abs(paidAmount - expectedAmount) > 0.01

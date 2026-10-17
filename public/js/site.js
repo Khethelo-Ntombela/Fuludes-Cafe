@@ -1118,6 +1118,7 @@ async function loadExistingReservations() {
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !(data.payment?.redirect_url || data.payment?.action_url)) throw new Error(data.error || "Couldn't start the payment.");
+        if (!confirmPriceChange(data)) { btn.disabled = false; return; }
         goToYocoPayment(data.payment);
       } catch (err) {
         alert(err.message);
@@ -1611,6 +1612,7 @@ async function refreshMyOrders() {
         const data = await res.json();
         if (!res.ok || !(data.payment?.redirect_url || data.payment?.action_url))
           throw new Error(data.error || "Couldn't retry payment.");
+        if (!confirmPriceChange(data)) { btn.disabled = false; return; }
         goToYocoPayment(data.payment);
       } catch (err) {
         alert(err.message);
@@ -1618,6 +1620,14 @@ async function refreshMyOrders() {
       }
     });
   });
+}
+
+// The server re-checks prices when a customer pays an order again. If a special started or ended since they
+// placed it, tell them the new total before they pay. Returns false if they decline.
+function confirmPriceChange(data) {
+  if (!data || !data.price_changed) return true;
+  const money = (n) => `R${Number(n).toFixed(2)}`;
+  return confirm(`The price of this order has changed from ${money(data.old_total)} to ${money(data.new_total)} (a special may have started or ended).\n\nContinue to payment?`);
 }
 
 // Sends the browser to Yoco

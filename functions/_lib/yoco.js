@@ -23,6 +23,18 @@ export async function ensureYocoTables(env) {
       secret     TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );`);
+  // Every checkout we open, with the amount and the order lines as they were priced at that moment.
+  // If the customer pays on an earlier checkout (for example a tab they left open), the payment webhook
+  // uses this to charge - and record - exactly the price that checkout showed.
+  await runQuery(env, `
+    CREATE TABLE IF NOT EXISTS order_checkouts (
+      checkout_id TEXT PRIMARY KEY,
+      order_id    INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+      amount      NUMERIC(10,2) NOT NULL,
+      lines       JSONB NOT NULL DEFAULT '[]',
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );`);
+  await runQuery(env, "CREATE INDEX IF NOT EXISTS idx_order_checkouts_order ON order_checkouts(order_id);");
   yocoTablesReady = true;
 }
 
@@ -90,6 +102,13 @@ export async function createYocoCheckout(env, params) {
   try {
     await ensureYocoTables(env);
     await runQuery(env, "UPDATE orders SET yoco_checkout_id = $1 WHERE id = $2;", [data.id, orderId]);
+    const lines = await runQuery(env, "SELECT id, item_price, extras, subtotal FROM order_items WHERE order_id = $1 ORDER BY id;", [orderId]);
+    await runQuery(
+      env,
+      `INSERT INTO order_checkouts (checkout_id, order_id, amount, lines) VALUES ($1, $2, $3, $4::jsonb)
+       ON CONFLICT (checkout_id) DO NOTHING;`,
+      [data.id, orderId, Math.round(amount * 100) / 100, JSON.stringify(lines.rows)],
+    );
   } catch {
     /* non-fatal: the webhook also carries metadata.order_id */
   }

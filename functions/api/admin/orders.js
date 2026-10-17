@@ -3,6 +3,7 @@ import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { ensureCancelledByColumn } from "../../_lib/orderCancel.js";
 import { ensureScheduleColumns } from "../../_lib/scheduledOrders.js";
+import { priceUnpaidOrders, UNPAID_ORDER_HOURS } from "../../_lib/repriceOrder.js";
 
 export async function onRequestGet(context) {
   const { request, env } = context;
@@ -27,6 +28,13 @@ export async function onRequestGet(context) {
       ? []
       : [`payment_status NOT IN ('awaiting', 'failed')`];
     const params = [];
+    // Unpaid orders expire after UNPAID_ORDER_HOURS, same as on the customer's side.
+        // (A table-booking pre-order is exempt: it can legitimately be paid days ahead of the booking.)
+    if (asksForUnpaid) {
+      conditions.push(
+        `(created_at > NOW() - INTERVAL '${UNPAID_ORDER_HOURS} hours' OR EXISTS (SELECT 1 FROM customer_reservations r WHERE r.advance_order_id = orders.id))`,
+      );
+    }
 
     if (
       status &&
@@ -123,11 +131,27 @@ export async function onRequestGet(context) {
       }
     }
 
-    const orders = ordersResult.rows.map((order) => ({
-      ...order,
-      total_amount: parseFloat(order.total_amount),
-      items: itemsByOrder[order.id] || [],
-    }));
+    // Unpaid orders are listed at today's prices (display only - nothing is saved here).
+    // The price actually charged is re-checked when the customer pays.
+    let live = new Map();
+    if (asksForUnpaid) {
+      const unpaidIds = ordersResult.rows
+        .filter((o) => ["awaiting", "failed"].includes(o.payment_status))
+        .map((o) => o.id);
+      live = await priceUnpaidOrders(env, unpaidIds).catch(() => new Map());
+    }
+
+    const orders = ordersResult.rows.map((order) => {
+      const l = live.get(order.id);
+      return {
+        ...order,
+        total_amount: l ? l.total : parseFloat(order.total_amount),
+        ...(l
+          ? { original_total: l.stored_total, price_changed: l.total !== l.stored_total, problems: l.problems }
+          : {}),
+        items: l ? l.items : itemsByOrder[order.id] || [],
+      };
+    });
 
     return jsonResponse({ orders, limit, offset });
   } catch (err) {

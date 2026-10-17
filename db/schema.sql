@@ -529,3 +529,14 @@ CREATE TABLE IF NOT EXISTS yoco_webhooks (
   secret      TEXT NOT NULL,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Every Yoco checkout opened for an order, with its amount and the order lines as priced at that moment.
+-- If a customer pays on an earlier checkout, the payment is accepted at that checkout's price.
+CREATE TABLE IF NOT EXISTS order_checkouts (
+  checkout_id TEXT PRIMARY KEY,
+  order_id    INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  amount      NUMERIC(10,2) NOT NULL,
+  lines       JSONB NOT NULL DEFAULT '[]',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_order_checkouts_order ON order_checkouts(order_id);
