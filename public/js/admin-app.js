@@ -325,12 +325,6 @@ function clearsInMidnight() {
   return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`;
 }
 
-/** "13h 27m" from a number of milliseconds. */
-function formatCountdown(ms) {
-  const mins = Math.max(0, Math.ceil(ms / 60000));
-  return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`;
-}
-
 function renderDashKpis(history, stats, months) {
   // Everything below counts PAID orders only - unpaid ones live under "Pending Orders".
   const todays = history.filter((o) => isPaidOrder(o) && isToday(o.created_at));
@@ -338,9 +332,6 @@ function renderDashKpis(history, stats, months) {
   const avgOrder = todays.length ? revenueToday / todays.length : 0;
   const { awaiting } = window.adminAwaiting;
   const awaitingValue = awaiting.reduce((s, o) => s + Number(o.total_amount || 0), 0);
-  // The next normal unpaid order to expire (24 hours after it was placed). Pre-orders are listed inside the card.
-  const expiries = awaiting.filter((o) => !o.is_preorder && o.expires_at).map((o) => new Date(o.expires_at).getTime());
-  const soonestExpiry = expiries.length ? new Date(Math.min(...expiries)) : null;
   const dismissedDelivery = getDismissedIds("delivery");
   const deliveryList = todays.filter((o) => o.order_type === "delivery" && !dismissedDelivery.has(o.id));
   const deliveryToday = deliveryList.length;
@@ -360,7 +351,7 @@ function renderDashKpis(history, stats, months) {
     {
       label: "Pending Orders", sub: "awaiting payment", icon: "fa-hourglass-half", value: awaiting.length,
       spark: "", trend: `<span class="kpi-hint">${awaiting.length ? `R${awaitingValue.toFixed(0)} unpaid · ` : ""}View <i class="fas fa-arrow-right"></i></span>`,
-      action: "awaiting", clear: "", expiresAt: soonestExpiry ? soonestExpiry.toISOString() : "", note: soonestExpiry ? "" : "Orders clear after 24 hours"
+      action: "awaiting", clear: "", note: "An order clears after 24 hours"
     },
     { label: "Delivery Orders", sub: "paid", icon: "fa-motorcycle", value: deliveryToday, spark: "", trend: "", clear: deliveryToday ? "delivery" : "" },
     { label: "Reservations Today", icon: "fa-calendar-check", value: resToday, spark: "", trend: "", clear: resToday ? "reservations" : "" }
@@ -373,7 +364,7 @@ function renderDashKpis(history, stats, months) {
         <div class="kpi-top"><span class="kpi-label">${k.label}${k.sub ? `<small class="kpi-sub">${k.sub}</small>` : ""}</span><span class="kpi-icon"><i class="fas ${k.icon}"></i></span></div>
         <span class="kpi-value">${k.value}</span>
         <div class="kpi-foot">${k.trend || "<span></span>"}${k.spark}</div>
-        <span class="kpi-clears"${k.expiresAt ? ` data-expires-at="${k.expiresAt}"` : ""}>${k.expiresAt ? `Clears in: ${formatCountdown(new Date(k.expiresAt) - Date.now())}` : k.note || `Clears in: ${clearsInMidnight()}`}</span>
+        <span class="kpi-clears">${k.note || `Clears in: ${clearsInMidnight()}`}</span>
         ${k.clear ? `<button type="button" class="kpi-clear-btn" data-kpi-clear="${k.clear}"><i class="fas fa-eraser"></i> Clear</button>` : ""}
       </div>`
     )
@@ -529,7 +520,7 @@ function renderAwaitingModal() {
       ${stat("Longest wait (pre-orders)", oldestOf(preorders) ? waitingFor(oldestOf(preorders).created_at) : "—")}
       ${stat("Payment failed", failed.length)}
     </div>
-    <p class="admin-hint">These customers placed an order but haven't paid yet, so they are <strong>not</strong> counted in sales, revenue or top customers. Prices shown are today's prices (specials included). Orders are deleted automatically after 24 hours, and a table-booking pre-order is deleted when its booking time passes. If a customer pays again they are charged today's price.</p>
+    <p class="admin-hint">These customers placed an order but haven't paid yet, so they are <strong>not</strong> counted in sales, revenue or top customers. Prices shown are today's prices (specials included). Orders are deleted automatically after 24 hours, and a table-booking pre-order is deleted when its booking time passes.</p>
     <div class="sa-list">${regularRows}</div>
     ${preorders.length ? `<h4 class="sa-subhead">Table-booking pre-orders</h4><div class="sa-list">${preorderRows}</div>` : ""}`;
 }
@@ -933,12 +924,6 @@ function initShellData() {
   paintCachedStatusCounts(); // last known Orders/Revenue Today until fresh figures
   loadDashboardData();
   setInterval(updateStatusCard, 60000);
-  // Keep the Pending Orders countdown ticking between dashboard refreshes
-  setInterval(() => {
-    document.querySelectorAll(".kpi-clears[data-expires-at]").forEach((el) => {
-      el.textContent = `Clears in: ${formatCountdown(new Date(el.dataset.expiresAt) - Date.now())}`;
-    });
-  }, 15000);
 }
 
 // admin.js may already have shown the dashboard before this file loaded
