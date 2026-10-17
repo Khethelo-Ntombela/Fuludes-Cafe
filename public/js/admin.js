@@ -188,7 +188,6 @@ async function showDashboard() {
   }
 }
 let adminPushBound = false;
-FuludePWA.setupInstallButton("Install admin app");
 
 function initAdminAudio() {
   FuludeOrderAlert.init();

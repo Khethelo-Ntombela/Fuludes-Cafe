@@ -47,7 +47,6 @@ function showBoard() {
   }
 }
 let staffPushBound = false;
-FuludePWA.setupInstallButton("Install kitchen app");
 
 function initStaffAudio() {
   FuludeOrderAlert.init();
