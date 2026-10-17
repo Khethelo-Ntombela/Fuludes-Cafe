@@ -1,5 +1,6 @@
 // POST /api/reservations
 import { expireStalePreorders } from "../_lib/reservations.js";
+import { deleteExpiredUnpaidOrders } from "../_lib/repriceOrder.js";
 import { runQuery, jsonResponse } from "../_lib/db.js";
 import {
   requireCustomer,
@@ -25,6 +26,7 @@ export async function onRequestGet(context) {
   try {
     await ensureHiddenByCustomerColumn(env);
     await expireStalePreorders(env); // unpaid pre-orders disappear once the booking time has passed
+    await deleteExpiredUnpaidOrders(env);
     const result = await runQuery(
       env,
       `

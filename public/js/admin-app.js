@@ -360,7 +360,7 @@ function renderDashKpis(history, stats, months) {
     {
       label: "Pending Orders", sub: "awaiting payment", icon: "fa-hourglass-half", value: awaiting.length,
       spark: "", trend: `<span class="kpi-hint">${awaiting.length ? `R${awaitingValue.toFixed(0)} unpaid · ` : ""}View <i class="fas fa-arrow-right"></i></span>`,
-      action: "awaiting", clear: awaiting.length ? "pending" : "", expiresAt: soonestExpiry ? soonestExpiry.toISOString() : "", note: soonestExpiry ? "" : "Orders clear after 24 hours"
+      action: "awaiting", clear: "", expiresAt: soonestExpiry ? soonestExpiry.toISOString() : "", note: soonestExpiry ? "" : "Orders clear after 24 hours"
     },
     { label: "Delivery Orders", sub: "paid", icon: "fa-motorcycle", value: deliveryToday, spark: "", trend: "", clear: deliveryToday ? "delivery" : "" },
     { label: "Reservations Today", icon: "fa-calendar-check", value: resToday, spark: "", trend: "", clear: resToday ? "reservations" : "" }
@@ -529,7 +529,7 @@ function renderAwaitingModal() {
       ${stat("Longest wait (pre-orders)", oldestOf(preorders) ? waitingFor(oldestOf(preorders).created_at) : "—")}
       ${stat("Payment failed", failed.length)}
     </div>
-    <p class="admin-hint">These customers placed an order but haven't paid yet, so they are <strong>not</strong> counted in sales, revenue or top customers. Prices shown are today's prices (specials included). Orders disappear after 24 hours, and a table-booking pre-order disappears when its booking time passes. If a customer pays again they are charged today's price.</p>
+    <p class="admin-hint">These customers placed an order but haven't paid yet, so they are <strong>not</strong> counted in sales, revenue or top customers. Prices shown are today's prices (specials included). Orders are deleted automatically after 24 hours, and a table-booking pre-order is deleted when its booking time passes. If a customer pays again they are charged today's price.</p>
     <div class="sa-list">${regularRows}</div>
     ${preorders.length ? `<h4 class="sa-subhead">Table-booking pre-orders</h4><div class="sa-list">${preorderRows}</div>` : ""}`;
 }

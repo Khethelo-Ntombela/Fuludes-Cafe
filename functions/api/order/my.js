@@ -4,6 +4,7 @@ import { requireCustomer } from "../../_lib/customerAuth.js";
 import { ensureCancelledByColumn } from "../../_lib/orderCancel.js";
 import { queueDueNewOrderPushes } from "../../_lib/push.js";
 import { ensureScheduleColumns } from "../../_lib/scheduledOrders.js";
+import { deleteExpiredUnpaidOrders } from "../../_lib/repriceOrder.js";
 
 const MAX_ORDERS = 100;
 
@@ -17,6 +18,7 @@ export async function onRequestGet(context) {
   try {
     await ensureCancelledByColumn(env);
     await ensureScheduleColumns(env);
+    await deleteExpiredUnpaidOrders(env);
     const ordersResult = await runQuery(env, `
       SELECT id, customer_name, customer_phone, order_type, delivery_address, table_number,
              pickup_time, special_instructions, total_amount, delivery_fee, delivery_distance_km,

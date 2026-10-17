@@ -3,7 +3,7 @@ import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { ensureCancelledByColumn } from "../../_lib/orderCancel.js";
 import { ensureScheduleColumns } from "../../_lib/scheduledOrders.js";
-import { priceUnpaidOrders, UNPAID_ORDER_HOURS } from "../../_lib/repriceOrder.js";
+import { priceUnpaidOrders, deleteExpiredUnpaidOrders, UNPAID_ORDER_HOURS } from "../../_lib/repriceOrder.js";
 import { expireStalePreorders } from "../../_lib/reservations.js";
 
 // When a table-booking pre-order stops being payable: the booking date and time (South African time).
@@ -100,7 +100,10 @@ export async function onRequestGet(context) {
 
     await ensureCancelledByColumn(env);
     await ensureScheduleColumns(env);
-    if (asksForUnpaid) await expireStalePreorders(env);
+    if (asksForUnpaid) {
+      await expireStalePreorders(env);
+      await deleteExpiredUnpaidOrders(env);
+    }
     const ordersResult = await runQuery(
       env,
       `

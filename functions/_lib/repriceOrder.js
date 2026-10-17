@@ -117,3 +117,25 @@ export async function saveRepricedOrder(env, orderId, priced) {
   }
   return true;
 }
+
+/**
+ * Permanently deletes unpaid ("awaiting") orders that have expired: 24 hours after they were placed, or, for a
+ * table-booking pre-order, once the booking time has passed. Their items and checkout records go with them.
+ * Failed payments are NOT deleted here, because a "failed" order can be a real payment that needs checking.
+ *
+ * There is no scheduler on this host, so this runs whenever the dashboard, the customer's orders or the
+ * customer's reservations are loaded (the admin dashboard does that every 30 seconds).
+ */
+export async function deleteExpiredUnpaidOrders(env) {
+  await runQuery(
+    env,
+    `DELETE FROM orders
+      WHERE payment_status = 'awaiting'
+        AND COALESCE(
+              (SELECT ((r.reservation_date + r.reservation_time) AT TIME ZONE 'Africa/Johannesburg')
+                 FROM customer_reservations r WHERE r.advance_order_id = orders.id LIMIT 1),
+              created_at + make_interval(hours => $1)
+            ) < NOW();`,
+    [UNPAID_ORDER_HOURS],
+  ).catch(() => {});
+}
