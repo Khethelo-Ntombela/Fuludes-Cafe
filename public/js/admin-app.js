@@ -525,7 +525,6 @@ function renderAwaitingModal() {
       ${stat("Awaiting payment", regular.length)}
       ${stat("Unpaid value", money(total))}
       ${stat("Placed today", todayCount)}
-      ${stat("Longest wait", oldestOf(regular) ? waitingFor(oldestOf(regular).created_at) : "—")}
       ${stat("Pre-orders", preorders.length)}
       ${stat("Longest wait (pre-orders)", oldestOf(preorders) ? waitingFor(oldestOf(preorders).created_at) : "—")}
       ${stat("Payment failed", failed.length)}
