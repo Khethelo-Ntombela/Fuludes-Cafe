@@ -12,7 +12,7 @@
     <meta name="robots" content="index, follow" />
     <link rel="canonical" href="https://fuludescafe.co.za/reviews" />
 
-    <link rel="stylesheet" href="css/style.css?v=26" />
+    <link rel="stylesheet" href="css/style.css?v=27" />
     <link
       href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap"
       rel="stylesheet"
@@ -131,6 +131,15 @@
               Submit Review
             </button>
           </form>
+        </div>
+        <div class="my-reviews" id="myReviews" style="display: none">
+          <h3>Your Reviews</h3>
+          <p class="auth-hint">
+            A review is published once we approve it. If we can't publish it,
+            you'll see why here and you can edit it and send it again. Approved
+            reviews can't be edited.
+          </p>
+          <div id="myReviewsList"></div>
         </div>
       </div>
     </section>
@@ -435,7 +444,7 @@
 
     <script src="js/form-validation.js?v=1"></script>
     <script src="js/site.js?v=31"></script>
-    <script src="js/reviews.js?v=2"></script>
+    <script src="js/reviews.js?v=3"></script>
   <script>
   if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 </script>

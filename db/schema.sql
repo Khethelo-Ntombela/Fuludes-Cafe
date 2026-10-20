@@ -374,6 +374,8 @@ CREATE TABLE IF NOT EXISTS reviews (
 
 -- moderation status: 'pending', 'approved', 'rejected'
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'approved';
+-- why an admin rejected a review (shown to the customer, who can then edit it)
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL;
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS order_id INTEGER REFERENCES orders(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_reviews_status ON reviews(status);

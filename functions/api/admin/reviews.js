@@ -2,15 +2,17 @@
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { reviewItemsByOrder } from "../../_lib/reviewItems.js";
+import { ensureReviewColumns } from "../../_lib/reviewColumns.js";
 
 export async function onRequestGet(context) {
   const { request, env } = context;
   const authError = await requireAdmin(request, env);
   if (authError) return authError;
   try {
+    await ensureReviewColumns(env);
     const result = await runQuery(
       env,
-      `SELECT id, customer_name, rating, comment, owner_reply, status, order_id, created_at
+      `SELECT id, customer_name, rating, comment, owner_reply, status, rejection_reason, order_id, created_at
          FROM reviews
         ORDER BY (status = 'pending') DESC, created_at DESC
         LIMIT 300;`,

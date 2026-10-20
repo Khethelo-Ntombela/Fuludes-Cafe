@@ -1,7 +1,10 @@
 // POST /api/admin/review-moderate
+// Admins can approve, reject (with a reason the customer will see) or delete a review.
+// They cannot edit what a customer wrote: after a rejection the customer edits their own review.
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { sanitizeText } from "../../_lib/security.js";
+import { ensureReviewColumns } from "../../_lib/reviewColumns.js";
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -9,6 +12,7 @@ export async function onRequestPost(context) {
   if (authError) return authError;
 
   try {
+    await ensureReviewColumns(env);
     const body = await request.json();
     const { review_id, action } = body;
     const id = parseInt(review_id, 10);
@@ -18,30 +22,31 @@ export async function onRequestPost(context) {
     if (action === "approve") {
       await runQuery(
         env,
-        "UPDATE reviews SET status='approved' WHERE id = $1;",
+        "UPDATE reviews SET status='approved', rejection_reason = NULL WHERE id = $1;",
         [id],
       );
       return jsonResponse({ success: true });
     }
     if (action === "reject") {
-      await runQuery(
+      const reason = sanitizeText(body.reason || "", 300);
+      if (reason.length < 3) {
+        return jsonResponse(
+          { error: "Please give a reason (at least 3 characters). The customer will see it." },
+          400,
+        );
+      }
+      const updated = await runQuery(
         env,
-        "UPDATE reviews SET status='rejected' WHERE id = $1;",
-        [id],
+        "UPDATE reviews SET status='rejected', rejection_reason = $2 WHERE id = $1 AND status = 'pending' RETURNING id;",
+        [id, reason],
       );
+      if (!updated.rows.length) {
+        return jsonResponse({ error: "Only a review that is waiting for approval can be rejected." }, 409);
+      }
       return jsonResponse({ success: true });
     }
     if (action === "delete") {
       await runQuery(env, "DELETE FROM reviews WHERE id = $1;", [id]);
-      return jsonResponse({ success: true });
-    }
-    if (action === "edit") {
-      const name = sanitizeText(body.customer_name || "", 100);
-      const comment = sanitizeText(body.comment || "", 1000);
-      const rating = parseInt(body.rating, 10);
-      if (!name || !comment || !(rating >= 1 && rating <= 5))
-        return jsonResponse({ error: "Name, comment and a rating from 1 to 5 are required." }, 400);
-      await runQuery(env, "UPDATE reviews SET customer_name = $1, comment = $2, rating = $3 WHERE id = $4;", [name, comment, rating, id]);
       return jsonResponse({ success: true });
     }
     return jsonResponse({ error: "Unknown action." }, 400);

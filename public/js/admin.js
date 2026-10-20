@@ -1925,23 +1925,29 @@ document
         .filter((s) => s.length > 0),
     };
 
-    if (id) {
-      payload.id = parseInt(id, 10);
-      await adminFetch("/api/admin/menu", {
-        method: "PUT",
+    if (id) payload.id = parseInt(id, 10);
+
+    let res;
+    try {
+      res = await adminFetch("/api/admin/menu", {
+        method: id ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-    } else {
-      await adminFetch("/api/admin/menu", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+    } catch {
+      alert("Couldn't save the item. Please check your connection and try again.");
+      return;
+    }
+    if (!res.ok) {
+      // Keep the form as it is so nothing the admin typed is lost
+      const data = await res.json().catch(() => ({}));
+      alert(data.error || data.message || "Couldn't save the item. Please try again.");
+      return;
     }
 
     resetMenuForm();
     loadMenuItems();
+    if (typeof toast === "function") toast(id ? "Item updated" : "Item added");
   });
 
 // ---- Image compression + upload (supports selecting several photos at once) ----
@@ -2232,10 +2238,13 @@ async function loadAdminReviews() {
       const statusBadge = r.status
         ? `<div class="admin-item-meta">Status: <strong style="color:${statusColors[r.status] || "inherit"}">${r.status === "pending" ? "Waiting for approval" : escapeHtml(r.status)}</strong></div>`
         : "";
+      const rejectedNote =
+        r.status === "rejected"
+          ? `<div class="admin-item-meta"><strong>Reason shown to the customer:</strong> ${escapeHtml(r.rejection_reason || "No reason was saved")}<br><em>The customer can now edit their review and send it back for approval.</em></div>`
+          : "";
       const buttons = [
         r.status !== "approved" ? `<button class="admin-mini-btn" data-action="approve" data-id="${r.id}">Approve</button>` : "",
-        r.status === "pending" ? `<button class="admin-mini-btn danger" data-action="reject" data-id="${r.id}">Reject</button>` : "",
-        `<button class="admin-mini-btn" data-edit-review="${r.id}"><i class="fas fa-pen"></i> Edit</button>`,
+        r.status === "pending" ? `<button class="admin-mini-btn danger" data-reject-review="${r.id}">Reject</button>` : "",
         `<button class="admin-mini-btn danger" data-action="delete" data-id="${r.id}">Delete</button>`,
       ].join(" ");
 
@@ -2247,16 +2256,16 @@ async function loadAdminReviews() {
         ${r.items && r.items.length ? `<div class="admin-item-meta"><i class="fas fa-utensils"></i> Ordered: ${escapeHtml(r.items.join(", "))}${r.order_id ? ` (order #${r.order_id})` : ""}</div>` : ""}
         ${r.owner_reply ? `<div class="admin-item-meta"><strong>Your reply:</strong> ${escapeHtml(r.owner_reply)}</div>` : ""}
         ${statusBadge}
+        ${rejectedNote}
         <div class="admin-item-meta">${new Date(r.created_at).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" })}</div>
       </div>
-      <form class="review-edit-form" data-edit-form="${r.id}" style="display:none">
-        <div class="form-row">
-          <div class="form-group"><label>Name</label><input type="text" name="customer_name" maxlength="100" value="${escapeHtml(r.customer_name)}" required /></div>
-          <div class="form-group"><label>Rating</label><select name="rating">${[5, 4, 3, 2, 1].map((n) => `<option value="${n}" ${n === r.rating ? "selected" : ""}>${"★".repeat(n)}</option>`).join("")}</select></div>
+      <form class="review-reject-form" data-reject-form="${r.id}" style="display:none">
+        <div class="form-group">
+          <label>Why is this review being rejected? The customer will see this reason and can edit their review.</label>
+          <textarea name="reason" rows="2" maxlength="300" required placeholder="e.g. Please remove the offensive language"></textarea>
         </div>
-        <div class="form-group"><label>Review</label><textarea name="comment" rows="3" maxlength="1000" required>${escapeHtml(r.comment)}</textarea></div>
-        <button type="submit" class="btn btn-primary admin-mini-btn">Save changes</button>
-        <button type="button" class="admin-mini-btn" data-cancel-edit="${r.id}">Cancel</button>
+        <button type="submit" class="btn btn-primary admin-mini-btn">Reject review</button>
+        <button type="button" class="admin-mini-btn" data-cancel-reject="${r.id}">Cancel</button>
       </form>
       <form class="admin-form-inline" data-review-id="${r.id}" style="padding: 0; margin-top: 10px;">
         <input type="text" placeholder="Write a reply…" value="${escapeHtml(r.owner_reply || "")}" required />
@@ -2284,34 +2293,32 @@ async function loadAdminReviews() {
     });
   });
 
-  // Edit: show the inline form, save through review-moderate (action "edit")
-  list.querySelectorAll("[data-edit-review]").forEach((btn) =>
+  // Reject: open the reason form, then send the reason through review-moderate
+  list.querySelectorAll("[data-reject-review]").forEach((btn) =>
     btn.addEventListener("click", () => {
-      const form = list.querySelector(`[data-edit-form="${btn.dataset.editReview}"]`);
+      const form = list.querySelector(`[data-reject-form="${btn.dataset.rejectReview}"]`);
       if (form) form.style.display = form.style.display === "none" ? "" : "none";
     }),
   );
-  list.querySelectorAll("[data-cancel-edit]").forEach((btn) =>
+  list.querySelectorAll("[data-cancel-reject]").forEach((btn) =>
     btn.addEventListener("click", () => {
-      list.querySelector(`[data-edit-form="${btn.dataset.cancelEdit}"]`).style.display = "none";
+      list.querySelector(`[data-reject-form="${btn.dataset.cancelReject}"]`).style.display = "none";
     }),
   );
-  list.querySelectorAll("form[data-edit-form]").forEach((form) =>
+  list.querySelectorAll("form[data-reject-form]").forEach((form) =>
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const res = await adminFetch("/api/admin/review-moderate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          review_id: Number(form.dataset.editForm),
-          action: "edit",
-          customer_name: form.customer_name.value.trim(),
-          rating: Number(form.rating.value),
-          comment: form.comment.value.trim(),
+          review_id: Number(form.dataset.rejectForm),
+          action: "reject",
+          reason: form.reason.value.trim(),
         }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) return alert(data.error || "Couldn't save the review.");
+      if (!res.ok || !data.success) return alert(data.error || "Couldn't reject the review.");
       loadAdminReviews();
     }),
   );

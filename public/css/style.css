@@ -3512,3 +3512,17 @@ html {
 #checkoutForm > .form-error {
   margin: 0 0 12px;
 }
+
+/* Your Reviews (customer's own reviews, with status) */
+.my-reviews { margin-top: 32px; max-width: 760px; }
+.my-reviews h3 { margin-bottom: 6px; }
+.my-review-card { background: #fff; border: 1px solid #e8e4dc; border-radius: 12px; padding: 14px 16px; margin-top: 12px; }
+.my-review-card .review-card-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.my-review-badge { font-size: 0.78rem; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
+.my-review-badge.pending { background: #fff4d6; color: #8a6100; }
+.my-review-badge.approved { background: #e3f4e8; color: #1a7f37; }
+.my-review-badge.rejected { background: #fde8e8; color: #b42318; }
+.my-review-reason { margin: 10px 0; padding: 10px 12px; background: #fdf2f2; border-left: 3px solid #b42318; border-radius: 6px; font-size: 0.92rem; }
+.my-review-edit-btn { margin-top: 4px; }
+.my-review-edit-form { margin-top: 12px; }
+.my-review-edit-form .btn + .btn { margin-left: 8px; }

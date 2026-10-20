@@ -553,7 +553,6 @@ function getPhotos(item) {
 function itemQuantityInCart(itemId) {
   return cart.filter((l) => l.itemId === itemId).reduce((sum, l) => sum + l.quantity, 0);
 }
-
 function cardControlsHtml(item) {
   if (!item.is_available) {
     return `<button class="add-to-order-btn" disabled>Sold Out</button>`;
