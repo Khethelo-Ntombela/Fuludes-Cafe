@@ -461,8 +461,8 @@ document
     }
   });
 
-// Orders: poll every 30s
-// Live refresh every 5s so nobody has to reload the page: the kitchen board always
+// Live refresh: orders reload every 5s so nobody has to reload the page (the kitchen board is always current),
+// and the dashboard's full order history reloads every 30s.
 const ADMIN_POLL_MS = 5000;
 let adminPollTick = 0;
 function adminLivePoll() {
@@ -3446,7 +3446,9 @@ const AUDIT_LABELS = {
   order_cancelled: "Order cancelled",
 };
 
-// Username/name recorded at the time of the action; older entries
+// Who did it. The server sends the account's CURRENT username/name (api/admin/audit.js), so the same
+// person reads the same on every entry. If the account no longer exists it falls back to the name saved
+// at the time, then to the role and id.
 function auditActor(r) {
   if (r.actor_name) return r.actor_name;
   return `${r.actor_type || ""}${r.actor_id ? " #" + r.actor_id : ""}`;

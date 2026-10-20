@@ -25,7 +25,8 @@ export async function logAudit(
   actor_id = actor_id ?? env.__actorId ?? null;
   actor_role = actor_role ?? env.__actorRole ?? null;
   actor_type = actor_type ?? env.__actorRole ?? null;
-  // The username/name at the time of the action, so it's preserved even if the account is later renamed
+  // The username/name at the time of the action. It is kept as a fallback (for example if the account is deleted);
+  // the audit screen shows the account's current name (see api/admin/audit.js).
   actor_name = actor_name ?? env.__actorName ?? null;
   await ensureActorNameColumn(env);
   await runQuery(

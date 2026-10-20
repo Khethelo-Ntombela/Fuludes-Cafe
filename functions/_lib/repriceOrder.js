@@ -5,8 +5,9 @@
 //     so they are charged today's price and not the price from when they first went to checkout.
 //   - api/admin/orders.js: the "Orders awaiting payment" list shows today's price (display only, nothing saved).
 //
-// Unpaid orders older than UNPAID_ORDER_HOURS are treated as expired: customers and admins no longer see them
-// and they cannot be paid again.
+// An unpaid order expires UNPAID_ORDER_HOURS after it was placed (a table-booking pre-order: when the booking
+// time passes). Expired orders cannot be paid again, and expired "awaiting" orders are deleted
+// (see deleteExpiredUnpaidOrders below). Expired "failed" orders are only hidden.
 import { runQuery } from "./db.js";
 
 export const UNPAID_ORDER_HOURS = 24;

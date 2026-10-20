@@ -11,7 +11,8 @@ export function yocoKeyMode(env) {
 }
 
 let yocoTablesReady = false;
-/** orders.yoco_checkout_id + the yoco_webhooks table (webhook secrets saved by Settings > Payments). */
+/** orders.yoco_checkout_id, the yoco_webhooks table (webhook secrets saved by Settings > Payments) and the
+ *  order_checkouts table (every checkout opened for an order, with its amount and the order's prices at that moment). */
 export async function ensureYocoTables(env) {
   if (yocoTablesReady) return;
   await runQuery(env, "ALTER TABLE orders ADD COLUMN IF NOT EXISTS yoco_checkout_id TEXT;");

@@ -32,8 +32,8 @@ export async function onRequestGet(context) {
       ? []
       : [`payment_status NOT IN ('awaiting', 'failed')`];
     const params = [];
-    // Unpaid orders expire after UNPAID_ORDER_HOURS, same as on the customer's side.
-        // A normal unpaid order lasts 24 hours; a table-booking pre-order lasts until the booking time.
+    // Expired unpaid orders are hidden: a normal one 24 hours after it was placed, a table-booking
+    // pre-order when its booking time passes (expired "awaiting" ones are also deleted, see deleteExpiredUnpaidOrders).
     if (asksForUnpaid) {
       conditions.push(`COALESCE(${PREORDER_DUE}, created_at + INTERVAL '${UNPAID_ORDER_HOURS} hours') > NOW()`);
     }
@@ -177,7 +177,8 @@ export async function onRequestDelete(context) {
   if (authError) return authError;
 
   try {
-    // Dashboard "Pending Orders" manual clear: removes orders that were never paid (awaiting / failed)
+    // "Clear all" / the bin icon in the Orders awaiting payment pop-up: deletes unpaid orders (awaiting / failed) early.
+    // (Unpaid orders also delete themselves automatically, see deleteExpiredUnpaidOrders.)
     const url = new URL(request.url);
     if (url.searchParams.get("scope") === "unpaid") {
       const id = parseInt(url.searchParams.get("id"), 10);
