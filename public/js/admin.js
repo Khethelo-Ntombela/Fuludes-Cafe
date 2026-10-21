@@ -488,13 +488,28 @@ document
 // and the dashboard's full order history reloads every 30s.
 const ADMIN_POLL_MS = 5000;
 let adminPollTick = 0;
+// While you're using a booking's status dropdown the list is not redrawn for 2 minutes
+// (a redraw closes the open dropdown). Pressing Save lets it refresh again straight away.
+const RESERVATION_HOLD_MS = 2 * 60 * 1000;
+let reservationHoldUntil = 0;
+(function holdReservationsWhileEditing() {
+  const list = document.getElementById("reservationsList");
+  if (!list) return;
+  const hold = (e) => {
+    if (e.target.closest && e.target.closest("select[data-reservation-status]")) {
+      reservationHoldUntil = Date.now() + RESERVATION_HOLD_MS;
+    }
+  };
+  ["focusin", "mousedown", "touchstart", "change"].forEach((type) => list.addEventListener(type, hold, true));
+})();
+
 function adminLivePoll() {
   adminPollTick++;
   if (!adminCan("orders")) return; // nothing live to refresh for this admin
   loadOrders();
   if (document.hidden) return;
   const tab = document.querySelector(".admin-tab-btn.active")?.dataset.tab;
-  if (tab === "reservations") loadReservations();
+  if (tab === "reservations" && Date.now() >= reservationHoldUntil) loadReservations();
   // The dashboard pulls full history - every 30s is plenty.
   if (tab === "dashboard" && adminPollTick % 6 === 0 && typeof loadDashboardData === "function") loadDashboardData();
 }
@@ -2767,11 +2782,15 @@ function renderReservations() {
                   : ""
             }
             ${reservationOrderHtml(reservation)}
-            <div class="admin-item-meta">Status: ${reservation.status}${isCompleted ? " (final)" : ""}</div>
+            <div class="admin-item-meta">Status: ${
+              reservation.status === "Cancelled" ? `<strong style="color:var(--sa-red, #c0392b)">Cancelled</strong>`
+              : reservation.status === "Completed" ? `<strong style="color:var(--sa-green-deep, #1a7f37)">Completed</strong>`
+              : reservation.status
+            }</div>
           </div>
           <div class="admin-form-inline" style="padding: 0; margin-top: 10px;">
             ${isCompleted ? "" : `<select data-reservation-status="${reservation.id}" data-prepaid="${prepaid && reservation.preorder_payment_status === "paid" ? "1" : ""}" data-total="${reservation.preorder_total || 0}">
-              ${statusOptions.map((s) => `<option value="${s}" ${reservation.status === s ? "selected" : ""} ${s === "Completed" && !timePassed && !isCompleted ? "disabled" : ""}>${s}${s === "Completed" && !timePassed && !isCompleted ? " (after the booking time)" : ""}</option>`).join("")}
+              ${statusOptions.filter((s) => s !== "Completed" || timePassed || reservation.status === "Completed").map((s) => `<option value="${s}" ${reservation.status === s ? "selected" : ""}>${s}</option>`).join("")}
             </select>
             <button type="button" class="btn btn-primary admin-mini-btn" data-reservation-update="${reservation.id}">Save</button>`}
             ${reservation.status === "Completed" || reservation.status === "Cancelled" ? `<button type="button" class="btn admin-mini-btn" data-reservation-clear="${reservation.id}" title="Remove from this list"><i class="fas fa-eraser"></i> Clear</button>` : ""}
@@ -2804,6 +2823,7 @@ function renderReservations() {
 
   list.querySelectorAll("[data-reservation-update]").forEach((btn) => {
     btn.addEventListener("click", async () => {
+      reservationHoldUntil = 0; // saving ends the pause, so the list refreshes with the new status
       const id = parseInt(btn.dataset.reservationUpdate, 10);
       const select = list.querySelector(`[data-reservation-status="${id}"]`);
       if (!select) return;
