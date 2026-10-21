@@ -1097,7 +1097,7 @@ function ordersClosedMessage() {
 
 // ---- Half-hour time slots (reservations, and collection/delivery "Preferred Time") ----
 const SLOT_MINUTES = 30;
-const ORDER_LEAD_MINUTES = 90; // a chosen collection/delivery time is at least 1h30 away
+const ORDER_LEAD_MINUTES = 120; // a chosen collection/delivery window starts at least 2 hours from now (rounded up to the next half-hour)
 
 /** Today's date, weekday and minutes past midnight in South Africa time. */
 function cafeNow() {
@@ -1136,10 +1136,21 @@ function reservationSlotsFor(dateStr) {
   return cafeSlotsFor(dateStr, dateStr === now.dateKey ? now.minutes + 1 : 0);
 }
 
-/** Collection/delivery times for today: from 1h30 from now, every half-hour until closing. */
-function orderTimeSlotsToday() {
+/**
+ * Collection/delivery windows for today: 30-minute ranges ("14:00 - 14:30"). The first one starts
+ * 2 hours from now rounded UP to the next half-hour (11:40 or 12:00 -> 14:00; 12:10 -> 14:30), and
+ * the list runs on every half-hour until the cafe closes.
+ */
+function orderTimeRangesToday() {
   const now = cafeNow();
-  return cafeSlotsFor(now.dateKey, now.minutes + ORDER_LEAD_MINUTES);
+  const win = OPENING_HOURS[now.weekday];
+  if (!win) return [];
+  const start = Math.max(win.open, Math.ceil((now.minutes + ORDER_LEAD_MINUTES) / SLOT_MINUTES) * SLOT_MINUTES);
+  const ranges = [];
+  for (let m = start; m + SLOT_MINUTES <= win.close; m += SLOT_MINUTES) {
+    ranges.push(`${minutesToHHMM(m)} - ${minutesToHHMM(m + SLOT_MINUTES)}`);
+  }
+  return ranges;
 }
 
 /** Reads a fetch response as JSON without throwing when the server sent an HTML error page. */

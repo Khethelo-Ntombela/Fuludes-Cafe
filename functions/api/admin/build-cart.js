@@ -262,7 +262,7 @@ export async function onRequestPost(context) {
       const slotError = validatePickupSlot(pickupTime, hours);
       if (slotError) return jsonResponse({ error: slotError }, 400);
       // Dine in has no "as soon as possible": a time must be chosen.
-      if (orderType === "dine_in" && !/^at \d{1,2}:\d{2}$/i.test(pickupTime.trim())) {
+      if (orderType === "dine_in" && !/^at \d{1,2}:\d{2}(\s*-\s*\d{1,2}:\d{2})?$/i.test(pickupTime.trim())) {
         return jsonResponse({ error: "Choose the time for the dine-in order." }, 400);
       }
       scheduledFor = scheduledForFromPickup(pickupTime);

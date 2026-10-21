@@ -147,19 +147,20 @@ export function isTakingOrdersNow(hours = DEFAULT_HOURS) {
 }
 
 /**
- * Collection/delivery "Preferred Time": "As soon as possible" or a half-hour slot today ("At 18:30")
+ * Collection/delivery "Preferred Time": "As soon as possible" or a 30-minute window today ("At 18:30 - 19:00")
  * that is still ahead and before closing. Returns null when fine, otherwise a customer-facing message.
  */
 export function validatePickupSlot(pickupTime, hours = DEFAULT_HOURS) {
-  const m = /^at (\d{1,2}):(\d{2})$/i.exec(String(pickupTime || "").trim());
+  const m = /^at (\d{1,2}):(\d{2})(?:\s*(?:-|\u2013|to)\s*(\d{1,2}):(\d{2}))?$/i.exec(String(pickupTime || "").trim());
   if (!m) return null; // "As soon as possible" (and older wording) needs no check
   const minutes = +m[1] * 60 + +m[2];
+  const endMinutes = m[3] !== undefined ? +m[3] * 60 + +m[4] : minutes + SLOT_MINUTES;
   const now = cafeNow();
   const win = windowFor(hours, now.weekday);
-  if (!win || minutes % SLOT_MINUTES !== 0 || minutes < win.open || minutes >= win.close) {
+  if (!win || minutes % SLOT_MINUTES !== 0 || endMinutes !== minutes + SLOT_MINUTES || minutes < win.open || endMinutes > win.close) {
     return "Please choose one of the times in the Preferred Time list.";
   }
-  // The list starts 1h30 ahead; allow a little slack for a checkout that took a while.
+  // The list starts 2h ahead; allow a little slack for a checkout that took a while.
   if (minutes <= now.minutes + 30) {
     return "That time is too soon now. Please choose a later time from the Preferred Time list.";
   }
