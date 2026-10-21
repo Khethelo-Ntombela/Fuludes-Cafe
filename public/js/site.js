@@ -1709,6 +1709,8 @@ const ETA_CONFIG = {
   driveBaseMax: [7, 11, 16], // max drive mins for 0-3, 3-6, 6-9 km
   driveStepAfter: 4, // +4 mins per extra 3 km band beyond 9 km
   minDriveRatio: 0.675, // min drive = 67.5% of max drive, rounded
+  firstDelayExtraMin: 10, // once the max prep time has passed, the expected time moves 10 mins past it...
+  nextDelayExtraMin: 5, // ...and then another 5 mins each time that passes, until the order moves on
 };
 
 /** Max drive minutes for a road distance in km (0-3 inclusive in the first band). */
@@ -1730,6 +1732,18 @@ function driveRange(order) {
 /** { min, max } kitchen preparation minutes. Same for collection and delivery orders. */
 function calcPrepEta() {
   return { min: ETA_CONFIG.prepMin, max: ETA_CONFIG.prepMax };
+}
+
+/**
+ * How many minutes past the max prep time the new expected time is, when the order is running late.
+ * overMin = minutes since the max prep time passed. The first extension is 10 mins past the max,
+ * and every 5 mins after that the expected time moves on by another 5. Always in the future.
+ */
+function prepDelayExtraMinutes(overMin) {
+  const first = ETA_CONFIG.firstDelayExtraMin;
+  const step = ETA_CONFIG.nextDelayExtraMin;
+  if (overMin < first) return first;
+  return first + step * (Math.floor((overMin - first) / step) + 1);
 }
 
 /** If staff forget to tick Delivered, the delivery line disappears this long after the order left. */
@@ -1794,6 +1808,19 @@ function renderOrderEta(order) {
   const note = isDelivery
     ? '<div style="opacity:.85;font-size:.85rem;margin-top:4px">Your delivery time will appear once your order is out for delivery.</div>'
     : "";
+
+  // Running late: the max prep time has passed but the order is still being prepared.
+  // Only the clock time moves (max + 10 mins, then +5 mins each time it passes) until the order reaches a stage
+  // that no longer shows this estimate.
+  if (Number.isFinite(startMs)) {
+    const overMin = (Date.now() - startMs) / 60000 - eta.max;
+    if (overMin > 0) {
+      const newClock = clock(eta.max + prepDelayExtraMinutes(overMin));
+      return etaBox(
+        `<i class="fas fa-clock"></i> <strong>Sorry, taking longer than expected:</strong> <span class="order-eta-clock">${newClock}</span>${note}`
+      );
+    }
+  }
   return etaBox(
     `<i class="fas fa-clock"></i> ${label}: <strong>${eta.min} - ${eta.max} mins</strong>${clockText}${note}`
   );
