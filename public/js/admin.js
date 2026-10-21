@@ -2853,7 +2853,6 @@ const DEFAULT_ADMIN_HOURS = {
 const ADMIN_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Monday first
 const ADMIN_DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 window.businessHours = DEFAULT_ADMIN_HOURS;
-let hoursEditorDirty = false;
 
 const hhmmToMin = (str) => {
   const m = /^(\d{1,2}):(\d{2})$/.exec(String(str || ""));
@@ -2923,6 +2922,15 @@ function renderBusinessHoursSummary() {
     .join("<br />");
 }
 
+/** <option>s every half hour (24h, like the website), plus the saved value if it isn't on the half hour. */
+function hoursTimeOptions(selected) {
+  const times = [];
+  for (let m = 0; m < 24 * 60; m += 30) times.push(`${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`);
+  if (selected && !times.includes(selected)) times.push(selected);
+  times.sort();
+  return times.map((t) => `<option value="${t}" ${t === selected ? "selected" : ""}>${t}</option>`).join("");
+}
+
 function renderBusinessHoursEditor() {
   const wrap = document.getElementById("businessHoursRows");
   if (!wrap) return;
@@ -2930,20 +2938,17 @@ function renderBusinessHoursEditor() {
     const day = window.businessHours[d] || DEFAULT_ADMIN_HOURS[d];
     return `<div class="bh-row" data-day="${d}">
       <span class="bh-day">${ADMIN_DAY_NAMES[d]}</span>
-      <label class="bh-closed"><input type="checkbox" data-f="closed" ${day.closed ? "checked" : ""} /> Closed</label>
-      <input type="time" data-f="open" value="${day.open}" ${day.closed ? "disabled" : ""} aria-label="${ADMIN_DAY_NAMES[d]} opening time" />
-      <span class="bh-to">to</span>
-      <input type="time" data-f="close" value="${day.close}" ${day.closed ? "disabled" : ""} aria-label="${ADMIN_DAY_NAMES[d]} closing time" />
+      <select data-f="open" ${day.closed ? "disabled" : ""} aria-label="${ADMIN_DAY_NAMES[d]} opening time">${hoursTimeOptions(day.open)}</select>
+      <select data-f="close" ${day.closed ? "disabled" : ""} aria-label="${ADMIN_DAY_NAMES[d]} closing time">${hoursTimeOptions(day.close)}</select>
+      <label class="bh-closed"><input type="checkbox" data-f="closed" ${day.closed ? "checked" : ""} aria-label="${ADMIN_DAY_NAMES[d]} closed" /></label>
     </div>`;
   }).join("");
-  hoursEditorDirty = false;
 }
 
 function readBusinessHoursEditor() {
   const out = {};
   document.querySelectorAll("#businessHoursRows .bh-row").forEach((row) => {
-    const d = row.dataset.day;
-    out[d] = {
+    out[row.dataset.day] = {
       closed: row.querySelector('[data-f="closed"]').checked,
       open: row.querySelector('[data-f="open"]').value,
       close: row.querySelector('[data-f="close"]').value,
@@ -2957,38 +2962,50 @@ function applyBusinessHoursToAdmin(hours) {
   if (!hours) return;
   window.businessHours = hours;
   renderBusinessHoursSummary();
-  if (!hoursEditorDirty) renderBusinessHoursEditor();
   // Anything else on screen that depends on the hours
   if (typeof updateStatusCard === "function") updateStatusCard();
   if (typeof refreshOrderFormHours === "function") refreshOrderFormHours();
 }
 
 function initBusinessHoursHandlers() {
+  const modal = document.getElementById("hoursModal");
   const wrap = document.getElementById("businessHoursRows");
-  if (!wrap) return;
-  const status = document.getElementById("businessHoursStatus");
+  if (!modal || !wrap) return;
+  const err = document.getElementById("businessHoursStatus");
+  const close = () => modal.classList.remove("active");
+
+  document.getElementById("businessHoursEditBtn").addEventListener("click", () => {
+    renderBusinessHoursEditor(); // always starts from the saved hours
+    err.style.display = "none";
+    modal.classList.add("active");
+  });
+  document.getElementById("businessHoursCancelBtn").addEventListener("click", close);
   wrap.addEventListener("change", (e) => {
-    hoursEditorDirty = true;
-    status.textContent = "You have unsaved changes.";
     if (e.target.matches('[data-f="closed"]')) {
-      const row = e.target.closest(".bh-row");
-      row.querySelectorAll('input[type="time"]').forEach((i) => { i.disabled = e.target.checked; });
+      e.target.closest(".bh-row").querySelectorAll("select").forEach((i) => { i.disabled = e.target.checked; });
     }
   });
-  document.getElementById("businessHoursResetBtn").addEventListener("click", () => {
-    renderBusinessHoursEditor();
-    status.textContent = "";
+  document.getElementById("businessHoursCopyBtn").addEventListener("click", () => {
+    const rows = [...wrap.querySelectorAll(".bh-row")];
+    const first = rows[0]; // Monday
+    rows.slice(1).forEach((row) => {
+      ["open", "close"].forEach((f) => {
+        const sel = row.querySelector(`[data-f="${f}"]`);
+        sel.value = first.querySelector(`[data-f="${f}"]`).value;
+        sel.disabled = first.querySelector('[data-f="closed"]').checked;
+      });
+      row.querySelector('[data-f="closed"]').checked = first.querySelector('[data-f="closed"]').checked;
+    });
   });
   document.getElementById("businessHoursSaveBtn").addEventListener("click", async () => {
     const btn = document.getElementById("businessHoursSaveBtn");
     btn.disabled = true;
     try {
       await saveConfig({ business_hours: readBusinessHoursEditor() });
-      hoursEditorDirty = false;
-      renderBusinessHoursEditor();
-      status.textContent = "Saved - the website, bookings and payment links now follow these hours.";
-    } catch (err) {
-      status.textContent = err.message;
+      close();
+    } catch (e) {
+      err.textContent = e.message;
+      err.style.display = "block";
     } finally {
       btn.disabled = false;
     }
