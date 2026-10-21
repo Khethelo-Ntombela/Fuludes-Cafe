@@ -250,8 +250,13 @@ export async function onRequestPost(context) {
       scheduledFor = new Date(`${dineDate}T${dineTime}:00+02:00`);
       pickupTime = `Reservation ${dineDate} at ${dineTime}`;
     } else {
+      // Collection/delivery: "As soon as possible" or a half-hour slot today (same check as the customer's Preferred Time).
       const slotError = validatePickupSlot(pickupTime);
-      if (slotError && orderType === "dine_in") return jsonResponse({ error: slotError }, 400);
+      if (slotError) return jsonResponse({ error: slotError }, 400);
+      // Dine in has no "as soon as possible": a time must be chosen.
+      if (orderType === "dine_in" && !/^at \d{1,2}:\d{2}$/i.test(pickupTime.trim())) {
+        return jsonResponse({ error: "Choose the time for the dine-in order." }, 400);
+      }
       scheduledFor = scheduledForFromPickup(pickupTime);
     }
     await ensureScheduleColumns(env);

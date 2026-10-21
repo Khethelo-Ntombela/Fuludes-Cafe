@@ -1402,14 +1402,27 @@ function renderDineTimes() {
   const date = dateInput?.value || now.dateKey;
   const later = date > now.dateKey;
   const previous = sel.value;
-  sel.innerHTML = later
-    ? `<option value="">Choose a time</option>` + poSlotsFor(date).map((t) => `<option value="${t}">${t}</option>`).join("")
-    : `<option value="As soon as possible">As soon as possible</option>` + poSlotsFor(date, now.minutes + PO_LEAD_MIN).map((t) => `<option value="At ${t}">${t}</option>`).join("");
+  // No "As soon as possible" for dine in: a time is always chosen (today: half-hour slots from 1h30 ahead, like collection/delivery)
+  const slots = later ? poSlotsFor(date) : poSlotsFor(date, now.minutes + PO_LEAD_MIN);
+  const placeholder = slots.length ? "Choose a time" : "No times left today - pick another date";
+  sel.innerHTML = `<option value="">${placeholder}</option>` +
+    slots.map((t) => `<option value="${later ? t : `At ${t}`}">${t}</option>`).join("");
   if ([...sel.options].some((o) => o.value === previous)) sel.value = previous;
   $id("poPartyField").style.display = later ? "" : "none";
   $id("poDineNote").style.display = later ? "" : "none";
   const tableLabel = document.querySelector('label[for="orderTableNumber"]');
   if (tableLabel) tableLabel.innerHTML = later ? "Table number <small>(optional for a booking)</small>" : "Table number";
+}
+
+/** Collection/delivery time, like the customer's Preferred Time: As soon as possible (no time needed), then today's half-hour slots from 1h30 ahead. */
+function renderPickupTimes() {
+  const sel = $id("orderPickupTime");
+  if (!sel) return;
+  const now = poCafeNow();
+  const previous = sel.value;
+  sel.innerHTML = `<option value="As soon as possible">As soon as possible</option>` +
+    poSlotsFor(now.dateKey, now.minutes + PO_LEAD_MIN).map((t) => `<option value="At ${t}">${t}</option>`).join("");
+  if ([...sel.options].some((o) => o.value === previous)) sel.value = previous;
 }
 
 function updateOrderTypeFields() {
@@ -1419,6 +1432,7 @@ function updateOrderTypeFields() {
   $id("poDineFields").style.display = type === "dine_in" ? "" : "none";
   $id("poWhenField").style.display = type === "dine_in" ? "none" : "";
   if (type === "dine_in") renderDineTimes();
+  else renderPickupTimes();
   if (type !== "delivery") {
     poReset();
     poClearManualFee();
@@ -1458,8 +1472,8 @@ async function generatePaymentLink() {
     toast("Enter the table number.");
     return;
   }
+  if (type === "dine_in" && !dineTime) { toast(dineLater ? "Choose the booking time." : "Choose the time for the dine-in order."); return; }
   if (dineLater) {
-    if (!dineTime) { toast("Choose the booking time."); return; }
     if (!Number.isInteger(partySize) || partySize < 1) { toast("Enter how many people the booking is for."); return; }
   }
   if (type === "delivery") {
@@ -1575,6 +1589,7 @@ function cancelPlaceOrder() {
     if ($id(id)) $id(id).value = "";
   });
   $id("orderType").value = "collection";
+  renderPickupTimes();
   $id("orderPickupTime").selectedIndex = 0;
   if ($id("poDineDate")) $id("poDineDate").value = "";
   if ($id("poPartySize")) $id("poPartySize").value = "";
@@ -1603,6 +1618,7 @@ function initPlaceOrderTab() {
   // (dishes/prices/stock may have changed - or the first load may have failed).
   if (container.dataset.loaded === "true") {
     refreshPlaceOrderMenu();
+    if (poOrderType() === "dine_in") renderDineTimes(); else renderPickupTimes(); // slots depend on the time now
     return;
   }
 
@@ -1689,13 +1705,8 @@ function initPlaceOrderTab() {
             <small id="poDineNote" class="admin-hint" style="display:none;margin:0 0 10px">A later date is saved as a table reservation with this pre-order. It confirms once the customer pays, and the order reaches the dashboard 20 minutes before the booking time.</small>
           </div>
           <div class="form-group" id="poWhenField">
-            <label for="orderPickupTime">When</label>
-            <select id="orderPickupTime">
-              <option value="As soon as possible">As soon as possible</option>
-              <option value="In 30 minutes">In 30 minutes</option>
-              <option value="In 1 hour">In 1 hour</option>
-              <option value="In 2 hours">In 2 hours</option>
-            </select>
+            <label for="orderPickupTime">Preferred time</label>
+            <select id="orderPickupTime"><option value="As soon as possible">As soon as possible</option></select>
           </div>
           <div class="form-group">
             <label for="orderInstructions">Special instructions</label>
@@ -1744,6 +1755,7 @@ function initPlaceOrderTab() {
   });
   $id("orderType").addEventListener("change", updateOrderTypeFields);
   $id("poDineDate").addEventListener("change", renderDineTimes);
+  renderPickupTimes();
   $id("poAddressOkBtn").addEventListener("click", poConfirmAddress);
   const onAddressEdit = () => {
     if (poComposeAddress() !== poDelivery.lastInput && (poDelivery.lat !== null || poDelivery.error || poDelivery.tooFar)) {
