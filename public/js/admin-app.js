@@ -1368,7 +1368,7 @@ window.waLink = waLink;
 // ---- Dine in: date + time like the customer's table booking (South Africa time) ----
 // Opening hours come from Settings > General > Business Hours (window.adminHoursWindow in admin.js)
 const PO_SLOT_MIN = 30;
-const PO_LEAD_MIN = 120; // same lead the customer gets for collection/delivery windows today
+const PO_LEAD_MIN = 90; // same lead the customer gets for collection/delivery times today
 
 function poCafeNow() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -1424,13 +1424,8 @@ function renderPickupTimes() {
   if (!sel) return;
   const now = poCafeNow();
   const previous = sel.value;
-  const ranges = poSlotsFor(now.dateKey, now.minutes + PO_LEAD_MIN).map((t) => {
-    const [h, m] = t.split(":").map(Number);
-    const end = h * 60 + m + 30;
-    return `${t} - ${String(Math.floor(end / 60)).padStart(2, "0")}:${String(end % 60).padStart(2, "0")}`;
-  });
   sel.innerHTML = `<option value="As soon as possible">As soon as possible</option>` +
-    ranges.map((t) => `<option value="At ${t}">${t}</option>`).join("");
+    poSlotsFor(now.dateKey, now.minutes + PO_LEAD_MIN).map((t) => `<option value="At ${t}">${t}</option>`).join("");
   if ([...sel.options].some((o) => o.value === previous)) sel.value = previous;
 }
 

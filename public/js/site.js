@@ -1097,7 +1097,7 @@ function ordersClosedMessage() {
 
 // ---- Half-hour time slots (reservations, and collection/delivery "Preferred Time") ----
 const SLOT_MINUTES = 30;
-const ORDER_LEAD_MINUTES = 120; // a chosen collection/delivery window starts at least 2 hours from now (rounded up to the next half-hour)
+const ORDER_LEAD_MINUTES = 90; // a chosen collection/delivery time is at least 1h30 away
 
 /** Today's date, weekday and minutes past midnight in South Africa time. */
 function cafeNow() {
@@ -1136,21 +1136,10 @@ function reservationSlotsFor(dateStr) {
   return cafeSlotsFor(dateStr, dateStr === now.dateKey ? now.minutes + 1 : 0);
 }
 
-/**
- * Collection/delivery windows for today: 30-minute ranges ("14:00 - 14:30"). The first one starts
- * 2 hours from now rounded UP to the next half-hour (11:40 or 12:00 -> 14:00; 12:10 -> 14:30), and
- * the list runs on every half-hour until the cafe closes.
- */
-function orderTimeRangesToday() {
+/** Collection/delivery times for today: from 1h30 from now, every half-hour until closing. */
+function orderTimeSlotsToday() {
   const now = cafeNow();
-  const win = OPENING_HOURS[now.weekday];
-  if (!win) return [];
-  const start = Math.max(win.open, Math.ceil((now.minutes + ORDER_LEAD_MINUTES) / SLOT_MINUTES) * SLOT_MINUTES);
-  const ranges = [];
-  for (let m = start; m + SLOT_MINUTES <= win.close; m += SLOT_MINUTES) {
-    ranges.push(`${minutesToHHMM(m)} - ${minutesToHHMM(m + SLOT_MINUTES)}`);
-  }
-  return ranges;
+  return cafeSlotsFor(now.dateKey, now.minutes + ORDER_LEAD_MINUTES);
 }
 
 /** Reads a fetch response as JSON without throwing when the server sent an HTML error page. */
@@ -1768,6 +1757,12 @@ function openOrderReviewModal(orderId) {
   overlay.classList.add("active");
 }
 
+/** Paying or editing an unpaid order follows the checkout rule: not when closed or in the last hour before closing.
+ *  (A table-booking pre-order is dine-in and for a later time, so it isn't blocked here; the server decides.) */
+function payBlocked(order) {
+  return order.order_type !== "dine_in" && !isTakingOrdersNow();
+}
+
 let myOrdersById = new Map(); // the orders last shown in My Orders, for "Edit Order"
 
 /**
@@ -2307,8 +2302,12 @@ function renderReceiptCard(order, { history = false } = {}) {
 
       ${renderStatusTracker(order)}
       ${renderOrderEta(order)}
-      ${retryPayment && order.status !== "Cancelled" ? `<div class="receipt-cancel-row"><button type="button" class="receipt-cancel-btn" data-retry-payment="${order.id}">Pay Now</button></div>
-        <div class="receipt-cancel-row"><button type="button" class="receipt-cancel-btn receipt-edit-btn" data-edit-order="${order.id}"><i class="fas fa-pen"></i> Edit Order</button></div>` : ""}
+      ${retryPayment && order.status !== "Cancelled" ? (payBlocked(order)
+        ? `<div class="receipt-meta" style="color:#b3261e;font-weight:600">${ordersClosedMessage().replace("Can't order at this time", "You can't pay for this order now")}</div>
+        <div class="receipt-cancel-row"><button type="button" class="receipt-cancel-btn" disabled style="opacity:.5;cursor:not-allowed">Pay Now</button></div>
+        <div class="receipt-cancel-row"><button type="button" class="receipt-cancel-btn receipt-edit-btn" disabled style="opacity:.5;cursor:not-allowed"><i class="fas fa-pen"></i> Edit Order</button></div>`
+        : `<div class="receipt-cancel-row"><button type="button" class="receipt-cancel-btn" data-retry-payment="${order.id}">Pay Now</button></div>
+        <div class="receipt-cancel-row"><button type="button" class="receipt-cancel-btn receipt-edit-btn" data-edit-order="${order.id}"><i class="fas fa-pen"></i> Edit Order</button></div>`) : ""}
       ${renderCancelSection(order)}
       ${
         order.status === "Completed"
