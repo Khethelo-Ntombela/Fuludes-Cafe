@@ -1,5 +1,5 @@
 // POST /api/reservations
-import { expireStalePreorders, cancelAndRefundOrder } from "../_lib/reservations.js";
+import { expireStalePreorders, cancelAndRefundOrder, findDuplicateReservation, DUPLICATE_RESERVATION_MESSAGE } from "../_lib/reservations.js";
 import { deleteExpiredUnpaidOrders } from "../_lib/repriceOrder.js";
 import { runQuery, jsonResponse } from "../_lib/db.js";
 import {
@@ -203,7 +203,13 @@ export async function onRequestPost(context) {
   }
 
   try {
-    // Customers can hold several bookings at once - an earlier one that is still pending
+    // The same customer can't book the same date and time twice.
+    const duplicate = await findDuplicateReservation(env, {
+      customerId: linkedCustomerId, email, phone, date: reservationDate, time: reservationTime,
+    });
+    if (duplicate) return jsonResponse({ error: DUPLICATE_RESERVATION_MESSAGE, code: "duplicate_reservation" }, 409);
+
+    // Customers can hold several bookings at once (at different times) - an earlier one that is still pending
     const result = await runQuery(
       env,
       `

@@ -4,7 +4,7 @@ import { requireAdmin } from "../../_lib/auth.js";
 import { sanitizeText, isValidEmail, isValidName, normalizePhone, VALIDATION_MESSAGES } from "../../_lib/security.js";
 import { logAudit } from "../../_lib/audit.js";
 import { queuePush } from "../../_lib/push.js";
-import { cancelAndRefundOrder } from "../../_lib/reservations.js";
+import { cancelAndRefundOrder, findDuplicateReservation, DUPLICATE_RESERVATION_MESSAGE } from "../../_lib/reservations.js";
 
 let _colReady = false;
 async function ensureClearedColumn(env) {
@@ -31,7 +31,13 @@ export async function onRequestGet(context) {
              r.party_size, r.table_number, r.notes,
              r.advance_order_requested, r.advance_order_details, r.advance_order_id,
              r.status, r.admin_cleared, r.created_at,
-             o.payment_status AS preorder_payment_status, o.total_amount AS preorder_total
+             o.payment_status AS preorder_payment_status, o.total_amount AS preorder_total,
+             COALESCE((
+               SELECT json_agg(json_build_object(
+                        'name', oi.item_name, 'quantity', oi.quantity, 'spice_level', oi.spice_level,
+                        'extras', oi.extras, 'subtotal', oi.subtotal) ORDER BY oi.id)
+                 FROM order_items oi WHERE oi.order_id = r.advance_order_id
+             ), '[]'::json) AS preorder_items
       FROM customer_reservations r
       LEFT JOIN orders o ON o.id = r.advance_order_id
       -- Pre-order bookings only appear once the food has been paid for.
@@ -96,13 +102,22 @@ export async function onRequestPost(context) {
     const current = (
       await runQuery(
         env,
-        `SELECT r.status, r.advance_order_id, o.payment_status AS preorder_payment_status
+        `SELECT r.status, r.advance_order_id, o.payment_status AS preorder_payment_status,
+                (((r.reservation_date + r.reservation_time) AT TIME ZONE 'Africa/Johannesburg') <= NOW()) AS time_passed
            FROM customer_reservations r LEFT JOIN orders o ON o.id = r.advance_order_id
           WHERE r.id = $1;`,
         [reservationId],
       )
     ).rows[0];
     if (!current) return jsonResponse({ error: "Reservation not found." }, 404);
+    // Completed is final: once a booking is marked Completed its status can't change again.
+    if (current.status === "Completed" && status !== "Completed") {
+      return jsonResponse({ error: "This reservation is Completed, so its status can't be changed any more." }, 400);
+    }
+    // A booking can only be marked Completed once its date and time have passed.
+    if (status === "Completed" && current.status !== "Completed" && !current.time_passed) {
+      return jsonResponse({ error: "A reservation can only be marked Completed after its date and time have passed." }, 400);
+    }
     const prepaid = ["paid", "refunded"].includes(current.preorder_payment_status);
     // A paid pre-order booking is confirmed by the payment - it can only
     // move on to Cancelled or Completed, never back to Pending.
@@ -184,6 +199,10 @@ async function createReservation(env, body) {
     if (email) {
       const existing = await runQuery(env, "SELECT id FROM customers WHERE email = $1;", [email]);
       customerId = existing.rows[0]?.id || null;
+    }
+    const duplicate = await findDuplicateReservation(env, { customerId, email, phone, date, time });
+    if (duplicate) {
+      return jsonResponse({ error: "This customer already has a reservation for that date and time." }, 409);
     }
     // customer_email is NOT NULL in the table; phone bookings often have no email.
     const result = await runQuery(

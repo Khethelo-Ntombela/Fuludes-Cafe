@@ -2640,6 +2640,32 @@ async function loadReservations() {
   }
 }
 
+/** True once the booking's date and time (South Africa time, UTC+2, no DST) have passed. */
+function reservationTimePassed(r) {
+  const date = String(r.reservation_date || "").slice(0, 10);
+  const time = String(r.reservation_time || "00:00").slice(0, 5);
+  const when = new Date(`${date}T${time}:00+02:00`);
+  return !Number.isNaN(when.getTime()) && when.getTime() <= Date.now();
+}
+window.reservationTimePassed = reservationTimePassed;
+
+/** The food ordered with a booking (customer or admin pre-order): items, extras and the total. */
+function reservationOrderHtml(r) {
+  if (!r.advance_order_id) return "";
+  const items = Array.isArray(r.preorder_items) ? r.preorder_items : [];
+  if (!items.length && r.preorder_total == null) return "";
+  const lines = items
+    .map((it) => {
+      const extras = (Array.isArray(it.extras) ? it.extras : []).map((e) => e && e.name).filter(Boolean);
+      const detail = [it.spice_level, ...extras].filter(Boolean).map(escapeHtml).join(", ");
+      return `<li style="display:flex;justify-content:space-between;gap:12px"><span>${Number(it.quantity) || 1} × ${escapeHtml(it.name || "Item")}${detail ? ` <small style="opacity:.7">(${detail})</small>` : ""}</span><span>${money(it.subtotal)}</span></li>`;
+    })
+    .join("");
+  return `<div class="admin-item-meta" style="margin-top:8px"><strong>Order #${r.advance_order_id}</strong>
+    ${lines ? `<ul style="list-style:none;padding:0;margin:6px 0 0">${lines}</ul>` : ""}
+    <div style="display:flex;justify-content:space-between;gap:12px;margin-top:6px;padding-top:6px;border-top:1px solid rgba(128,128,128,.3)"><strong>Total</strong><strong>${money(r.preorder_total)}</strong></div></div>`;
+}
+
 /** Booking overview cards: today's covers, upcoming bookings, pending confirmations. */
 function renderReservationSummary() {
   const wrap = document.getElementById("resSummary");
@@ -2650,8 +2676,9 @@ function renderReservationSummary() {
   const todayKey = kdsDayKey();
   // Completed (fulfilled) bookings still count towards today's stats even
   // after the admin has cleared them from the list.
+  // Only Confirmed and Completed bookings are counted. Pending and Cancelled ones never show here.
   const today = reservations.filter(
-    (r) => r.reservation_date === todayKey && r.status !== "Cancelled",
+    (r) => r.reservation_date === todayKey && (r.status === "Confirmed" || r.status === "Completed"),
   );
   const upcoming = reservations.filter(
     (r) => r.reservation_date > todayKey && r.status !== "Cancelled" && r.status !== "Completed",
@@ -2703,6 +2730,8 @@ function renderReservations() {
         : "";
       // Paid pre-order: confirmed by the payment, so only Confirmed / Cancelled / Completed.
       const prepaid = ["paid", "refunded"].includes(reservation.preorder_payment_status);
+      const isCompleted = reservation.status === "Completed";
+      const timePassed = reservationTimePassed(reservation);
       const statusOptions = prepaid ? ["Confirmed", "Cancelled", "Completed"] : ["Pending", "Confirmed", "Cancelled", "Completed"];
       return `
         <div class="admin-item-card" style="flex-direction: column; align-items: stretch;">
@@ -2718,13 +2747,14 @@ function renderReservations() {
                   ? `<div class="admin-item-meta">Advance order requested: ${reservation.advance_order_details || "Details provided"}</div>`
                   : ""
             }
-            <div class="admin-item-meta">Status: ${reservation.status}</div>
+            ${reservationOrderHtml(reservation)}
+            <div class="admin-item-meta">Status: ${reservation.status}${isCompleted ? " (final)" : ""}</div>
           </div>
           <div class="admin-form-inline" style="padding: 0; margin-top: 10px;">
-            <select data-reservation-status="${reservation.id}" data-prepaid="${prepaid && reservation.preorder_payment_status === "paid" ? "1" : ""}" data-total="${reservation.preorder_total || 0}">
-              ${statusOptions.map((s) => `<option value="${s}" ${reservation.status === s ? "selected" : ""}>${s}</option>`).join("")}
+            <select data-reservation-status="${reservation.id}" ${isCompleted ? "disabled" : ""} data-prepaid="${prepaid && reservation.preorder_payment_status === "paid" ? "1" : ""}" data-total="${reservation.preorder_total || 0}">
+              ${statusOptions.map((s) => `<option value="${s}" ${reservation.status === s ? "selected" : ""} ${s === "Completed" && !timePassed && !isCompleted ? "disabled" : ""}>${s}${s === "Completed" && !timePassed && !isCompleted ? " (after the booking time)" : ""}</option>`).join("")}
             </select>
-            <button type="button" class="btn btn-primary admin-mini-btn" data-reservation-update="${reservation.id}">Save</button>
+            ${isCompleted ? "" : `<button type="button" class="btn btn-primary admin-mini-btn" data-reservation-update="${reservation.id}">Save</button>`}
             ${reservation.status === "Completed" || reservation.status === "Cancelled" ? `<button type="button" class="btn admin-mini-btn" data-reservation-clear="${reservation.id}" title="Remove from this list"><i class="fas fa-eraser"></i> Clear</button>` : ""}
             <a class="btn admin-mini-btn wa-btn" target="_blank" rel="noopener" title="Send the customer a WhatsApp confirmation"
                href="${window.waLink ? window.waLink(reservation.customer_phone, reservationWhatsAppText(reservation)) : "#"}"><i class="fab fa-whatsapp"></i> WhatsApp</a>

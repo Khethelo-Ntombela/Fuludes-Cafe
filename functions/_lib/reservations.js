@@ -118,3 +118,28 @@ export async function expireStalePreorders(env) {
         AND ((reservation_date + reservation_time) AT TIME ZONE 'Africa/Johannesburg') < NOW();`,
   ).catch(() => {});
 }
+
+export const DUPLICATE_RESERVATION_MESSAGE =
+  "You already have a reservation for that date and time. Please choose a different time, or contact us to change the existing booking.";
+
+/**
+ * Is there already a (non-cancelled) booking for this same date and time by the same customer?
+ * "Same customer" = the same account, email address or phone number.
+ */
+export async function findDuplicateReservation(env, { customerId, email, phone, date, time }) {
+  const res = await runQuery(
+    env,
+    `SELECT id FROM customer_reservations
+      WHERE reservation_date = $1::date
+        AND reservation_time = $2::time
+        AND status <> 'Cancelled'
+        AND (
+          ($3::int IS NOT NULL AND customer_id = $3::int)
+          OR ($4::text <> '' AND LOWER(customer_email) = LOWER($4::text))
+          OR ($5::text <> '' AND customer_phone = $5::text)
+        )
+      LIMIT 1;`,
+    [date, time, customerId || null, email || "", phone || ""],
+  );
+  return res.rows[0] || null;
+}
