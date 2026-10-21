@@ -2751,10 +2751,10 @@ function renderReservations() {
             <div class="admin-item-meta">Status: ${reservation.status}${isCompleted ? " (final)" : ""}</div>
           </div>
           <div class="admin-form-inline" style="padding: 0; margin-top: 10px;">
-            <select data-reservation-status="${reservation.id}" ${isCompleted ? "disabled" : ""} data-prepaid="${prepaid && reservation.preorder_payment_status === "paid" ? "1" : ""}" data-total="${reservation.preorder_total || 0}">
+            ${isCompleted ? "" : `<select data-reservation-status="${reservation.id}" data-prepaid="${prepaid && reservation.preorder_payment_status === "paid" ? "1" : ""}" data-total="${reservation.preorder_total || 0}">
               ${statusOptions.map((s) => `<option value="${s}" ${reservation.status === s ? "selected" : ""} ${s === "Completed" && !timePassed && !isCompleted ? "disabled" : ""}>${s}${s === "Completed" && !timePassed && !isCompleted ? " (after the booking time)" : ""}</option>`).join("")}
             </select>
-            ${isCompleted ? "" : `<button type="button" class="btn btn-primary admin-mini-btn" data-reservation-update="${reservation.id}">Save</button>`}
+            <button type="button" class="btn btn-primary admin-mini-btn" data-reservation-update="${reservation.id}">Save</button>`}
             ${reservation.status === "Completed" || reservation.status === "Cancelled" ? `<button type="button" class="btn admin-mini-btn" data-reservation-clear="${reservation.id}" title="Remove from this list"><i class="fas fa-eraser"></i> Clear</button>` : ""}
             <a class="btn admin-mini-btn wa-btn" target="_blank" rel="noopener" title="Send the customer a WhatsApp confirmation"
                href="${window.waLink ? window.waLink(reservation.customer_phone, reservationWhatsAppText(reservation)) : "#"}"><i class="fab fa-whatsapp"></i> WhatsApp</a>
