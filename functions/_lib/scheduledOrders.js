@@ -18,7 +18,7 @@ export function scheduledForFromPickup(pickupTime, now = new Date()) {
   const text = String(pickupTime || "").trim().toLowerCase();
   if (RELATIVE[text]) return new Date(now.getTime() + RELATIVE[text] * 60000);
   // "at 18:30" (a chosen collection/delivery slot today) or "arriving at 6:30 pm" (dine-in)
-  const slot = /^at (\d{1,2}):(\d{2})$/.exec(text);
+  const slot = /^at (\d{1,2}):(\d{2})(?:\s*-\s*\d{1,2}:\d{2})?$/.exec(text); // "at 18:30" or a range "at 14:00 - 14:30" (starts at 14:00)
   const m = slot || /^arriving at (\d{1,2}):(\d{2})\s*(am|pm)$/.exec(text);
   if (!m) return null;
   let h = slot ? +m[1] : +m[1] % 12;

@@ -1368,7 +1368,8 @@ window.waLink = waLink;
 // ---- Dine in: date + time like the customer's table booking (South Africa time) ----
 // Opening hours come from Settings > General > Business Hours (window.adminHoursWindow in admin.js)
 const PO_SLOT_MIN = 30;
-const PO_LEAD_MIN = 90; // same lead the customer gets for collection/delivery times today
+const PO_LEAD_MIN = 90; // dine-in times today start this far ahead
+const PO_RANGE_LEAD_MIN = 120; // collection/delivery ranges start 2 hours ahead, like the customer's Preferred Time
 
 function poCafeNow() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -1418,14 +1419,20 @@ function renderDineTimes() {
   if (tableLabel) tableLabel.innerHTML = later ? "Table number <small>(optional for a booking)</small>" : "Table number";
 }
 
-/** Collection/delivery time, like the customer's Preferred Time: As soon as possible (no time needed), then today's half-hour slots from 1h30 ahead. */
+/** Collection/delivery time, like the customer's Preferred Time: As soon as possible (no time needed), then 30-minute ranges starting 2 hours ahead (rounded up to the half-hour). */
 function renderPickupTimes() {
   const sel = $id("orderPickupTime");
   if (!sel) return;
   const now = poCafeNow();
   const previous = sel.value;
   sel.innerHTML = `<option value="As soon as possible">As soon as possible</option>` +
-    poSlotsFor(now.dateKey, now.minutes + PO_LEAD_MIN).map((t) => `<option value="At ${t}">${t}</option>`).join("");
+    poSlotsFor(now.dateKey, now.minutes + PO_RANGE_LEAD_MIN).map((t) => {
+      const [h, m] = t.split(":").map(Number);
+      const e = h * 60 + m + PO_SLOT_MIN;
+      const end = `${String(Math.floor(e / 60)).padStart(2, "0")}:${String(e % 60).padStart(2, "0")}`;
+      const dayWin = window.adminHoursWindow ? window.adminHoursWindow(new Date(now.dateKey + "T00:00:00Z").getUTCDay()) : null;
+      return dayWin && e > dayWin.close ? "" : `<option value="At ${t} - ${end}">${t} - ${end}</option>`;
+    }).join("");
   if ([...sel.options].some((o) => o.value === previous)) sel.value = previous;
 }
 

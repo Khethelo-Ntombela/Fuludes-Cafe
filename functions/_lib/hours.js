@@ -20,7 +20,8 @@ export const DEFAULT_HOURS = {
 
 export const NOT_OPEN_MESSAGE =
   "Sorry, try a different time because we don't operate at the time you chose.";
-export const SLOT_MINUTES = 30; // reservations and chosen collection/delivery times are on the half-hour
+export const SLOT_MINUTES = 30;
+export const RANGE_LEAD_MINUTES = 120; // collection/delivery ranges start at least 2 hours from now // reservations and chosen collection/delivery times are on the half-hour
 export const CLOSED_MESSAGE = "Can't order at this time, we are currently closed.";
 export const ORDER_CUTOFF_MINUTES = 60; // online orders stop this long before closing
 export const LAST_ORDERS_MESSAGE =
@@ -151,7 +152,24 @@ export function isTakingOrdersNow(hours = DEFAULT_HOURS) {
  * that is still ahead and before closing. Returns null when fine, otherwise a customer-facing message.
  */
 export function validatePickupSlot(pickupTime, hours = DEFAULT_HOURS) {
-  const m = /^at (\d{1,2}):(\d{2})$/i.exec(String(pickupTime || "").trim());
+  const text = String(pickupTime || "").trim();
+  // Collection/delivery range, e.g. "At 14:00 - 14:30": a 30-minute range that starts 2 hours or more ahead.
+  const r = /^at (\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/i.exec(text);
+  if (r) {
+    const start = +r[1] * 60 + +r[2];
+    const end = +r[3] * 60 + +r[4];
+    const now = cafeNow();
+    const win = windowFor(hours, now.weekday);
+    if (!win || start % SLOT_MINUTES !== 0 || end - start !== SLOT_MINUTES || start < win.open || end > win.close) {
+      return "Please choose one of the times in the Preferred Time list.";
+    }
+    // The list starts 2 hours ahead; allow a little slack for a checkout that took a while.
+    if (start <= now.minutes + RANGE_LEAD_MINUTES - 60) {
+      return "That time is too soon now. Please choose a later time from the Preferred Time list.";
+    }
+    return null;
+  }
+  const m = /^at (\d{1,2}):(\d{2})$/i.exec(text);
   if (!m) return null; // "As soon as possible" (and older wording) needs no check
   const minutes = +m[1] * 60 + +m[2];
   const now = cafeNow();

@@ -1599,13 +1599,13 @@ function invalidateQuoteOnEdit() {
   }
 }
 
-/** "Preferred Time": As soon as possible, then today's half-hour slots from 1h30 from now. */
+/** "Preferred Time": As soon as possible, then 30-minute ranges starting 2 hours from now (rounded up to the half-hour). */
 function renderPickupTimeSlots() {
   const pickupSelect = document.getElementById("pickup-time-slot");
   const previous = pickupSelect.value;
   pickupSelect.innerHTML =
     `<option value="As soon as possible">As soon as possible</option>` +
-    orderTimeSlotsToday().map((t) => `<option value="At ${t}">${t}</option>`).join("");
+    orderTimeRangesToday().map((r) => `<option value="At ${r.start} - ${r.end}">${r.start} - ${r.end}</option>`).join("");
   if ([...pickupSelect.options].some((o) => o.value === previous)) pickupSelect.value = previous;
 }
 

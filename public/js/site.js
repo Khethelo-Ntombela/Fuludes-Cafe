@@ -1097,7 +1097,8 @@ function ordersClosedMessage() {
 
 // ---- Half-hour time slots (reservations, and collection/delivery "Preferred Time") ----
 const SLOT_MINUTES = 30;
-const ORDER_LEAD_MINUTES = 90; // a chosen collection/delivery time is at least 1h30 away
+const ORDER_LEAD_MINUTES = 90; // (dine-in times only) a chosen time is at least 1h30 away
+const ORDER_RANGE_LEAD_MINUTES = 120; // collection/delivery ranges start at least 2 hours away
 
 /** Today's date, weekday and minutes past midnight in South Africa time. */
 function cafeNow() {
@@ -1136,10 +1137,15 @@ function reservationSlotsFor(dateStr) {
   return cafeSlotsFor(dateStr, dateStr === now.dateKey ? now.minutes + 1 : 0);
 }
 
-/** Collection/delivery times for today: from 1h30 from now, every half-hour until closing. */
-function orderTimeSlotsToday() {
+/**
+ * Collection/delivery ranges for today: now + 2 hours, rounded up to the next half-hour,
+ * then 30-minute ranges ("14:00 - 14:30") until the last one that ends by closing time.
+ */
+function orderTimeRangesToday() {
   const now = cafeNow();
-  return cafeSlotsFor(now.dateKey, now.minutes + ORDER_LEAD_MINUTES);
+  return cafeSlotsFor(now.dateKey, now.minutes + ORDER_RANGE_LEAD_MINUTES)
+    .map((start) => ({ start, end: minutesToHHMM(hhmmToMinutes(start) + SLOT_MINUTES) }))
+    .filter((r) => hhmmToMinutes(r.end) <= (OPENING_HOURS[now.weekday]?.close ?? 0));
 }
 
 /** Reads a fetch response as JSON without throwing when the server sent an HTML error page. */
