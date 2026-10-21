@@ -3580,3 +3580,55 @@ html {
 .my-review-edit-btn { margin-top: 4px; }
 .my-review-edit-form { margin-top: 12px; }
 .my-review-edit-form .btn + .btn { margin-left: 8px; }
+
+/* Reservation window: delete a single booking */
+.receipt-card-header .reservation-delete-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid #b42318;
+  border-radius: 999px;
+  background: transparent;
+  color: #b42318;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.receipt-card-header .reservation-delete-btn:hover:not(:disabled) { background: #b42318; color: #fff; }
+.receipt-card-header .reservation-delete-btn:disabled { opacity: 0.6; cursor: default; }
+
+/* Cart: "x" on the pre-order message */
+.preorder-banner-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #6b5a1e;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.preorder-banner-close:hover:not(:disabled) { background: rgba(0, 0, 0, 0.08); color: #b42318; }
+.preorder-banner-close:disabled { opacity: 0.5; cursor: default; }
+
+/* My Orders: "History" link next to the title */
+.my-orders-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 14px; }
+.my-orders-history-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: #8a6d1d;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.my-orders-history-link:hover { color: #000; }

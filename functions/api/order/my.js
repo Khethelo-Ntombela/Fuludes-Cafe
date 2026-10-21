@@ -7,11 +7,13 @@ import { ensureScheduleColumns } from "../../_lib/scheduledOrders.js";
 import { deleteExpiredUnpaidOrders } from "../../_lib/repriceOrder.js";
 
 const MAX_ORDERS = 100;
+const HISTORY_ORDERS = 5; // "History" always shows the 5 most recent completed orders
 
 export async function onRequestGet(context) {
   const { request, env } = context;
   const { customer, error } = await requireCustomer(request, env);
   if (error) return error;
+  const history = new URL(request.url).searchParams.get("history") === "1";
 
   // Sends the "new paid order" notification for orders whose 2-minute window just ended.
   queueDueNewOrderPushes(context);
@@ -31,13 +33,15 @@ export async function onRequestGet(context) {
                 FROM customer_reservations r WHERE r.advance_order_id = orders.id LIMIT 1) AS reservation
       FROM orders
       WHERE customer_id = $1
-        AND created_at > NOW() - INTERVAL '24 hours'
+        AND ${history
+          ? "status = 'Completed'"
+          : `created_at > NOW() - INTERVAL '24 hours'
         AND (payment_status NOT IN ('awaiting', 'failed')
              OR COALESCE((SELECT ((r.reservation_date + r.reservation_time) AT TIME ZONE 'Africa/Johannesburg')
-                            FROM customer_reservations r WHERE r.advance_order_id = orders.id LIMIT 1), 'infinity'::timestamptz) > NOW())
+                            FROM customer_reservations r WHERE r.advance_order_id = orders.id LIMIT 1), 'infinity'::timestamptz) > NOW())`}
       ORDER BY created_at DESC
       LIMIT $2;
-    `, [customer.id, MAX_ORDERS]);
+    `, [customer.id, history ? HISTORY_ORDERS : MAX_ORDERS]);
 
     const orderIds = ordersResult.rows.map((o) => o.id);
     let itemsByOrder = {};

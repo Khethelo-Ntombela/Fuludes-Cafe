@@ -1161,7 +1161,7 @@ async function loadExistingReservations() {
             ? `<button type="button" class="receipt-cancel-btn" data-pay-preorder="${r.advance_order_id}">Pay for my pre-order${r.preorder_total ? ` (${money(r.preorder_total)})` : ""}</button>`
             : `<button type="button" class="receipt-cancel-btn" data-continue-preorder="${r.id}" data-date="${escapeHtml(String(date).slice(0, 10))}" data-time="${escapeHtml(hhmm)}" data-party="${size}">Continue pre-order</button>`;
       return `<div class="receipt-card" style="margin-bottom:10px">
-        <div class="receipt-card-header"><strong>${escapeHtml(formatReservationWhen(date, time))}</strong></div>
+        <div class="receipt-card-header"><strong>${escapeHtml(formatReservationWhen(date, time))}</strong><button type="button" class="reservation-delete-btn" data-delete-reservation="${r.id}" aria-label="Delete this reservation" title="Delete this reservation"><i class="fas fa-trash-can"></i> Delete</button></div>
         <div class="receipt-meta">${size} guest${size > 1 ? "s" : ""}${r.table_number ? ` · Table ${escapeHtml(r.table_number)}` : ""}${prepaid ? ` · Pre-order ${r.preorder_payment_status === "refunded" ? "refunded" : "paid"}` : ""}</div>
         <div style="margin:6px 0;font-weight:600;color:${colors[status] || "#8a6d1d"}">Status: ${escapeHtml(labels[status] || status)}</div>
         ${note ? `<p class="reservation-note${status === "Cancelled" ? " is-cancelled" : ""}">${note}</p>` : ""}
@@ -1170,6 +1170,25 @@ async function loadExistingReservations() {
     }).join("");
   const clearBtn = document.getElementById("reservationClearBtn");
   if (clearBtn) clearBtn.addEventListener("click", clearReservationHistory);
+  reservationExisting.querySelectorAll("[data-delete-reservation]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const id = Number(btn.dataset.deleteReservation);
+      const card = btn.closest(".receipt-card");
+      const unpaid = card && /Waiting for your pre-order payment/.test(card.textContent);
+      if (!confirm(unpaid
+        ? "Delete this reservation? It will be cancelled and its unpaid pre-order removed."
+        : "Delete this reservation from your list? The cafe keeps its own record - contact us if you need to change or cancel the booking.")) return;
+      btn.disabled = true;
+      try {
+        await deleteReservation(id);
+        if (card) card.remove(); // gone straight away, no refresh needed
+        await loadExistingReservations();
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+      }
+    }),
+  );
   reservationExisting.querySelectorAll("[data-pay-preorder]").forEach((btn) =>
     btn.addEventListener("click", async () => {
       btn.disabled = true;
@@ -1205,6 +1224,32 @@ async function loadExistingReservations() {
   reservationForm.style.display = "block";
 }
 
+/**
+ * Deletes ONE booking: on the account (signed in) or from this device's list (guests).
+ * If it is the booking a pre-order is being built for, the cart's pre-order message goes too -
+ * the cart listens for "fulude:preorder-cleared" so it updates without a refresh.
+ */
+async function deleteReservation(id) {
+  if (currentCustomer && customerToken) {
+    const res = await fetch(`/api/reservations?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${customerToken}` },
+    });
+    const data = await res.json().catch(() => ({}));
+    // 404 = already gone on the server - treat as deleted
+    if (!(res.ok && data.success) && res.status !== 404) throw new Error(data.error || "Couldn't delete this reservation.");
+  }
+  try {
+    const list = JSON.parse(localStorage.getItem(MY_RES_KEY) || "[]").filter((x) => Number(x.id) !== Number(id));
+    localStorage.setItem(MY_RES_KEY, JSON.stringify(list));
+  } catch { /* ignore */ }
+  const active = (() => { try { return JSON.parse(localStorage.getItem(ACTIVE_RES_KEY) || "null"); } catch { return null; } })();
+  if (active && Number(active.id) === Number(id)) {
+    localStorage.removeItem(ACTIVE_RES_KEY);
+    window.dispatchEvent(new CustomEvent("fulude:preorder-cleared"));
+  }
+}
+
 // "Clear history": removes every booking from the customer's own list
 async function clearReservationHistory() {
   if (!confirm("Clear your reservation history? Your bookings will be removed from this list. The cafe still has them - contact us if you need to change or cancel one.")) return;
@@ -1218,6 +1263,7 @@ async function clearReservationHistory() {
     }
     localStorage.removeItem(MY_RES_KEY);
     localStorage.removeItem(ACTIVE_RES_KEY);
+    window.dispatchEvent(new CustomEvent("fulude:preorder-cleared"));
     await loadExistingReservations();
   } catch (err) {
     alert(err.message);
@@ -1408,6 +1454,34 @@ const CUSTOMER_CANCEL_WINDOW_MS = 2 * 60 * 1000; // same value as in functions/a
 let expandedReceipts = new Set(); // which order ids currently have "View Receipt" open
 let myOrdersPollTimer = null;
 let cancelCountdownTimer = null;
+let myOrdersView = "current"; // "current" (last 24 hours) or "history" (5 most recent completed orders)
+
+/** A "History" link next to the "My Orders" title; it flips between the two views. */
+function setupMyOrdersHistoryLink() {
+  const title = myOrdersModal.querySelector("h3");
+  if (!title || document.getElementById("myOrdersHistoryLink")) return;
+  title.classList.add("my-orders-title");
+  const link = document.createElement("button");
+  link.type = "button";
+  link.id = "myOrdersHistoryLink";
+  link.className = "my-orders-history-link";
+  link.addEventListener("click", () => setMyOrdersView(myOrdersView === "history" ? "current" : "history"));
+  title.appendChild(link);
+  updateMyOrdersViewUI();
+}
+function updateMyOrdersViewUI() {
+  const link = document.getElementById("myOrdersHistoryLink");
+  if (link) link.innerHTML = myOrdersView === "history" ? '<i class="fas fa-arrow-left"></i> Back to my orders' : '<i class="fas fa-clock-rotate-left"></i> History';
+  const title = myOrdersModal.querySelector("h3");
+  if (title && title.firstChild) title.firstChild.textContent = myOrdersView === "history" ? "Order History " : "My Orders ";
+}
+function setMyOrdersView(view) {
+  myOrdersView = view;
+  updateMyOrdersViewUI();
+  expandedReceipts = new Set();
+  if (currentCustomer) myOrdersList.innerHTML = loadingSpinnerHtml(view === "history" ? "Loading your order history…" : "Loading your orders…");
+  refreshMyOrders();
+}
 
 /** Loads js/pwa.js once (only customers who open My Orders need it). */
 let pwaScriptPromise = null;
@@ -1453,6 +1527,9 @@ async function openMyOrdersModal() {
   if (currentCustomer) myOrdersList.innerHTML = loadingSpinnerHtml("Loading your orders…");
   myOrdersModal.classList.add("active");
   if (currentCustomer) setupOrderNotifyToggle();
+  setupMyOrdersHistoryLink();
+  myOrdersView = "current"; // always open on the current orders
+  updateMyOrdersViewUI();
   await refreshMyOrders();
 
   clearInterval(myOrdersPollTimer);
@@ -1639,9 +1716,11 @@ async function refreshMyOrders() {
   }
 
   try {
-    const res = await fetch("/api/order/my", {
+    const viewAtRequest = myOrdersView;
+    const res = await fetch(viewAtRequest === "history" ? "/api/order/my?history=1" : "/api/order/my", {
       headers: { Authorization: `Bearer ${customerToken}` },
     });
+    if (viewAtRequest !== myOrdersView) return; // the customer switched views meanwhile
     if (res.status === 401) {
       myOrdersList.innerHTML = `<p class="menu-empty">Your session has expired. Please sign in again.</p>`;
       clearInterval(myOrdersPollTimer);
@@ -1651,12 +1730,16 @@ async function refreshMyOrders() {
     const orders = data.orders || [];
 
     if (orders.length === 0) {
-      myOrdersList.innerHTML = `<p class="menu-empty">You have no orders from the last 24 hours.</p>`;
+      myOrdersList.innerHTML = myOrdersView === "history"
+        ? `<p class="menu-empty">No completed orders yet. Your 5 most recent completed orders will show here.</p>`
+        : `<p class="menu-empty">You have no orders from the last 24 hours.</p>`;
       return;
     }
 
     myOrdersById = new Map(orders.map((o) => [o.id, o]));
-    myOrdersList.innerHTML = orders.map(renderReceiptCard).join("");
+    myOrdersList.innerHTML = (myOrdersView === "history"
+      ? `<p class="receipt-meta" style="margin:0 0 10px">Your ${orders.length === 1 ? "most recent completed order" : `${orders.length} most recent completed orders`}</p>`
+      : "") + orders.map((o) => renderReceiptCard(o, { history: myOrdersView === "history" })).join("");
   } catch {
     myOrdersList.innerHTML = `<p class="menu-empty">Couldn't load your orders right now. Please try again.</p>`;
     return;
@@ -2041,7 +2124,7 @@ function formatClearsIn(createdAt) {
   return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`;
 }
 
-function renderReceiptCard(order) {
+function renderReceiptCard(order, { history = false } = {}) {
   const itemsHtml = order.items
     .map((item) => {
       const extras = Array.isArray(item.extras)
@@ -2081,7 +2164,7 @@ function renderReceiptCard(order) {
         <strong>Order #${order.id}</strong>
       </div>
       <div class="receipt-meta">${placedDate} · ${orderTypeLabel}</div>
-      <div class="receipt-meta" style="font-style:italic">Clears in: ${formatClearsIn(order.created_at)}</div>
+      ${history ? "" : `<div class="receipt-meta" style="font-style:italic">Clears in: ${formatClearsIn(order.created_at)}</div>`}
 
       ${renderStatusTracker(order)}
       ${renderOrderEta(order)}

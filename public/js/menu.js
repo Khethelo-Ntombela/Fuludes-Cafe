@@ -1901,8 +1901,36 @@ function refreshPreorderUI() {
     const back = document.getElementById("cartPageBack");
     if (back) back.after(banner); else panel.prepend(banner);
   }
-  banner.innerHTML = `<strong>Pre-order for your table</strong><br>${escapeHtml(formatReservationWhen(r.date, r.time))}${r.party ? ` · ${r.party} guest${r.party > 1 ? "s" : ""}` : ""}<br>Dine In is set for you. Add, edit or remove items, then check out.`;
+  banner.style.position = "relative";
+  banner.style.paddingRight = "36px";
+  banner.innerHTML = `<button type="button" class="preorder-banner-close" id="preorderBannerClose" aria-label="Remove this pre-order and delete the reservation" title="Remove pre-order &amp; delete reservation">&times;</button><strong>Pre-order for your table</strong><br>${escapeHtml(formatReservationWhen(r.date, r.time))}${r.party ? ` · ${r.party} guest${r.party > 1 ? "s" : ""}` : ""}<br>Dine In is set for you. Add, edit or remove items, then check out.`;
+  document.getElementById("preorderBannerClose").addEventListener("click", clearPreorderFromCart);
 }
+
+/**
+ * The "x" on the pre-order message: drops the pre-order and deletes that booking from the stored
+ * reservations too. The banner disappears and the cart goes back to a normal order straight
+ * away - no refresh needed. (Items already in the cart stay.)
+ */
+async function clearPreorderFromCart() {
+  const r = getActiveReservation();
+  if (!r) { refreshPreorderUI(); return; }
+  if (!confirm("Remove this pre-order? Your table reservation for " + formatReservationWhen(r.date, r.time) + " will be deleted too.")) return;
+  const closeBtn = document.getElementById("preorderBannerClose");
+  if (closeBtn) closeBtn.disabled = true;
+  try {
+    if (r.id) await deleteReservation(r.id); // removes it from the stored reservations (and clears the active pre-order)
+    localStorage.removeItem(ACTIVE_RES_KEY);
+    refreshPreorderUI();
+    renderCart();
+    showCartToast("Pre-order removed and your reservation deleted.", "info");
+  } catch (err) {
+    if (closeBtn) closeBtn.disabled = false;
+    showCartToast(err.message || "Couldn't delete the reservation. Please try again.", "error");
+  }
+}
+// Deleted from the reservation window while the cart is showing it
+window.addEventListener("fulude:preorder-cleared", () => { refreshPreorderUI(); renderCart(); });
 
 // Editing an unpaid order from My Orders: its items are put back in the cart, and checking
 // out again replaces that order (the server removes the old, unpaid one).

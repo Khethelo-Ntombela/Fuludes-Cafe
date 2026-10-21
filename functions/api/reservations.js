@@ -1,5 +1,5 @@
 // POST /api/reservations
-import { expireStalePreorders } from "../_lib/reservations.js";
+import { expireStalePreorders, cancelAndRefundOrder } from "../_lib/reservations.js";
 import { deleteExpiredUnpaidOrders } from "../_lib/repriceOrder.js";
 import { runQuery, jsonResponse } from "../_lib/db.js";
 import {
@@ -53,13 +53,62 @@ export async function onRequestGet(context) {
   }
 }
 
+// DELETE /api/reservations?id=12  -> removes that one booking from the customer's list
+// DELETE /api/reservations        -> clears the whole list ("Clear history")
 export async function onRequestDelete(context) {
   const { request, env } = context;
   const { customer, error } = await requireCustomer(request, env);
   if (error) return error;
 
+  const idParam = new URL(request.url).searchParams.get("id");
+
   try {
     await ensureHiddenByCustomerColumn(env);
+
+    if (idParam !== null) {
+      const id = parseInt(idParam, 10);
+      if (!Number.isInteger(id)) return jsonResponse({ error: "A valid reservation id is required." }, 400);
+
+      const found = (
+        await runQuery(
+          env,
+          `SELECT r.id, r.status, r.advance_order_id, o.payment_status AS order_payment_status
+             FROM customer_reservations r
+             LEFT JOIN orders o ON o.id = r.advance_order_id
+            WHERE r.id = $1 AND r.customer_id = $2 AND NOT r.hidden_by_customer;`,
+          [id, customer.id],
+        )
+      ).rows[0];
+      if (!found) return jsonResponse({ error: "That reservation was not found." }, 404);
+
+      // A booking still waiting for its pre-order payment is dropped completely, so the
+      // unpaid pre-order can't confirm it later. Paid / confirmed bookings are only hidden.
+      if (found.status === "AwaitingPayment") {
+        await runQuery(
+          env,
+          "UPDATE customer_reservations SET status = 'Cancelled', admin_cleared = TRUE WHERE id = $1 AND status = 'AwaitingPayment';",
+          [id],
+        );
+        if (found.advance_order_id && found.order_payment_status !== "paid") {
+          await cancelAndRefundOrder(env, found.advance_order_id, "customer").catch(() => {});
+        }
+      }
+      await runQuery(env, "UPDATE customer_reservations SET hidden_by_customer = TRUE WHERE id = $1 AND customer_id = $2;", [id, customer.id]);
+
+      await logAudit(env, {
+        actor_type: "customer",
+        actor_id: customer.id,
+        actor_role: "customer",
+        actor_ip: getRequestIp(request),
+        action: "reservation_deleted_by_customer",
+        target_type: "reservation",
+        target_id: id,
+        details: { previous_status: found.status },
+      }).catch(() => {});
+
+      return jsonResponse({ success: true, deleted_id: id });
+    }
+
     const result = await runQuery(
       env,
       "UPDATE customer_reservations SET hidden_by_customer = TRUE WHERE customer_id = $1 AND NOT hidden_by_customer RETURNING id;",
@@ -67,7 +116,7 @@ export async function onRequestDelete(context) {
     );
     return jsonResponse({ success: true, cleared_count: result.rows.length });
   } catch (err) {
-    return jsonResponse({ error: "Couldn't clear your reservation history.", message: err.message }, 500);
+    return jsonResponse({ error: "Couldn't remove your reservation.", message: err.message }, 500);
   }
 }
 
