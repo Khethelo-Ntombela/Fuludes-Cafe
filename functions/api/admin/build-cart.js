@@ -6,7 +6,7 @@ import { generateToken } from "../../_lib/password.js";
 import { logAudit } from "../../_lib/audit.js";
 import { calculateDeliveryFee } from "../../_lib/delivery.js";
 import { createYocoCheckout } from "../../_lib/yoco.js";
-import { validateReservationSlot, validatePickupSlot } from "../../_lib/hours.js";
+import { getBusinessHours, isOpenNow, validateReservationSlot, validatePickupSlot, OUTSIDE_HOURS_LINK_MESSAGE } from "../../_lib/hours.js";
 import { ensureScheduleColumns, scheduledForFromPickup } from "../../_lib/scheduledOrders.js";
 
 export async function onRequestPost(context) {
@@ -49,6 +49,14 @@ export async function onRequestPost(context) {
       { error: "Incomplete details: customer name, phone and cart items are required." },
       400,
     );
+  }
+
+  // Outside working hours (the hours saved in Settings > General): no payment link for a collection,
+  // delivery or dine-in-today order. A table booking for a later date is allowed - its time is checked
+  // against the opening hours of that day below.
+  const hours = await getBusinessHours(env);
+  if (!isReservation && !isOpenNow(hours)) {
+    return jsonResponse({ error: OUTSIDE_HOURS_LINK_MESSAGE, outside_hours: true }, 409);
   }
 
   try {
@@ -241,7 +249,7 @@ export async function onRequestPost(context) {
     // Dine in on a later date = a table reservation with a pre-order; today = a timed/ASAP order.
     let scheduledFor = null;
     if (orderType === "dine_in" && isReservation) {
-      const slotError = validateReservationSlot(dineDate, dineTime);
+      const slotError = validateReservationSlot(dineDate, dineTime, hours);
       if (slotError) return jsonResponse({ error: slotError }, 400);
       if (!Number.isInteger(partySize) || partySize < 1 || partySize > 200) {
         return jsonResponse({ error: "Enter how many people the booking is for." }, 400);
@@ -251,7 +259,7 @@ export async function onRequestPost(context) {
       pickupTime = `Reservation ${dineDate} at ${dineTime}`;
     } else {
       // Collection/delivery: "As soon as possible" or a half-hour slot today (same check as the customer's Preferred Time).
-      const slotError = validatePickupSlot(pickupTime);
+      const slotError = validatePickupSlot(pickupTime, hours);
       if (slotError) return jsonResponse({ error: slotError }, 400);
       // Dine in has no "as soon as possible": a time must be chosen.
       if (orderType === "dine_in" && !/^at \d{1,2}:\d{2}$/i.test(pickupTime.trim())) {

@@ -229,14 +229,16 @@ function paintCachedStatusCounts() {
 }
 
 function updateStatusCard() {
-  // Opening hours: Mon-Thu 09:00-18:00, Fri & Sun 09:00-20:00, Sat 09:00-21:00
-  const nowDate = new Date();
-  const day = nowDate.getDay(); // 0 = Sunday ... 6 = Saturday
-  const closeHour = day === 6 ? 21 : day === 5 || day === 0 ? 20 : 18;
-  const minutesNow = nowDate.getHours() * 60 + nowDate.getMinutes();
-  const open = minutesNow >= 9 * 60 && minutesNow < closeHour * 60;
+  // Open/Closed follows the opening hours saved in Settings > General > Business Hours (South Africa time)
+  const open = window.adminIsOpenNow ? window.adminIsOpenNow() : false;
   $id("statusOpenLabel").textContent = open ? "Open" : "Closed";
   $id("statusOpenDot").classList.toggle("closed", !open);
+  // Payment links can't be generated while closed - say so on the order form too
+  const closedNote = $id("payLinkClosedNote");
+  if (closedNote) {
+    closedNote.textContent = open ? "" : "The cafe is closed right now (outside working hours), so payment links can't be generated. A table booking for a later date still can.";
+    closedNote.style.display = open ? "none" : "block";
+  }
 
   // Orders can't be counted until the history has loaded - keep whatever is showing.
   if (!window.adminHistoryLoaded) return;
@@ -1364,7 +1366,7 @@ const waLink = (phone, text) => `https://wa.me/${waNumber(phone)}?text=${encodeU
 window.waLink = waLink;
 
 // ---- Dine in: date + time like the customer's table booking (South Africa time) ----
-const PO_HOURS = { open: 9 * 60, close: { 0: 20 * 60, 1: 18 * 60, 2: 18 * 60, 3: 18 * 60, 4: 18 * 60, 5: 20 * 60, 6: 21 * 60 } }; // keep in sync with functions/_lib/hours.js
+// Opening hours come from Settings > General > Business Hours (window.adminHoursWindow in admin.js)
 const PO_SLOT_MIN = 30;
 const PO_LEAD_MIN = 90; // same lead the customer gets for collection/delivery times today
 
@@ -1381,9 +1383,11 @@ function poSlotsFor(dateStr, earliest = 0) {
   const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr || "");
   if (!d) return [];
   const weekday = new Date(Date.UTC(+d[1], +d[2] - 1, +d[3])).getUTCDay();
-  const start = Math.max(PO_HOURS.open, Math.ceil(earliest / PO_SLOT_MIN) * PO_SLOT_MIN);
+  const win = window.adminHoursWindow ? window.adminHoursWindow(weekday) : null;
+  if (!win) return []; // closed all day
+  const start = Math.max(win.open, Math.ceil(earliest / PO_SLOT_MIN) * PO_SLOT_MIN);
   const slots = [];
-  for (let m = start; m < PO_HOURS.close[weekday]; m += PO_SLOT_MIN) {
+  for (let m = start; m < win.close; m += PO_SLOT_MIN) {
     slots.push(`${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`);
   }
   return slots;
@@ -1423,6 +1427,13 @@ function renderPickupTimes() {
   sel.innerHTML = `<option value="As soon as possible">As soon as possible</option>` +
     poSlotsFor(now.dateKey, now.minutes + PO_LEAD_MIN).map((t) => `<option value="At ${t}">${t}</option>`).join("");
   if ([...sel.options].some((o) => o.value === previous)) sel.value = previous;
+}
+
+/** Re-draws the order form's time lists after the opening hours change. */
+function refreshOrderFormHours() {
+  if (!$id("orderPickupTime")) return; // order form not on screen yet
+  if (poOrderType() === "dine_in") renderDineTimes();
+  else renderPickupTimes();
 }
 
 function updateOrderTypeFields() {
@@ -1727,6 +1738,7 @@ function initPlaceOrderTab() {
             <label for="orderCustomerEmail">Email <small>(optional - links the order to their account)</small></label>
             <input type="email" id="orderCustomerEmail" placeholder="customer@example.com">
           </div>
+          <p id="payLinkClosedNote" class="admin-hint" style="display: none; color: #b3261e; margin: 0 0 10px"></p>
           <button type="button" id="generatePayLinkBtn" class="btn btn-primary btn-block">
             <i class="fas fa-bolt"></i> Generate Payment Link
           </button>
@@ -1743,6 +1755,7 @@ function initPlaceOrderTab() {
 
   container.dataset.loaded = "true";
   $id("generatePayLinkBtn").addEventListener("click", generatePaymentLink);
+  updateStatusCard(); // shows the "closed - can't generate a link" note straight away if it applies
   $id("cancelPlaceOrderBtn").addEventListener("click", cancelPlaceOrder);
   $id("poJumpBtn").addEventListener("click", () =>
     document.querySelector(".place-order-sidebar").scrollIntoView({ behavior: "smooth", block: "start" }),

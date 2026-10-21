@@ -4,6 +4,7 @@ import { requireAdmin } from "../../_lib/auth.js";
 import { sanitizeText, getRequestIp } from "../../_lib/security.js";
 import { logAudit } from "../../_lib/audit.js";
 import { ensureConfigColumns } from "../../_lib/config.js";
+import { normalizeHours, validateHoursInput } from "../../_lib/hours.js";
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -16,7 +17,7 @@ export async function onRequestPost(context) {
 
     const currentRes = await runQuery(
       env,
-      "SELECT is_buffet_visible, is_out_of_service, out_of_service_reason, announcement_message FROM app_config WHERE id = 1;",
+      "SELECT is_buffet_visible, is_out_of_service, out_of_service_reason, announcement_message, business_hours FROM app_config WHERE id = 1;",
     );
     const cur = currentRes.rows[0] || {};
 
@@ -25,7 +26,9 @@ export async function onRequestPost(context) {
       is_out_of_service: !!cur.is_out_of_service,
       out_of_service_reason: cur.out_of_service_reason || null,
       announcement_message: cur.announcement_message || null,
+      business_hours: normalizeHours(cur.business_hours),
     };
+    const previousHours = next.business_hours;
 
     if (body.is_buffet_visible !== undefined) next.is_buffet_visible = !!body.is_buffet_visible;
     if (body.is_out_of_service !== undefined) next.is_out_of_service = !!body.is_out_of_service;
@@ -34,6 +37,12 @@ export async function onRequestPost(context) {
     }
     if (body.announcement_message !== undefined) {
       next.announcement_message = sanitizeText(body.announcement_message || "", 300) || null;
+    }
+
+    if (body.business_hours !== undefined) {
+      const checked = validateHoursInput(body.business_hours);
+      if (checked.error) return jsonResponse({ error: checked.error }, 400);
+      next.business_hours = checked.hours;
     }
 
     if (next.is_out_of_service && !next.out_of_service_reason) {
@@ -50,9 +59,10 @@ export async function onRequestPost(context) {
       env,
       `UPDATE app_config
           SET is_buffet_visible = $1, is_out_of_service = $2,
-              out_of_service_reason = $3, announcement_message = $4
+              out_of_service_reason = $3, announcement_message = $4,
+              business_hours = $5::jsonb
         WHERE id = 1;`,
-      [next.is_buffet_visible, next.is_out_of_service, next.out_of_service_reason, next.announcement_message],
+      [next.is_buffet_visible, next.is_out_of_service, next.out_of_service_reason, next.announcement_message, JSON.stringify(next.business_hours)],
     );
 
     // ---- Audit: one clear entry per thing that changed ----
@@ -96,6 +106,25 @@ export async function onRequestPost(context) {
         "buffet_visibility_updated",
         `Buffet section ${next.is_buffet_visible ? "shown on" : "hidden from"} the website.`,
         { changes: [{ label: "Buffet section", from: cur.is_buffet_visible ? "Visible" : "Hidden", to: next.is_buffet_visible ? "Visible" : "Hidden" }] },
+      );
+    }
+
+    // Business hours: one audit line listing exactly which days changed
+    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const describe = (d) => (d.closed ? "Closed" : `${d.open}-${d.close}`);
+    const hourChanges = [];
+    for (let d = 0; d < 7; d++) {
+      const before = previousHours[d];
+      const after = next.business_hours[d];
+      if (describe(before) !== describe(after)) {
+        hourChanges.push({ label: dayNames[d], from: describe(before), to: describe(after) });
+      }
+    }
+    if (hourChanges.length) {
+      await log(
+        "business_hours_updated",
+        `Business hours changed: ${hourChanges.map((c) => `${c.label} ${c.from} to ${c.to}`).join("; ")}.`,
+        { changes: hourChanges },
       );
     }
 

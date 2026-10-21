@@ -391,6 +391,7 @@ CREATE TABLE IF NOT EXISTS app_config (
   cafe_longitude     NUMERIC(9,6),
   cafe_phone         TEXT,
   cafe_email         TEXT,
+  business_hours     JSONB,
   CONSTRAINT single_row CHECK (id = 1)
 );
 ALTER TABLE app_config ADD COLUMN IF NOT EXISTS is_out_of_service BOOLEAN NOT NULL DEFAULT FALSE;
@@ -400,6 +401,7 @@ ALTER TABLE app_config ADD COLUMN IF NOT EXISTS cafe_latitude NUMERIC(9,6);
 ALTER TABLE app_config ADD COLUMN IF NOT EXISTS cafe_longitude NUMERIC(9,6);
 ALTER TABLE app_config ADD COLUMN IF NOT EXISTS cafe_phone TEXT;
 ALTER TABLE app_config ADD COLUMN IF NOT EXISTS cafe_email TEXT;
+ALTER TABLE app_config ADD COLUMN IF NOT EXISTS business_hours JSONB;
 INSERT INTO app_config (id, is_buffet_visible, cafe_latitude, cafe_longitude, cafe_phone, cafe_email)
 VALUES (1, FALSE, -22.98341, 30.35963, '+27 663 649 016', 'info@fuludescafe.co.za')
   ON CONFLICT (id) DO NOTHING;

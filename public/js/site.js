@@ -963,8 +963,93 @@ const reservationGoToMenuBtn = document.getElementById(
   "reservationGoToMenuBtn",
 );
 
-// ---- Opening hours (South Africa time) - keep in sync with functions/_lib/hours.js ----
-const OPENING_HOURS = { open: 9 * 60, close: { 0: 20 * 60, 1: 18 * 60, 2: 18 * 60, 3: 18 * 60, 4: 18 * 60, 5: 20 * 60, 6: 21 * 60 } };
+// ---- Opening hours (South Africa time) ----
+// The admin edits these in Settings > General > Business Hours; they come from /api/config
+// (see refreshBusinessHours below). The defaults here only apply until that answers - they match
+// DEFAULT_HOURS in functions/_lib/hours.js.
+const DEFAULT_BUSINESS_HOURS = {
+  0: { closed: false, open: "09:00", close: "20:00" },
+  1: { closed: false, open: "09:00", close: "18:00" },
+  2: { closed: false, open: "09:00", close: "18:00" },
+  3: { closed: false, open: "09:00", close: "18:00" },
+  4: { closed: false, open: "09:00", close: "18:00" },
+  5: { closed: false, open: "09:00", close: "20:00" },
+  6: { closed: false, open: "09:00", close: "21:00" },
+};
+let businessHoursRaw = DEFAULT_BUSINESS_HOURS;
+let OPENING_HOURS = {}; // weekday (0 = Sunday) -> { open, close } in minutes past midnight, or null when closed all day
+
+function hhmmToMinutes(str) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(str || ""));
+  return m ? +m[1] * 60 + +m[2] : null;
+}
+
+/** Loads a schedule from the server's format into OPENING_HOURS. */
+function applyBusinessHours(raw) {
+  const next = {};
+  for (let d = 0; d < 7; d++) {
+    const day = (raw && (raw[d] ?? raw[String(d)])) || DEFAULT_BUSINESS_HOURS[d];
+    const open = hhmmToMinutes(day.open);
+    const close = hhmmToMinutes(day.close);
+    next[d] = day.closed || open === null || close === null || close <= open ? null : { open, close };
+  }
+  OPENING_HOURS = next;
+  businessHoursRaw = raw || DEFAULT_BUSINESS_HOURS;
+}
+applyBusinessHours(DEFAULT_BUSINESS_HOURS);
+
+/** [{ days: [1,2,3,4], text: "09:00-18:00" | "Closed" }, ...] - days with the same hours grouped, Monday first. */
+function groupedBusinessHours() {
+  const order = [1, 2, 3, 4, 5, 6, 0];
+  const groups = [];
+  order.forEach((d, idx) => {
+    const day = businessHoursRaw[d] ?? businessHoursRaw[String(d)] ?? DEFAULT_BUSINESS_HOURS[d];
+    const text = day.closed ? "Closed" : `${day.open}-${day.close}`;
+    let g = groups.find((x) => x.text === text);
+    if (!g) groups.push((g = { text, idxs: [] }));
+    g.idxs.push(idx);
+  });
+  const names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  return groups.map((g) => {
+    const runs = [];
+    g.idxs.forEach((i) => {
+      const last = runs[runs.length - 1];
+      if (last && last[last.length - 1] === i - 1) last.push(i);
+      else runs.push([i]);
+    });
+    const label = runs
+      .map((r) => (r.length === 1 ? names[r[0]] : r.length === 2 ? `${names[r[0]]} & ${names[r[1]]}` : `${names[r[0]]}-${names[r[r.length - 1]]}`))
+      .join(" & ");
+    return { label, text: g.text };
+  });
+}
+
+/** Paints the hours into every [data-hours-lines] / [data-hours-sentence] element on the page. */
+function renderBusinessHours() {
+  const groups = groupedBusinessHours();
+  document.querySelectorAll("[data-hours-lines]").forEach((el) => {
+    el.innerHTML = groups.map((g) => `${g.label} : ${g.text}.`).join("<br>");
+  });
+  document.querySelectorAll("[data-hours-sentence]").forEach((el) => {
+    el.textContent = groups.map((g) => (g.text === "Closed" ? `${g.label} we're closed` : `${g.label} ${g.text}`)).join(", ");
+  });
+}
+
+/** Fetches the admin's current hours and applies them everywhere on this page. */
+async function refreshBusinessHours() {
+  const config = await fetchStoreConfig(); // also applies config.business_hours
+  if (config && config.business_hours) renderBusinessHours();
+}
+document.addEventListener("DOMContentLoaded", () => {
+  renderBusinessHours();
+  refreshBusinessHours();
+});
+// Pick up a change the admin made while this page was left open
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshBusinessHours();
+});
+setInterval(() => { if (!document.hidden) refreshBusinessHours(); }, 5 * 60 * 1000);
+
 const NOT_OPEN_MESSAGE = "Sorry, try a different time because we don't operate at the time you chose.";
 
 /** Returns an error message when the chosen date/time isn't bookable, else "". */
@@ -974,7 +1059,8 @@ function checkReservationSlot(dateStr, timeStr) {
   if (!d || !t) return "Please choose both a date and a time for your reservation.";
   const weekday = new Date(Date.UTC(+d[1], +d[2] - 1, +d[3])).getUTCDay();
   const minutes = +t[1] * 60 + +t[2];
-  if (minutes < OPENING_HOURS.open || minutes >= OPENING_HOURS.close[weekday]) return NOT_OPEN_MESSAGE;
+  const win = OPENING_HOURS[weekday];
+  if (!win || minutes < win.open || minutes >= win.close) return NOT_OPEN_MESSAGE;
   const now = new Date();
   const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   if (dateStr < todayKey || (dateStr === todayKey && minutes <= now.getHours() * 60 + now.getMinutes())) {
@@ -991,7 +1077,8 @@ function isCafeOpenNow() {
   const get = (t) => parts.find((p) => p.type === t)?.value;
   const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(get("weekday"));
   const minutes = (+get("hour") % 24) * 60 + +get("minute");
-  return minutes >= OPENING_HOURS.open && minutes < OPENING_HOURS.close[weekday];
+  const win = OPENING_HOURS[weekday];
+  return !!win && minutes >= win.open && minutes < win.close;
 }
 const CLOSED_MESSAGE = "Can't order at this time, we are currently closed.";
 const ORDER_CUTOFF_MINUTES = 60; // online orders stop 1 hour before closing - same as functions/_lib/hours.js
@@ -1000,7 +1087,8 @@ const LAST_ORDERS_MESSAGE = "Sorry, we've stopped taking online orders for today
 /** Are online orders being taken right now? From opening until 1 hour before closing. */
 function isTakingOrdersNow() {
   const now = cafeNow();
-  return now.minutes >= OPENING_HOURS.open && now.minutes < OPENING_HOURS.close[now.weekday] - ORDER_CUTOFF_MINUTES;
+  const win = OPENING_HOURS[now.weekday];
+  return !!win && now.minutes >= win.open && now.minutes < win.close - ORDER_CUTOFF_MINUTES;
 }
 /** Why ordering is unavailable right now. */
 function ordersClosedMessage() {
@@ -1033,9 +1121,11 @@ function cafeSlotsFor(dateStr, earliest = 0) {
   const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr || "");
   if (!d) return [];
   const weekday = new Date(Date.UTC(+d[1], +d[2] - 1, +d[3])).getUTCDay();
-  const start = Math.max(OPENING_HOURS.open, Math.ceil(earliest / SLOT_MINUTES) * SLOT_MINUTES);
+  const win = OPENING_HOURS[weekday];
+  if (!win) return []; // closed all day
+  const start = Math.max(win.open, Math.ceil(earliest / SLOT_MINUTES) * SLOT_MINUTES);
   const slots = [];
-  for (let m = start; m < OPENING_HOURS.close[weekday]; m += SLOT_MINUTES) slots.push(minutesToHHMM(m));
+  for (let m = start; m < win.close; m += SLOT_MINUTES) slots.push(minutesToHHMM(m));
   return slots;
 }
 
@@ -2323,6 +2413,7 @@ async function fetchStoreConfig() {
     if (!res.ok) return null;
     const config = await res.json();
     window.storeConfig = config;
+    if (config.business_hours) applyBusinessHours(config.business_hours); // admin-edited opening hours
     return config;
   } catch {
     return null;

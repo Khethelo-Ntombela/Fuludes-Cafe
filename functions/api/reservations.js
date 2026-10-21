@@ -8,7 +8,7 @@ import {
 } from "../_lib/customerAuth.js";
 import { sanitizeText, getRequestIp, isValidEmail, isValidName, normalizePhone, VALIDATION_MESSAGES } from "../_lib/security.js";
 import { logAudit } from "../_lib/audit.js";
-import { validateReservationSlot } from "../_lib/hours.js";
+import { getBusinessHours, validateReservationSlot } from "../_lib/hours.js";
 import { queuePush } from "../_lib/push.js";
 
 let hiddenColumnReady = false;
@@ -179,7 +179,7 @@ export async function onRequestPost(context) {
     );
   }
 
-  const slotError = validateReservationSlot(reservationDate, reservationTime);
+  const slotError = validateReservationSlot(reservationDate, reservationTime, await getBusinessHours(env));
   if (slotError) return jsonResponse({ error: slotError }, 400);
 
   let linkedCustomerId = customer?.id || null;

@@ -8,7 +8,7 @@ import {
 } from "../_lib/customerAuth.js";
 import { sanitizeText, getRequestIp, isValidEmail, isValidName, normalizePhone, VALIDATION_MESSAGES } from "../_lib/security.js";
 import { logAudit } from "../_lib/audit.js";
-import { isOpenNow, isTakingOrdersNow, CLOSED_MESSAGE, LAST_ORDERS_MESSAGE, validatePickupSlot } from "../_lib/hours.js";
+import { getBusinessHours, isOpenNow, isTakingOrdersNow, CLOSED_MESSAGE, LAST_ORDERS_MESSAGE, validatePickupSlot } from "../_lib/hours.js";
 import { ensureCancelledByColumn, restoreOrderStock } from "../_lib/orderCancel.js";
 import { MAX_DELIVERY_KM } from "../_lib/delivery.js";
 import { ensureScheduleColumns, scheduledForFromPickup, scheduledForFromReservation } from "../_lib/scheduledOrders.js";
@@ -311,14 +311,15 @@ export async function onRequestPost(context) {
     orderData.special_instructions || "",
     500,
   );
+  const hours = await getBusinessHours(env); // the admin's saved opening hours
   if (orderType !== "dine_in") {
-    const slotError = validatePickupSlot(pickupTime);
+    const slotError = validatePickupSlot(pickupTime, hours);
     if (slotError) return jsonResponse({ error: slotError }, 400);
   }
   // Closed, or within the last hour before closing? No new orders - except a pre-order tied to a
   // table reservation (for a later time).
-  if (!isTakingOrdersNow() && !(orderType === "dine_in" && Number.isInteger(parseInt(orderData.reservation_id, 10)))) {
-    return jsonResponse({ error: isOpenNow() ? LAST_ORDERS_MESSAGE : CLOSED_MESSAGE, closed: true }, 503);
+  if (!isTakingOrdersNow(hours) && !(orderType === "dine_in" && Number.isInteger(parseInt(orderData.reservation_id, 10)))) {
+    return jsonResponse({ error: isOpenNow(hours) ? LAST_ORDERS_MESSAGE : CLOSED_MESSAGE, closed: true }, 503);
   }
 
   // Editing an unpaid order: the new order replaces this one once it's saved.

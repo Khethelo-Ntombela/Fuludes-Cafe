@@ -3819,3 +3819,19 @@ input[readonly] {
 /* Per-meal breakdown (Meal 1: Hot, Chips) in order cards and the kitchen board */
 .meal-breakdown { list-style: none; margin: 3px 0 4px; padding: 0 0 0 12px; font-size: .85em; opacity: .85; }
 .meal-breakdown li { display: block; padding: 0; border: 0; }
+
+
+/* Business hours editor (Settings > General) */
+.bh-rows { display: grid; gap: 8px; }
+.bh-row { display: grid; grid-template-columns: 110px 90px 1fr auto 1fr; gap: 10px; align-items: center; }
+.bh-row .bh-day { font-weight: 600; }
+.bh-row .bh-closed { display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer; }
+.bh-row input[type="time"] { width: 100%; min-width: 0; }
+.bh-row input[type="time"]:disabled { opacity: 0.45; }
+.bh-row .bh-to { text-align: center; opacity: 0.7; }
+@media (max-width: 600px) {
+  .bh-row { grid-template-columns: 1fr 1fr; }
+  .bh-row .bh-day { grid-column: 1 / 2; }
+  .bh-row .bh-closed { grid-column: 2 / 3; justify-self: end; }
+  .bh-row .bh-to { display: none; }
+}

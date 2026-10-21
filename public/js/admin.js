@@ -2840,6 +2840,161 @@ async function loadBuffetSetting() {
   }
 }
 
+// ---------------- Business hours (admin-editable, South Africa time) ----------------
+const DEFAULT_ADMIN_HOURS = {
+  0: { closed: false, open: "09:00", close: "20:00" },
+  1: { closed: false, open: "09:00", close: "18:00" },
+  2: { closed: false, open: "09:00", close: "18:00" },
+  3: { closed: false, open: "09:00", close: "18:00" },
+  4: { closed: false, open: "09:00", close: "18:00" },
+  5: { closed: false, open: "09:00", close: "20:00" },
+  6: { closed: false, open: "09:00", close: "21:00" },
+};
+const ADMIN_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Monday first
+const ADMIN_DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+window.businessHours = DEFAULT_ADMIN_HOURS;
+let hoursEditorDirty = false;
+
+const hhmmToMin = (str) => {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(str || ""));
+  return m ? +m[1] * 60 + +m[2] : null;
+};
+
+/** { open, close } in minutes for a weekday (0 = Sunday), or null when closed all day. */
+function adminHoursWindow(weekday) {
+  const day = window.businessHours[weekday] || DEFAULT_ADMIN_HOURS[weekday];
+  if (!day || day.closed) return null;
+  const open = hhmmToMin(day.open);
+  const close = hhmmToMin(day.close);
+  return open === null || close === null || close <= open ? null : { open, close };
+}
+window.adminHoursWindow = adminHoursWindow;
+
+/** Cafe clock (South Africa time): weekday and minutes past midnight. */
+function adminCafeClock() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Africa/Johannesburg", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date());
+  const get = (t) => parts.find((p) => p.type === t)?.value;
+  return {
+    weekday: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(get("weekday")),
+    minutes: (+get("hour") % 24) * 60 + +get("minute"),
+  };
+}
+
+/** True when the cafe is inside the saved opening hours right now. */
+function adminIsOpenNow() {
+  const now = adminCafeClock();
+  const win = adminHoursWindow(now.weekday);
+  return !!win && now.minutes >= win.open && now.minutes < win.close;
+}
+window.adminIsOpenNow = adminIsOpenNow;
+
+/** Groups days with identical hours: [{ label: "Monday-Thursday", text: "09:00 - 18:00" }, ...] */
+function adminHoursGroups() {
+  const names = ADMIN_DAY_ORDER.map((d) => ADMIN_DAY_NAMES[d]);
+  const groups = [];
+  ADMIN_DAY_ORDER.forEach((d, idx) => {
+    const day = window.businessHours[d] || DEFAULT_ADMIN_HOURS[d];
+    const text = day.closed ? "Closed" : `${day.open} - ${day.close}`;
+    let g = groups.find((x) => x.text === text);
+    if (!g) groups.push((g = { text, idxs: [] }));
+    g.idxs.push(idx);
+  });
+  return groups.map((g) => {
+    const runs = [];
+    g.idxs.forEach((i) => {
+      const last = runs[runs.length - 1];
+      if (last && last[last.length - 1] === i - 1) last.push(i);
+      else runs.push([i]);
+    });
+    const label = runs
+      .map((r) => (r.length === 1 ? names[r[0]] : r.length === 2 ? `${names[r[0]]} & ${names[r[1]]}` : `${names[r[0]]} - ${names[r[r.length - 1]]}`))
+      .join(" & ");
+    return { label, text: g.text };
+  });
+}
+
+function renderBusinessHoursSummary() {
+  const el = document.getElementById("businessHoursSummary");
+  if (!el) return;
+  el.innerHTML = adminHoursGroups()
+    .map((g) => `${g.label}: ${g.text}`.replace(/&/g, "&amp;"))
+    .join("<br />");
+}
+
+function renderBusinessHoursEditor() {
+  const wrap = document.getElementById("businessHoursRows");
+  if (!wrap) return;
+  wrap.innerHTML = ADMIN_DAY_ORDER.map((d) => {
+    const day = window.businessHours[d] || DEFAULT_ADMIN_HOURS[d];
+    return `<div class="bh-row" data-day="${d}">
+      <span class="bh-day">${ADMIN_DAY_NAMES[d]}</span>
+      <label class="bh-closed"><input type="checkbox" data-f="closed" ${day.closed ? "checked" : ""} /> Closed</label>
+      <input type="time" data-f="open" value="${day.open}" ${day.closed ? "disabled" : ""} aria-label="${ADMIN_DAY_NAMES[d]} opening time" />
+      <span class="bh-to">to</span>
+      <input type="time" data-f="close" value="${day.close}" ${day.closed ? "disabled" : ""} aria-label="${ADMIN_DAY_NAMES[d]} closing time" />
+    </div>`;
+  }).join("");
+  hoursEditorDirty = false;
+}
+
+function readBusinessHoursEditor() {
+  const out = {};
+  document.querySelectorAll("#businessHoursRows .bh-row").forEach((row) => {
+    const d = row.dataset.day;
+    out[d] = {
+      closed: row.querySelector('[data-f="closed"]').checked,
+      open: row.querySelector('[data-f="open"]').value,
+      close: row.querySelector('[data-f="close"]').value,
+    };
+  });
+  return out;
+}
+
+/** Called whenever fresh hours arrive from the server (or cache). */
+function applyBusinessHoursToAdmin(hours) {
+  if (!hours) return;
+  window.businessHours = hours;
+  renderBusinessHoursSummary();
+  if (!hoursEditorDirty) renderBusinessHoursEditor();
+  // Anything else on screen that depends on the hours
+  if (typeof updateStatusCard === "function") updateStatusCard();
+  if (typeof refreshOrderFormHours === "function") refreshOrderFormHours();
+}
+
+function initBusinessHoursHandlers() {
+  const wrap = document.getElementById("businessHoursRows");
+  if (!wrap) return;
+  const status = document.getElementById("businessHoursStatus");
+  wrap.addEventListener("change", (e) => {
+    hoursEditorDirty = true;
+    status.textContent = "You have unsaved changes.";
+    if (e.target.matches('[data-f="closed"]')) {
+      const row = e.target.closest(".bh-row");
+      row.querySelectorAll('input[type="time"]').forEach((i) => { i.disabled = e.target.checked; });
+    }
+  });
+  document.getElementById("businessHoursResetBtn").addEventListener("click", () => {
+    renderBusinessHoursEditor();
+    status.textContent = "";
+  });
+  document.getElementById("businessHoursSaveBtn").addEventListener("click", async () => {
+    const btn = document.getElementById("businessHoursSaveBtn");
+    btn.disabled = true;
+    try {
+      await saveConfig({ business_hours: readBusinessHoursEditor() });
+      hoursEditorDirty = false;
+      renderBusinessHoursEditor();
+      status.textContent = "Saved - the website, bookings and payment links now follow these hours.";
+    } catch (err) {
+      status.textContent = err.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
 // ---------------- Store status: Out of Service + hero announcement ----------------
 function applyStoreStatus(data, opts = {}) {
   if (!opts.fromCache) {
@@ -2861,6 +3016,7 @@ function applyStoreStatus(data, opts = {}) {
   if (text) text.textContent = reason;
   const ann = document.getElementById("announcementInput");
   if (ann && document.activeElement !== ann) ann.value = data.announcement_message || "";
+  if (data.business_hours) applyBusinessHoursToAdmin(data.business_hours);
 }
 
 async function saveConfig(patch) {
@@ -2896,6 +3052,7 @@ function closeOosModal() {
 function initStoreStatusHandlers() {
   const toggle = document.getElementById("oosToggle");
   if (!toggle) return;
+  initBusinessHoursHandlers();
 
   toggle.addEventListener("change", async (e) => {
     if (e.target.checked) {
