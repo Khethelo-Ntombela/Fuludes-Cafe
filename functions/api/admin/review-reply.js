@@ -18,10 +18,15 @@ export async function onRequestPost(context) {
         400,
       );
     }
-    await runQuery(env, "UPDATE reviews SET owner_reply = $1 WHERE id = $2;", [
-      replyText,
-      reviewId,
-    ]);
+    // One reply per review, and only once it has been approved.
+    const updated = await runQuery(
+      env,
+      "UPDATE reviews SET owner_reply = $1 WHERE id = $2 AND status = 'approved' AND owner_reply IS NULL RETURNING id;",
+      [replyText, reviewId],
+    );
+    if (!updated.rows.length) {
+      return jsonResponse({ error: "This review is not approved yet, or it already has a reply." }, 409);
+    }
     return jsonResponse({ success: true });
   } catch (err) {
     return jsonResponse(

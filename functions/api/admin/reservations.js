@@ -102,7 +102,7 @@ export async function onRequestPost(context) {
     const current = (
       await runQuery(
         env,
-        `SELECT r.status, r.advance_order_id, o.payment_status AS preorder_payment_status,
+        `SELECT r.status, r.advance_order_id, r.advance_order_requested, o.payment_status AS preorder_payment_status,
                 (((r.reservation_date + r.reservation_time) AT TIME ZONE 'Africa/Johannesburg') <= NOW()) AS time_passed
            FROM customer_reservations r LEFT JOIN orders o ON o.id = r.advance_order_id
           WHERE r.id = $1;`,
@@ -113,6 +113,10 @@ export async function onRequestPost(context) {
     // Completed is final: once a booking is marked Completed its status can't change again.
     if (current.status === "Completed" && status !== "Completed") {
       return jsonResponse({ error: "This reservation is Completed, so its status can't be changed any more." }, 400);
+    }
+    // Cancelled is final too, unless the booking never had a pre-order (nothing was paid or refunded).
+    if (current.status === "Cancelled" && status !== "Cancelled" && (current.advance_order_id || current.advance_order_requested)) {
+      return jsonResponse({ error: "This reservation is Cancelled, so its status can't be changed any more." }, 400);
     }
     // A booking can only be marked Completed once its date and time have passed.
     if (status === "Completed" && current.status !== "Completed" && !current.time_passed) {

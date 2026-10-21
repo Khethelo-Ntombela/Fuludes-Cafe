@@ -2290,10 +2290,10 @@ async function loadAdminReviews() {
         <button type="submit" class="btn btn-primary admin-mini-btn">Reject review</button>
         <button type="button" class="admin-mini-btn" data-cancel-reject="${r.id}">Cancel</button>
       </form>
-      <form class="admin-form-inline" data-review-id="${r.id}" style="padding: 0; margin-top: 10px;">
-        <input type="text" placeholder="Write a reply…" value="${escapeHtml(r.owner_reply || "")}" required />
+      ${r.status === "approved" && !r.owner_reply ? `<form class="admin-form-inline" data-review-id="${r.id}" style="padding: 0; margin-top: 10px;">
+        <input type="text" placeholder="Write a reply…" required />
         <button type="submit" class="btn btn-primary admin-mini-btn">Reply</button>
-      </form>
+      </form>` : ""}
       <div class="admin-item-actions" style="margin-top:8px;">${buttons}</div>
     </div>
   `;
@@ -2746,7 +2746,10 @@ function renderReservations() {
         : "";
       // Paid pre-order: confirmed by the payment, so only Confirmed / Cancelled / Completed.
       const prepaid = ["paid", "refunded"].includes(reservation.preorder_payment_status);
-      const isCompleted = reservation.status === "Completed";
+      // Completed is always final. Cancelled is final only when the booking had a pre-order (payment/refund involved).
+      const isCompleted =
+        reservation.status === "Completed" ||
+        (reservation.status === "Cancelled" && Boolean(reservation.advance_order_id || reservation.advance_order_requested));
       const timePassed = reservationTimePassed(reservation);
       const statusOptions = prepaid ? ["Confirmed", "Cancelled", "Completed"] : ["Pending", "Confirmed", "Cancelled", "Completed"];
       return `
