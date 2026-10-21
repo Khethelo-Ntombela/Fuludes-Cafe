@@ -2619,12 +2619,28 @@ function reservationWhatsAppText(r) {
   const d = new Date(`${String(r.reservation_date).slice(0, 10)}T00:00:00`);
   const dateLabel = d.toLocaleDateString("en-ZA", { weekday: "long", day: "numeric", month: "long" });
   const time = r.reservation_time ? String(r.reservation_time).slice(0, 5) : "";
-  const cancelled = r.status === "Cancelled";
-  if (cancelled) {
-    const prepaid = ["paid", "refunded"].includes(r.preorder_payment_status);
-    return `Hi ${r.customer_name}, your table booking at Fulude's Cafe for ${dateLabel} at ${time} has been cancelled${prepaid ? " and will be refunded" : ""}. Please contact us if you need any further assistance.`;
+  const guests = `${r.party_size} guest${r.party_size > 1 ? "s" : ""}`;
+  const table = r.table_number ? ` (table ${r.table_number})` : "";
+  const name = r.customer_name;
+
+  // Cancelled: say so, and mention the refund when a pre-order was paid
+  if (r.status === "Cancelled") {
+    const refundNote =
+      r.preorder_payment_status === "refunded" ? " and your pre-order has been refunded"
+      : r.preorder_payment_status === "paid" ? " and your pre-order will be refunded"
+      : "";
+    return `Hi ${name}, your table booking at Fulude's Cafe for ${dateLabel} at ${time} has been cancelled${refundNote}. We're sorry for any inconvenience. Please contact us if you need any further assistance or would like to book another time.`;
   }
-  return `Hi ${r.customer_name}, your table at Fulude's Cafe is ${r.status === "Confirmed" ? "confirmed" : "reserved"} for ${dateLabel} at ${time} for ${r.party_size} guest${r.party_size > 1 ? "s" : ""}${r.table_number ? ` (table ${r.table_number})` : ""}. We look forward to seeing you! Reply here if you need to change anything.`;
+  // Completed: thank the guest
+  if (r.status === "Completed") {
+    return `Hi ${name}, thank you for dining with us at Fulude's Cafe on ${dateLabel}. We hope you enjoyed your visit! We would love to see you again, and a review on our website would mean a lot to us.`;
+  }
+  // Pending: request received, not confirmed yet
+  if (r.status === "Pending") {
+    return `Hi ${name}, we have received your table request at Fulude's Cafe for ${dateLabel} at ${time} for ${guests}. We will confirm it shortly. Reply here if you need to change anything.`;
+  }
+  // Confirmed
+  return `Hi ${name}, your table at Fulude's Cafe is confirmed for ${dateLabel} at ${time} for ${guests}${table}. We look forward to seeing you! Reply here if you need to change anything.`;
 }
 window.reservationWhatsAppText = reservationWhatsAppText;
 
