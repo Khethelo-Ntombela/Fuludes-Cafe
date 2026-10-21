@@ -150,15 +150,58 @@
               <input type="date" id="catDate" required />
             </div>
           </div>
-          <div class="form-group">
-            <label for="catAddress">Event Address</label>
-            <input
-              type="text"
-              id="catAddress"
-              placeholder="e.g. 12 Mvelaphanda Street, Thohoyandou"
-              autocomplete="street-address"
-              required
-            />
+          <div class="form-group address-fields">
+            <label>Event Address</label>
+            <div class="form-group">
+              <label for="catStreet">Street address</label>
+              <input
+                type="text"
+                id="catStreet"
+                placeholder="e.g. 12 Mvelaphanda Street"
+                autocomplete="address-line1"
+                required
+              />
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="catSuburb">Suburb</label>
+                <input type="text" id="catSuburb" autocomplete="address-level3" required />
+              </div>
+              <div class="form-group">
+                <label for="catCity">Town / City</label>
+                <input type="text" id="catCity" autocomplete="address-level2" required />
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="catPostal">Postal code</label>
+                <input
+                  type="text"
+                  id="catPostal"
+                  inputmode="numeric"
+                  maxlength="4"
+                  pattern="[0-9]{4}"
+                  title="Please enter a 4-digit postal code."
+                  autocomplete="postal-code"
+                  required
+                />
+              </div>
+              <div class="form-group">
+                <label for="catProvince">Province</label>
+                <select id="catProvince" autocomplete="address-level1" required>
+                  <option value="">Choose…</option>
+                  <option>Limpopo</option>
+                  <option>Gauteng</option>
+                  <option>Mpumalanga</option>
+                  <option>North West</option>
+                  <option>KwaZulu-Natal</option>
+                  <option>Free State</option>
+                  <option>Eastern Cape</option>
+                  <option>Western Cape</option>
+                  <option>Northern Cape</option>
+                </select>
+              </div>
+            </div>
           </div>
           <div class="form-group">
             <label for="catGuests">Estimated Guests</label>
@@ -486,8 +529,8 @@
     </div>
 
     <script src="js/form-validation.js?v=1"></script>
-    <script src="js/site.js?v=35"></script>
-    <script src="js/catering.js?v=5"></script>
+    <script src="js/site.js?v=36"></script>
+    <script src="js/catering.js?v=6"></script>
   <script>
   if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 </script>

@@ -45,6 +45,10 @@ function checkCateringDate() {
       : "",
   );
 }
+document.getElementById("catPostal").addEventListener("input", (e) => {
+  e.target.value = e.target.value.replace(/\D/g, "").slice(0, 4);
+});
+
 catDateInput.addEventListener("input", checkCateringDate);
 catDateInput.addEventListener("change", checkCateringDate);
 checkCateringDate();
@@ -64,7 +68,12 @@ document.getElementById("cateringForm").addEventListener("submit", (e) => {
     `Email: ${val("catEmail")}`,
     `Phone: ${val("catPhone")}`,
     `Event date: ${val("catDate")}`,
-    `Event address: ${val("catAddress")}`,
+    "Event address:",
+    `  Street address: ${val("catStreet")}`,
+    `  Suburb: ${val("catSuburb")}`,
+    `  Town / City: ${val("catCity")}`,
+    `  Postal code: ${val("catPostal")}`,
+    `  Province: ${val("catProvince")}`,
     `Estimated guests: ${val("catGuests")}`,
     "",
     "Additional details:",

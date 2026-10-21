@@ -2709,7 +2709,7 @@ if (typeof FuludeValidation !== "undefined") {
     numbers: {
       "reservation-party-size": { min: 1, max: 50, step: 1, title: "1 to 50 guests - for bigger groups please contact us." },
     },
-    maxLengths: { "special-instructions": 500, "reservation-notes": 500, catAddress: 200, catMessage: 1000, reviewComment: 1000 },
+    maxLengths: { "special-instructions": 500, "reservation-notes": 500, catStreet: 150, catSuburb: 80, catCity: 80, catMessage: 1000, reviewComment: 1000 },
     patterns: { "addr-postal": { pattern: "[0-9]{4}", title: "4-digit postal code, e.g. 0950" } },
   });
 }
