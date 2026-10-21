@@ -12,7 +12,7 @@
     <meta name="robots" content="index, follow" />
     <link rel="canonical" href="https://fuludescafe.co.za/contact" />
 
-    <link rel="stylesheet" href="css/style.css?v=26" />
+    <link rel="stylesheet" href="css/style.css?v=29" />
     <link
       href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap"
       rel="stylesheet"
@@ -155,8 +155,8 @@
               <p>
                 All three. We deliver within Thohoyandou and the surrounding
                 areas, not just within Thohoyandou itself, or you can order
-                ahead online and choose collection or dine-in when you check
-                out.
+                ahead online and choose collection or delivery when you check
+                out. For dine-in, book a table and you can pre-order your food.
               </p>
             </div>
           </div>
@@ -304,6 +304,10 @@
                 contact details in the Visit Us section above, and we will be
                 happy to help.
               </p>
+              <p>
+                <a href="refund.html"><strong>Read our full Refund Policy</strong></a>
+                for every case and how refunds are paid.
+              </p>
             </div>
           </div>
         </div>
@@ -334,7 +338,7 @@
         </div>
         <p class="footer-policy-link">
           <a href="privacy.html">Privacy Policy</a> &middot;
-          <a href="#policies">Refund Policy</a>
+          <a href="refund.html">Refund Policy</a>
         </p>
         <p class="copyright">© 2026 Fulude's Cafe. All rights reserved.</p>
       </div>
@@ -397,10 +401,12 @@
           <div class="form-row">
             <div class="form-group">
               <label for="reservation-time">Time</label>
-              <input type="time" id="reservation-time" required />
+              <select id="reservation-time" required>
+                <option value="">Choose a date first</option>
+              </select>
             </div>
             <div class="form-group">
-              <label for="reservation-party-size">Party Size</label>
+              <label for="reservation-party-size">No. of People</label>
               <input
                 type="number"
                 id="reservation-party-size"
@@ -609,7 +615,7 @@
     </div>
 
     <script src="js/form-validation.js?v=1"></script>
-    <script src="js/site.js?v=32"></script>
+    <script src="js/site.js?v=34"></script>
   <script>
   if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 </script>

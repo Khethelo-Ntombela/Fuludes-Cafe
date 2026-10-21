@@ -257,6 +257,8 @@ function loadEverything() {
   initAuditHandlers();
 }
 
+let customerRecordsById = {};
+
 async function loadCustomerRecords() {
   const search = encodeURIComponent(
     document.getElementById("customerSearch")?.value.trim() || "",
@@ -268,11 +270,12 @@ async function loadCustomerRecords() {
     const data = await response.json();
     if (!response.ok)
       throw new Error(data.error || "Failed to load customers.");
+    customerRecordsById = Object.fromEntries((data.customers || []).map((c) => [c.id, c]));
     list.innerHTML =
       (data.customers || [])
         .map(
           (customer) =>
-            `<div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">${customer.name}</div><div class="sa-list-sub">${customer.email} · ${customer.phone_number || "No phone"} · Joined ${new Date(customer.created_at).toLocaleDateString()}</div></div><span class="admin-hint">${customer.marketing_email_opt_in ? "Email opt-in" : "No email opt-in"}</span></div>`,
+            `<div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">${escapeHtml(customer.name)}</div><div class="sa-list-sub">${escapeHtml(customer.email)} · ${escapeHtml(customer.phone_number || "No phone")} · Joined ${new Date(customer.created_at).toLocaleDateString()}</div></div><span class="admin-hint">${customer.marketing_email_opt_in ? "Email opt-in" : "No email opt-in"}</span><button type="button" class="admin-mini-btn danger" data-delete-customer="${customer.id}"><i class="fas fa-trash"></i> Delete</button></div>`,
         )
         .join("") || '<p class="menu-empty">No recods yet</p>';
   } catch (error) {
@@ -418,6 +421,26 @@ document.getElementById("adminAccountsList")?.addEventListener("click", async (e
 document
   .getElementById("customerSearchBtn")
   ?.addEventListener("click", loadCustomerRecords);
+
+// Delete a customer account: signs them out on every device and they can no longer log in.
+document.getElementById("customerRecordsList")?.addEventListener("click", async (e) => {
+  const delBtn = e.target.closest("[data-delete-customer]");
+  if (!delBtn) return;
+  const customer = customerRecordsById[delBtn.dataset.deleteCustomer];
+  if (!customer) return;
+  if (!confirm(`Delete the customer account for ${customer.name} (${customer.email})?
+
+They'll be signed out on every device and won't be able to log in to this account again. Their past orders, bookings and reviews stay in your records. This can't be undone.`)) return;
+  delBtn.disabled = true;
+  const response = await adminFetch(`/api/admin/customers?id=${encodeURIComponent(customer.id)}`, { method: "DELETE" });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success) {
+    alert(data.error || "Couldn't delete the customer account.");
+    delBtn.disabled = false;
+    return;
+  }
+  loadCustomerRecords();
+});
 document
   .getElementById("adminAccountForm")
   ?.addEventListener("submit", async (event) => {

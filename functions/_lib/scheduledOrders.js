@@ -17,10 +17,12 @@ const SA_OFFSET_MIN = 120;
 export function scheduledForFromPickup(pickupTime, now = new Date()) {
   const text = String(pickupTime || "").trim().toLowerCase();
   if (RELATIVE[text]) return new Date(now.getTime() + RELATIVE[text] * 60000);
-  const m = /^arriving at (\d{1,2}):(\d{2})\s*(am|pm)$/.exec(text);
+  // "at 18:30" (a chosen collection/delivery slot today) or "arriving at 6:30 pm" (dine-in)
+  const slot = /^at (\d{1,2}):(\d{2})$/.exec(text);
+  const m = slot || /^arriving at (\d{1,2}):(\d{2})\s*(am|pm)$/.exec(text);
   if (!m) return null;
-  let h = +m[1] % 12;
-  if (m[3] === "pm") h += 12;
+  let h = slot ? +m[1] : +m[1] % 12;
+  if (!slot && m[3] === "pm") h += 12;
   const sa = new Date(now.getTime() + SA_OFFSET_MIN * 60000);
   const due = Date.UTC(sa.getUTCFullYear(), sa.getUTCMonth(), sa.getUTCDate(), h, +m[2]) - SA_OFFSET_MIN * 60000;
   return due > now.getTime() ? new Date(due) : null;

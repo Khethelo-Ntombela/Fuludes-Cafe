@@ -804,7 +804,7 @@ function handleAddClick(itemId) {
   }
 }
 
-function addToCart(item, { spiceLevel, side = null, extras, quantity }) {
+function addToCart(item, { spiceLevel, side = null, extras, quantity }, { quiet = false } = {}) {
   const extraIds = extras.map((e) => e.id).sort().join(",");
   const lineId = `${item.id}|${spiceLevel || ""}|${side ? side.id : ""}|${extraIds}`;
   const existing = cart.find((line) => line.lineId === lineId);
@@ -827,6 +827,7 @@ function addToCart(item, { spiceLevel, side = null, extras, quantity }) {
       extras
     });
   }
+  if (quiet) return;
   showCartToast(`${item.name} added to cart`);
   renderCart();
 }
@@ -842,6 +843,34 @@ const customizeSideError = document.getElementById("customizeSideError");
 const customizeAddonsGroup = document.getElementById("customizeAddonsGroup");
 const customizeAddonOptions = document.getElementById("customizeAddonOptions");
 const customizeQtyValue = document.getElementById("customizeQtyValue");
+
+let sideChoices = []; // chosen side per meal in the customize modal: [{ id, name }, ...]
+
+/** One row of side buttons per meal, so 3 meals can be chips, pap and rice. */
+function renderSideChoices() {
+  const item = pendingCustomizeItem;
+  if (!item || !Array.isArray(item.sides) || !item.sides.length) return;
+  const quantity = parseInt(customizeQtyValue.textContent, 10) || 1;
+  sideChoices.length = Math.min(sideChoices.length, quantity);
+  customizeSideGroup.querySelector("label").innerHTML =
+    quantity > 1 ? "Choose a side for each meal <small>(free)</small>" : "Choose your side <small>(free)</small>";
+  customizeSideOptions.innerHTML = Array.from({ length: quantity }, (_, meal) => {
+    const pills = item.sides
+      .map((sd) => `<button type="button" class="pill-option${sideChoices[meal]?.id === sd.id ? " selected" : ""}" data-meal="${meal}" data-id="${sd.id}" data-name="${escapeHtml(sd.name)}">${escapeHtml(sd.name)}</button>`)
+      .join("");
+    return quantity > 1
+      ? `<div class="side-meal-row"><span class="side-meal-label">Meal ${meal + 1}</span><div class="pill-options">${pills}</div></div>`
+      : `<div class="pill-options">${pills}</div>`;
+  }).join("");
+  customizeSideOptions.querySelectorAll(".pill-option").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const meal = Number(btn.dataset.meal);
+      sideChoices[meal] = { id: parseInt(btn.dataset.id, 10), name: btn.dataset.name };
+      btn.parentElement.querySelectorAll(".pill-option").forEach((b) => b.classList.toggle("selected", b === btn));
+      if (sideChoices.filter(Boolean).length === quantity) customizeSideError.style.display = "none";
+    });
+  });
+}
 
 function openCustomizeModal(item) {
   pendingCustomizeItem = item;
@@ -864,20 +893,12 @@ function openCustomizeModal(item) {
     customizeSpiceOptions.innerHTML = "";
   }
 
-  // Free choice of side (only on dishes the cafe attached sides to) - must pick one
+  // Free choice of side (only on dishes the cafe attached sides to) - one per meal, must pick each
   customizeSideError.style.display = "none";
+  sideChoices = [];
   if (Array.isArray(item.sides) && item.sides.length > 0) {
     customizeSideGroup.style.display = "block";
-    customizeSideOptions.innerHTML = item.sides
-      .map((sd) => `<button type="button" class="pill-option" data-id="${sd.id}" data-name="${sd.name}">${sd.name}</button>`)
-      .join("");
-    customizeSideOptions.querySelectorAll(".pill-option").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        customizeSideOptions.querySelectorAll(".pill-option").forEach((b) => b.classList.remove("selected"));
-        btn.classList.add("selected");
-        customizeSideError.style.display = "none";
-      });
-    });
+    renderSideChoices();
   } else {
     customizeSideGroup.style.display = "none";
     customizeSideOptions.innerHTML = "";
@@ -908,17 +929,21 @@ customizeModal.addEventListener("click", (e) => {
 document.getElementById("customizeQtyMinus").addEventListener("click", () => {
   const val = Math.max(1, parseInt(customizeQtyValue.textContent, 10) - 1);
   customizeQtyValue.textContent = val;
+  renderSideChoices();
 });
 document.getElementById("customizeQtyPlus").addEventListener("click", () => {
   const val = parseInt(customizeQtyValue.textContent, 10) + 1;
   customizeQtyValue.textContent = val;
+  renderSideChoices();
 });
 
 document.getElementById("customizeConfirmBtn").addEventListener("click", () => {
   if (!pendingCustomizeItem) return;
   const selectedSpice = customizeSpiceOptions.querySelector(".pill-option.selected");
-  const selectedSideBtn = customizeSideOptions.querySelector(".pill-option.selected");
-  if (customizeSideOptions.children.length > 0 && !selectedSideBtn) {
+  const quantity = parseInt(customizeQtyValue.textContent, 10) || 1;
+  const hasSides = customizeSideOptions.children.length > 0;
+  if (hasSides && sideChoices.filter(Boolean).length < quantity) {
+    customizeSideError.textContent = quantity > 1 ? "Please choose a side for every meal." : "Please choose a side.";
     customizeSideError.style.display = "block";
     return;
   }
@@ -927,14 +952,22 @@ document.getElementById("customizeConfirmBtn").addEventListener("click", () => {
     name: input.dataset.name,
     price: parseFloat(input.dataset.price)
   }));
-  const quantity = parseInt(customizeQtyValue.textContent, 10) || 1;
 
-  addToCart(pendingCustomizeItem, {
-    spiceLevel: selectedSpice ? selectedSpice.dataset.name : null,
-    side: selectedSideBtn ? { id: parseInt(selectedSideBtn.dataset.id, 10), name: selectedSideBtn.dataset.name } : null,
-    extras: selectedExtras,
-    quantity
-  });
+  // Meals with the same side share a cart line: 2x chips + 1x rice -> two lines.
+  const groups = [];
+  for (const side of hasSides ? sideChoices : [null]) {
+    const group = groups.find((g) => (g.side ? g.side.id : null) === (side ? side.id : null));
+    if (group) group.quantity += 1;
+    else groups.push({ side, quantity: hasSides ? 1 : quantity });
+  }
+  for (const group of groups) {
+    addToCart(pendingCustomizeItem, {
+      spiceLevel: selectedSpice ? selectedSpice.dataset.name : null,
+      side: group.side,
+      extras: selectedExtras,
+      quantity: group.quantity
+    });
+  }
 
   customizeModal.classList.remove("active");
   pendingCustomizeItem = null;
@@ -1171,8 +1204,8 @@ checkoutBtn.addEventListener("click", () => {
     return;
   }
   // Closed right now? No checkout (a pre-order for a booked table is allowed).
-  if (!isCafeOpenNow() && !getActiveReservation()) {
-    showOutOfServiceNotice(CLOSED_MESSAGE);
+  if (!isTakingOrdersNow() && !getActiveReservation()) {
+    showOutOfServiceNotice(ordersClosedMessage());
     return;
   }
   // Out of service? Ask the server (not a cached copy) and stop here if so.
@@ -1517,6 +1550,16 @@ function invalidateQuoteOnEdit() {
   }
 }
 
+/** "Preferred Time": As soon as possible, then today's half-hour slots from 1h30 from now. */
+function renderPickupTimeSlots() {
+  const pickupSelect = document.getElementById("pickup-time-slot");
+  const previous = pickupSelect.value;
+  pickupSelect.innerHTML =
+    `<option value="As soon as possible">As soon as possible</option>` +
+    orderTimeSlotsToday().map((t) => `<option value="At ${t}">${t}</option>`).join("");
+  if ([...pickupSelect.options].some((o) => o.value === previous)) pickupSelect.value = previous;
+}
+
 /** Opens checkout with the account name prefilled but editable. */
 function proceedToCheckout() {
   checkoutError.style.display = "none";
@@ -1525,6 +1568,10 @@ function proceedToCheckout() {
   checkoutForm.reset();
   const preorder = getActiveReservation();
   orderTypeSelect.disabled = Boolean(preorder);
+  // Dine In is only for a table pre-order - a normal order is collection or delivery.
+  orderTypeSelect.querySelector('option[value="dine_in"]').hidden = !preorder;
+  if (!preorder && orderTypeSelect.value === "dine_in") orderTypeSelect.value = "collection";
+  renderPickupTimeSlots();
   const arrivalInput = document.getElementById("dine-in-arrival-time");
   arrivalInput.readOnly = Boolean(preorder);
   let preorderNote = document.getElementById("checkoutPreorderNote");
@@ -1567,6 +1614,15 @@ function proceedToCheckout() {
         // Not looked up yet - the customer checks it and taps OK.
       }
     }
+  }
+
+  // Editing an unpaid order: start from that order's details.
+  const editing = getEditingOrder();
+  if (editing && !preorder) {
+    if (["collection", "delivery"].includes(editing.order_type)) orderTypeSelect.value = editing.order_type;
+    document.getElementById("special-instructions").value = editing.special_instructions || "";
+    if (editing.order_type === "delivery" && !composeDeliveryAddress()) fillFromSavedAddress(editing.delivery_address || "");
+    updateCheckoutFieldVisibility();
   }
 
   // Set up delivery address geocoding + "use my location"
@@ -1615,9 +1671,9 @@ async function submitOrderCheckout(event) {
   syncDeliveryAddressInput();
   const deliveryAddress = composeDeliveryAddress() || geocodedDisplayAddress;
 
-  if (!isCafeOpenNow() && !getActiveReservation()) {
+  if (!isTakingOrdersNow() && !getActiveReservation()) {
     checkoutModal.classList.remove("active");
-    showOutOfServiceNotice(CLOSED_MESSAGE);
+    showOutOfServiceNotice(ordersClosedMessage());
     return;
   }
   if (!currentCustomer) {
@@ -1679,6 +1735,7 @@ async function submitOrderCheckout(event) {
     pickup_time: pickupTime,
     special_instructions: instructionsInput.value.trim(),
     reservation_id: getActiveReservation()?.id,
+    replaces_order_id: getEditingOrder()?.id,
     cart_items: cart.map((line) => ({
       id: line.itemId,
       quantity: line.quantity,
@@ -1729,6 +1786,7 @@ async function submitOrderCheckout(event) {
     // Order is already saved (payment_status = 'awaiting')
     clearCartAfterOrder();
     localStorage.removeItem(ACTIVE_RES_KEY); // pre-order done - this booking no longer drives checkout
+    localStorage.removeItem(EDIT_ORDER_KEY); // the edited order has replaced the old one
     redirectToYoco(result.payment);
   } catch (err) {
     showCheckoutError(err.message);
@@ -1781,6 +1839,7 @@ function showDuplicateOrderChoice(existing) {
       if (!res.ok || !(data.payment?.redirect_url || data.payment?.action_url)) throw new Error(data.error || "Couldn't start the payment.");
       clearCartAfterOrder();
       localStorage.removeItem(ACTIVE_RES_KEY);
+      localStorage.removeItem(EDIT_ORDER_KEY);
       redirectToYoco(data.payment);
     } catch (err) {
       fail(`${err.message} You can tap "Edit my order" to change it instead.`);
@@ -1842,10 +1901,86 @@ function refreshPreorderUI() {
     const back = document.getElementById("cartPageBack");
     if (back) back.after(banner); else panel.prepend(banner);
   }
-  banner.innerHTML = `<strong>Pre-order for your table</strong><br>${escapeHtml(formatReservationWhen(r.date, r.time))}${r.party ? ` · ${r.party} guest${r.party > 1 ? "s" : ""}` : ""}<br>Dine In is set for you. Add, edit or remove items, then check out. <button type="button" id="preorderCancelBtn" class="auth-link-btn" style="display:inline">Not pre-ordering? Remove</button>`;
-  document.getElementById("preorderCancelBtn").addEventListener("click", () => {
-    localStorage.removeItem(ACTIVE_RES_KEY);
-    refreshPreorderUI();
+  banner.innerHTML = `<strong>Pre-order for your table</strong><br>${escapeHtml(formatReservationWhen(r.date, r.time))}${r.party ? ` · ${r.party} guest${r.party > 1 ? "s" : ""}` : ""}<br>Dine In is set for you. Add, edit or remove items, then check out.`;
+}
+
+// Editing an unpaid order from My Orders: its items are put back in the cart, and checking
+// out again replaces that order (the server removes the old, unpaid one).
+function getEditingOrder() {
+  try {
+    return JSON.parse(localStorage.getItem(EDIT_ORDER_KEY) || "null");
+  } catch {
+    return null;
+  }
+}
+
+async function loadEditingOrderIntoCart() {
+  const edit = getEditingOrder();
+  if (!edit) return;
+  if (edit.items) {
+    if (currentCustomer) await ensureCartLinked(); // so the account's saved cart can't overwrite it afterwards
+    if (!menuItems.length) await loadMenu(true);
+    if (cart.length && !confirm(`Replace the items in your cart with order #${edit.id} so you can edit it?`)) {
+      localStorage.removeItem(EDIT_ORDER_KEY);
+      refreshEditOrderUI();
+      return;
+    }
+    cart = [];
+    const missing = [];
+    for (const line of edit.items) {
+      const item = menuItems.find((m) => m.id === line.menu_item_id);
+      if (!item) {
+        missing.push(line.item_name);
+        continue;
+      }
+      // Sides and extras were saved by name on the order; match them back to the menu.
+      const names = line.extras || [];
+      const side = (item.sides || []).find((sd) => names.includes(sd.name));
+      const extras = (item.addons || [])
+        .filter((a) => names.includes(a.name))
+        .map((a) => ({ id: a.id, name: a.name, price: parseFloat(a.price) }));
+      addToCart(
+        item,
+        { spiceLevel: line.spice_level, side: side ? { id: side.id, name: side.name } : null, extras, quantity: line.quantity },
+        { quiet: true },
+      );
+    }
+    delete edit.items; // loaded once - later visits keep whatever the customer changed
+    localStorage.setItem(EDIT_ORDER_KEY, JSON.stringify(edit));
+    renderCart();
+    showCartToast(
+      missing.length
+        ? `Order #${edit.id} is in your cart. No longer on the menu: ${missing.join(", ")}.`
+        : `Order #${edit.id} is in your cart - make your changes, then check out.`,
+      "info",
+    );
+  }
+  refreshPreorderUI();
+  refreshEditOrderUI();
+  if (window.matchMedia("(max-width: 900px)").matches) openCartPage();
+  else cartPanelEl.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function refreshEditOrderUI() {
+  const edit = getEditingOrder();
+  let banner = document.getElementById("editOrderBanner");
+  if (!edit) {
+    if (banner) banner.remove();
+    return;
+  }
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "editOrderBanner";
+    banner.className = "auth-hint";
+    banner.style.cssText = "background:#fff8e6;border:1px solid #f0d78a;border-radius:6px;padding:10px 12px;margin-bottom:12px";
+    const back = document.getElementById("cartPageBack");
+    if (back) back.after(banner); else cartPanelEl.prepend(banner);
+  }
+  banner.innerHTML = `<strong>Editing order #${edit.id}</strong><br>Add, change or remove items, then check out. Your changes replace order #${edit.id}. <button type="button" id="editOrderStopBtn" class="auth-link-btn" style="display:inline">Keep the original order</button>`;
+  document.getElementById("editOrderStopBtn").addEventListener("click", () => {
+    localStorage.removeItem(EDIT_ORDER_KEY);
+    refreshEditOrderUI();
+    showCartToast(`Order #${edit.id} is unchanged - you can still pay for it in My Orders.`, "info");
   });
 }
 
@@ -1868,4 +2003,10 @@ if (location.hash === "#your-order" && window.matchMedia("(max-width: 900px)").m
 if (new URLSearchParams(location.search).get("preorder") === "1") {
   history.replaceState({}, "", location.pathname + location.hash);
   if (getActiveReservation()) showPreorderCart();
+}
+if (new URLSearchParams(location.search).get("edit") === "1") {
+  history.replaceState({}, "", location.pathname + location.hash);
+  loadEditingOrderIntoCart();
+} else {
+  refreshEditOrderUI();
 }

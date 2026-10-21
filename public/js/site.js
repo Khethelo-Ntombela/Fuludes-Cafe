@@ -933,7 +933,7 @@ document.getElementById("logoutBtn").addEventListener("click", async () => {
   currentCustomer = null;
   localStorage.removeItem(CUSTOMER_TOKEN_KEY);
   // The cart and the pre-order booking belong to the account, which has just signed out
-  ["fulude_cart", "fulude_cart_sync", "fulude_cart_dirty", ACTIVE_RES_KEY].forEach((k) => localStorage.removeItem(k));
+  ["fulude_cart", "fulude_cart_sync", "fulude_cart_dirty", ACTIVE_RES_KEY, EDIT_ORDER_KEY].forEach((k) => localStorage.removeItem(k));
   updateAccountNav();
   accountModal.classList.remove("active");
   loadCustomerBuffetBookings();
@@ -994,6 +994,63 @@ function isCafeOpenNow() {
   return minutes >= OPENING_HOURS.open && minutes < OPENING_HOURS.close[weekday];
 }
 const CLOSED_MESSAGE = "Can't order at this time, we are currently closed.";
+const ORDER_CUTOFF_MINUTES = 60; // online orders stop 1 hour before closing - same as functions/_lib/hours.js
+const LAST_ORDERS_MESSAGE = "Sorry, we've stopped taking online orders for today. Orders close 1 hour before closing time.";
+
+/** Are online orders being taken right now? From opening until 1 hour before closing. */
+function isTakingOrdersNow() {
+  const now = cafeNow();
+  return now.minutes >= OPENING_HOURS.open && now.minutes < OPENING_HOURS.close[now.weekday] - ORDER_CUTOFF_MINUTES;
+}
+/** Why ordering is unavailable right now. */
+function ordersClosedMessage() {
+  return isCafeOpenNow() ? LAST_ORDERS_MESSAGE : CLOSED_MESSAGE;
+}
+
+// ---- Half-hour time slots (reservations, and collection/delivery "Preferred Time") ----
+const SLOT_MINUTES = 30;
+const ORDER_LEAD_MINUTES = 90; // a chosen collection/delivery time is at least 1h30 away
+
+/** Today's date, weekday and minutes past midnight in South Africa time. */
+function cafeNow() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Johannesburg", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date());
+  const get = (t) => parts.find((p) => p.type === t)?.value;
+  const dateKey = `${get("year")}-${get("month")}-${get("day")}`;
+  const weekday = new Date(`${dateKey}T00:00:00Z`).getUTCDay();
+  return { dateKey, weekday, minutes: (+get("hour") % 24) * 60 + +get("minute") };
+}
+
+/** 570 -> "09:30" */
+function minutesToHHMM(m) {
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+
+/** Every bookable half-hour on a date ("2026-10-21") from `earliest` minutes on, while the cafe is open. */
+function cafeSlotsFor(dateStr, earliest = 0) {
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr || "");
+  if (!d) return [];
+  const weekday = new Date(Date.UTC(+d[1], +d[2] - 1, +d[3])).getUTCDay();
+  const start = Math.max(OPENING_HOURS.open, Math.ceil(earliest / SLOT_MINUTES) * SLOT_MINUTES);
+  const slots = [];
+  for (let m = start; m < OPENING_HOURS.close[weekday]; m += SLOT_MINUTES) slots.push(minutesToHHMM(m));
+  return slots;
+}
+
+/** Reservation times for a date: every half-hour the cafe is open, later than now when it's today. */
+function reservationSlotsFor(dateStr) {
+  const now = cafeNow();
+  if (!dateStr || dateStr < now.dateKey) return [];
+  return cafeSlotsFor(dateStr, dateStr === now.dateKey ? now.minutes + 1 : 0);
+}
+
+/** Collection/delivery times for today: from 1h30 from now, every half-hour until closing. */
+function orderTimeSlotsToday() {
+  const now = cafeNow();
+  return cafeSlotsFor(now.dateKey, now.minutes + ORDER_LEAD_MINUTES);
+}
 
 /** Reads a fetch response as JSON without throwing when the server sent an HTML error page. */
 async function safeJson(res) {
@@ -1018,6 +1075,7 @@ function formatReservationWhen(dateStr, timeStr) {
 
 const ACTIVE_RES_KEY = "fulude_active_reservation"; // the booking a pre-order belongs to
 const MY_RES_KEY = "fulude_my_reservations"; // guests: bookings sent from this device
+const EDIT_ORDER_KEY = "fulude_edit_order"; // an unpaid order being edited in the cart
 
 function todayKeyLocal() {
   const n = new Date();
@@ -1044,6 +1102,11 @@ const reservationExisting = document.createElement("div");
 reservationExisting.id = "reservationExisting";
 reservationForm.parentNode.insertBefore(reservationExisting, reservationForm);
 
+/** A spinner with a short label, shown while a list loads (instead of the list popping in later). */
+function loadingSpinnerHtml(label) {
+  return `<div class="list-loading" role="status"><span class="list-loading-spinner" aria-hidden="true"></span>${escapeHtml(label)}</div>`;
+}
+
 async function loadExistingReservations() {
   let list = [];
   let loadedFromAccount = false;
@@ -1068,7 +1131,7 @@ async function loadExistingReservations() {
     return;
   }
   const colors = { Confirmed: "#1a7f37", Cancelled: "#b42318", Pending: "#8a6d1d", AwaitingPayment: "#8a6d1d" };
-  const labels = { AwaitingPayment: "Waiting for your pre-order payment" };
+  const labels = { Pending: "Awaiting confirmation from admin", AwaitingPayment: "Waiting for your pre-order payment" };
   reservationExisting.innerHTML =
     `<div class="reservation-history-head"><h4 style="margin:0">Your reservation${list.length > 1 ? "s" : ""}</h4>` +
     `<button type="button" class="reservation-clear-btn" id="reservationClearBtn"><i class="fas fa-trash-can"></i> Clear history</button></div>` +
@@ -1100,7 +1163,7 @@ async function loadExistingReservations() {
       return `<div class="receipt-card" style="margin-bottom:10px">
         <div class="receipt-card-header"><strong>${escapeHtml(formatReservationWhen(date, time))}</strong></div>
         <div class="receipt-meta">${size} guest${size > 1 ? "s" : ""}${r.table_number ? ` · Table ${escapeHtml(r.table_number)}` : ""}${prepaid ? ` · Pre-order ${r.preorder_payment_status === "refunded" ? "refunded" : "paid"}` : ""}</div>
-        <div style="margin:6px 0;font-weight:600;color:${colors[status] || "#8a6d1d"}">Status: ${escapeHtml(labels[status] || status)}${status === "Pending" ? " (we should confirm on WhatsApp)" : ""}</div>
+        <div style="margin:6px 0;font-weight:600;color:${colors[status] || "#8a6d1d"}">Status: ${escapeHtml(labels[status] || status)}</div>
         ${note ? `<p class="reservation-note${status === "Cancelled" ? " is-cancelled" : ""}">${note}</p>` : ""}
         ${action}
       </div>`;
@@ -1173,6 +1236,20 @@ function startPreorder(r) {
   }
 }
 
+/** Fills the reservation "Time" list with the half-hour slots for the chosen date. */
+function renderReservationTimes() {
+  const timeSelect = document.getElementById("reservation-time");
+  const dateStr = document.getElementById("reservation-date")?.value;
+  if (!timeSelect || timeSelect.tagName !== "SELECT") return;
+  const previous = timeSelect.value;
+  const slots = reservationSlotsFor(dateStr);
+  const placeholder = !dateStr ? "Choose a date first" : slots.length ? "Choose a time" : "No times left on this day";
+  timeSelect.innerHTML =
+    `<option value="">${placeholder}</option>` + slots.map((t) => `<option value="${t}">${t}</option>`).join("");
+  if (slots.includes(previous)) timeSelect.value = previous;
+}
+document.getElementById("reservation-date")?.addEventListener("change", renderReservationTimes);
+
 function openReservationModal() {
   reservationError.style.display = "none";
   reservationSuccess.style.display = "none";
@@ -1188,6 +1265,11 @@ function openReservationModal() {
   }
   const dateInput = document.getElementById("reservation-date");
   if (dateInput) dateInput.min = todayKeyLocal();
+  renderReservationTimes();
+  // Bookings come from the server: show a spinner and hold the form back until they're in,
+  // so the list doesn't appear later and push the form down.
+  reservationExisting.innerHTML = loadingSpinnerHtml("Loading your reservations…");
+  reservationForm.style.display = "none";
   reservationModal.classList.add("active");
   loadExistingReservations();
   pollWhileOpen(reservationModal, loadExistingReservations);
@@ -1301,6 +1383,7 @@ reservationForm.addEventListener("submit", async (e) => {
     };
     rememberReservation(booked);
     reservationForm.reset();
+    renderReservationTimes();
     reservationAdvanceInfo.style.display = "none";
     if (payload.advance_order_requested) {
       // Keep whatever is already in the cart; the menu page opens the cart with dine-in fixed.
@@ -1366,6 +1449,8 @@ function setupOrderNotifyToggle() {
 }
 
 async function openMyOrdersModal() {
+  // Fresh spinner on every open - not the previous visit's orders that then change in place.
+  if (currentCustomer) myOrdersList.innerHTML = loadingSpinnerHtml("Loading your orders…");
   myOrdersModal.classList.add("active");
   if (currentCustomer) setupOrderNotifyToggle();
   await refreshMyOrders();
@@ -1505,6 +1590,43 @@ function openOrderReviewModal(orderId) {
   overlay.classList.add("active");
 }
 
+let myOrdersById = new Map(); // the orders last shown in My Orders, for "Edit Order"
+
+/**
+ * "Edit Order" on an unpaid order: its items go back into the cart on the menu page, and checking
+ * out again replaces the old order (see EDIT_ORDER_KEY in menu.js).
+ */
+function startEditingOrder(order) {
+  if (!order) return;
+  localStorage.setItem(EDIT_ORDER_KEY, JSON.stringify({
+    id: order.id,
+    order_type: order.order_type,
+    delivery_address: order.delivery_address || "",
+    special_instructions: order.special_instructions || "",
+    items: order.items.map((i) => ({
+      menu_item_id: i.menu_item_id,
+      item_name: i.item_name,
+      quantity: i.quantity,
+      spice_level: i.spice_level,
+      extras: (Array.isArray(i.extras) ? i.extras : JSON.parse(i.extras || "[]")).map((e) => e.name),
+    })),
+  }));
+  // A table pre-order stays tied to its booking.
+  if (order.reservation) {
+    localStorage.setItem(ACTIVE_RES_KEY, JSON.stringify({
+      ...order.reservation,
+      name: order.customer_name || currentCustomer?.name || "",
+      phone: order.customer_phone || currentCustomer?.phone_number || "",
+    }));
+  }
+  myOrdersModal.classList.remove("active");
+  if (document.querySelector(".cart-panel") && typeof loadEditingOrderIntoCart === "function") {
+    loadEditingOrderIntoCart();
+  } else {
+    window.location.href = "menu.html?edit=1";
+  }
+}
+
 async function refreshMyOrders() {
   if (!currentCustomer) {
     myOrdersList.innerHTML = `<p class="menu-empty">Please sign in to view your orders.</p>`;
@@ -1513,7 +1635,7 @@ async function refreshMyOrders() {
   }
 
   if (!myOrdersList.querySelector(".receipt-card")) {
-    myOrdersList.innerHTML = `<p class="menu-loading">Loading your orders…</p>`;
+    myOrdersList.innerHTML = loadingSpinnerHtml("Loading your orders…");
   }
 
   try {
@@ -1533,6 +1655,7 @@ async function refreshMyOrders() {
       return;
     }
 
+    myOrdersById = new Map(orders.map((o) => [o.id, o]));
     myOrdersList.innerHTML = orders.map(renderReceiptCard).join("");
   } catch {
     myOrdersList.innerHTML = `<p class="menu-empty">Couldn't load your orders right now. Please try again.</p>`;
@@ -1595,6 +1718,10 @@ async function refreshMyOrders() {
 
   myOrdersList.querySelectorAll("[data-review-order]").forEach((btn) =>
     btn.addEventListener("click", () => openOrderReviewModal(Number(btn.dataset.reviewOrder))),
+  );
+
+  myOrdersList.querySelectorAll("[data-edit-order]").forEach((btn) =>
+    btn.addEventListener("click", () => startEditingOrder(myOrdersById.get(Number(btn.dataset.editOrder)))),
   );
 
   myOrdersList.querySelectorAll("[data-retry-payment]").forEach((btn) => {
@@ -1958,7 +2085,8 @@ function renderReceiptCard(order) {
 
       ${renderStatusTracker(order)}
       ${renderOrderEta(order)}
-      ${retryPayment && order.status !== "Cancelled" ? `<div class="receipt-cancel-row"><button type="button" class="receipt-cancel-btn" data-retry-payment="${order.id}">Pay Now</button></div>` : ""}
+      ${retryPayment && order.status !== "Cancelled" ? `<div class="receipt-cancel-row"><button type="button" class="receipt-cancel-btn" data-retry-payment="${order.id}">Pay Now</button></div>
+        <div class="receipt-cancel-row"><button type="button" class="receipt-cancel-btn receipt-edit-btn" data-edit-order="${order.id}"><i class="fas fa-pen"></i> Edit Order</button></div>` : ""}
       ${renderCancelSection(order)}
       ${
         order.status === "Completed"
@@ -2494,11 +2622,11 @@ if (typeof FuludeValidation !== "undefined") {
   FuludeValidation.apply({
     names: ["reservation-name", "signup-name", "customer-name", "buffetName", "catName", "reviewName", "orderReviewName", "settings-name"],
     newPasswords: ["signup-password", "reset-new-password", "settings-new-password"],
-    futureDates: ["reservation-date", "catDate"],
+    futureDates: ["reservation-date"], // catDate: at least 3 days ahead, see catering.js
     numbers: {
       "reservation-party-size": { min: 1, max: 50, step: 1, title: "1 to 50 guests - for bigger groups please contact us." },
     },
-    maxLengths: { "special-instructions": 500, "reservation-notes": 500, catMessage: 1000, reviewComment: 1000 },
+    maxLengths: { "special-instructions": 500, "reservation-notes": 500, catAddress: 200, catMessage: 1000, reviewComment: 1000 },
     patterns: { "addr-postal": { pattern: "[0-9]{4}", title: "4-digit postal code, e.g. 0950" } },
   });
 }

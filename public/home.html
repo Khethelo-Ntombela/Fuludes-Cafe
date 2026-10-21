@@ -39,7 +39,7 @@
     <meta name="twitter:card" content="summary_large_image" />
     <!-- ================================================================ -->
 
-    <link rel="stylesheet" href="css/style.css?v=26" />
+    <link rel="stylesheet" href="css/style.css?v=29" />
     <link
       rel="preload"
       as="style"
@@ -358,7 +358,7 @@
 
         <div class="section-cta">
           <a href="catering.html" class="btn btn-outline"
-            >Book Catering Service</a
+            >Catering Services Enquiry</a
           >
         </div>
       </div>
@@ -409,7 +409,7 @@
         </div>
         <p class="footer-policy-link">
           <a href="privacy.html">Privacy Policy</a> &middot;
-          <a href="contact.html#policies">Refund Policy</a>
+          <a href="refund.html">Refund Policy</a>
         </p>
         <p class="copyright">© 2026 Fulude's Cafe. All rights reserved.</p>
       </div>
@@ -472,10 +472,12 @@
           <div class="form-row">
             <div class="form-group">
               <label for="reservation-time">Time</label>
-              <input type="time" id="reservation-time" required />
+              <select id="reservation-time" required>
+                <option value="">Choose a date first</option>
+              </select>
             </div>
             <div class="form-group">
-              <label for="reservation-party-size">Party Size</label>
+              <label for="reservation-party-size">No. of People</label>
               <input
                 type="number"
                 id="reservation-party-size"
@@ -684,7 +686,7 @@
     </div>
 
     <script src="js/form-validation.js?v=1"></script>
-    <script src="js/site.js?v=32"></script>
+    <script src="js/site.js?v=34"></script>
   <script>
   if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 </script>

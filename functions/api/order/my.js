@@ -25,7 +25,10 @@ export async function onRequestGet(context) {
              CASE WHEN status = 'Out for Delivery' THEN 'Delivery' ELSE status END AS status,
              payment_method, payment_status, refund_needed, refund_processed_at,
              payment_confirmed_at, kitchen_release_at, created_at, cancelled_by, cancel_reason, out_for_delivery_at, delivered_at, preparing_at,
-             EXISTS (SELECT 1 FROM reviews rv WHERE rv.order_id = orders.id) AS reviewed
+             EXISTS (SELECT 1 FROM reviews rv WHERE rv.order_id = orders.id) AS reviewed,
+             (SELECT json_build_object('id', r.id, 'date', to_char(r.reservation_date, 'YYYY-MM-DD'),
+                                       'time', to_char(r.reservation_time, 'HH24:MI'), 'party', r.party_size)
+                FROM customer_reservations r WHERE r.advance_order_id = orders.id LIMIT 1) AS reservation
       FROM orders
       WHERE customer_id = $1
         AND created_at > NOW() - INTERVAL '24 hours'
@@ -40,7 +43,7 @@ export async function onRequestGet(context) {
     let itemsByOrder = {};
     if (orderIds.length > 0) {
       const itemsResult = await runQuery(env, `
-        SELECT order_id, item_name, item_price, quantity, spice_level, extras, subtotal
+        SELECT order_id, menu_item_id, item_name, item_price, quantity, spice_level, extras, subtotal
         FROM order_items WHERE order_id = ANY($1::int[]) ORDER BY id ASC;
       `, [orderIds]);
       for (const row of itemsResult.rows) {

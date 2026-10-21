@@ -8,7 +8,7 @@ import {
 } from "../_lib/customerAuth.js";
 import { sanitizeText, getRequestIp, isValidEmail, isValidName, normalizePhone, VALIDATION_MESSAGES } from "../_lib/security.js";
 import { logAudit } from "../_lib/audit.js";
-import { isOpenNow, CLOSED_MESSAGE } from "../_lib/hours.js";
+import { isOpenNow, isTakingOrdersNow, CLOSED_MESSAGE, LAST_ORDERS_MESSAGE, validatePickupSlot } from "../_lib/hours.js";
 import { ensureCancelledByColumn, restoreOrderStock } from "../_lib/orderCancel.js";
 import { MAX_DELIVERY_KM } from "../_lib/delivery.js";
 import { ensureScheduleColumns, scheduledForFromPickup, scheduledForFromReservation } from "../_lib/scheduledOrders.js";
@@ -232,15 +232,16 @@ function orderSignature({ orderType, deliveryAddress, tableNumber, pickupTime, s
 }
 
 /** The customer's newest unpaid, uncancelled order from the last 24h that matches this one exactly. */
-async function findUnpaidDuplicate(env, customerId, draft) {
+async function findUnpaidDuplicate(env, customerId, draft, excludeOrderId = null) {
   const unpaid = await runQuery(
     env,
     `SELECT id, order_type, delivery_address, table_number, pickup_time, special_instructions, total_amount, created_at
        FROM orders
       WHERE customer_id = $1 AND payment_status IN ('awaiting', 'failed') AND status <> 'Cancelled'
         AND created_at > NOW() - INTERVAL '24 hours'
+        AND id IS DISTINCT FROM $2
       ORDER BY created_at DESC LIMIT 10;`,
-    [customerId],
+    [customerId, excludeOrderId],
   );
   if (!unpaid.rows.length) return null;
   const items = await runQuery(
@@ -310,10 +311,20 @@ export async function onRequestPost(context) {
     orderData.special_instructions || "",
     500,
   );
-  // Closed? No new orders - except a pre-order tied to a table reservation (for a later time).
-  if (!isOpenNow() && !(orderType === "dine_in" && Number.isInteger(parseInt(orderData.reservation_id, 10)))) {
-    return jsonResponse({ error: CLOSED_MESSAGE, closed: true }, 503);
+  if (orderType !== "dine_in") {
+    const slotError = validatePickupSlot(pickupTime);
+    if (slotError) return jsonResponse({ error: slotError }, 400);
   }
+  // Closed, or within the last hour before closing? No new orders - except a pre-order tied to a
+  // table reservation (for a later time).
+  if (!isTakingOrdersNow() && !(orderType === "dine_in" && Number.isInteger(parseInt(orderData.reservation_id, 10)))) {
+    return jsonResponse({ error: isOpenNow() ? LAST_ORDERS_MESSAGE : CLOSED_MESSAGE, closed: true }, 503);
+  }
+
+  // Editing an unpaid order: the new order replaces this one once it's saved.
+  const replacesOrderId = Number.isInteger(parseInt(orderData.replaces_order_id, 10))
+    ? parseInt(orderData.replaces_order_id, 10)
+    : null;
 
   const paymentMethod = "online"; // payment is strictly online
   const cartItems = Array.isArray(orderData.cart_items)
@@ -563,7 +574,7 @@ export async function onRequestPost(context) {
         specialInstructions,
         totalAmount,
         lineItems,
-      });
+      }, replacesOrderId);
       if (duplicate) {
         return jsonResponse(
           {
@@ -668,6 +679,16 @@ export async function onRequestPost(context) {
         env,
         `UPDATE customer_reservations SET advance_order_id = $1 WHERE id = $2 AND customer_id = $3;`,
         [newOrderId, reservationId, customer.id],
+      ).catch(() => {});
+    }
+
+    // ---- Edited order: remove the unpaid original (never one that has been paid) ----
+    if (replacesOrderId && replacesOrderId !== newOrderId) {
+      await runQuery(
+        env,
+        `DELETE FROM orders
+          WHERE id = $1 AND customer_id = $2 AND payment_status IN ('awaiting', 'failed');`,
+        [replacesOrderId, customer.id],
       ).catch(() => {});
     }
 
