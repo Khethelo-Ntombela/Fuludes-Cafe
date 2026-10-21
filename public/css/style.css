@@ -3632,3 +3632,7 @@ html {
   cursor: pointer;
 }
 .my-orders-history-link:hover { color: #000; }
+
+/* Per-meal breakdown (Meal 1: Hot, Chips) in receipts */
+.meal-breakdown { list-style: none; margin: 3px 0 4px; padding: 0 0 0 12px; font-size: .85em; opacity: .85; }
+.meal-breakdown li { display: block; padding: 0; border: 0; }

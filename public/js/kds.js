@@ -145,12 +145,51 @@ function kdsNextStageLabel(order) {
   return "";
 }
 
+
+/**
+ * Splits an order's items into numbered meals when the customer chose a spice level or side per meal.
+ * 3x Wings -> one entry carrying meals: ["Hot, Chips", "Mild, Rice", "Hot, Pap"] (shown as Meal 1, Meal 2...).
+ * Items that were ordered once, or with no spice/side choice, come back unchanged.
+ */
+function groupOrderItems(items) {
+  const groups = [];
+  const byName = new Map();
+  for (const it of items || []) {
+    const extras = Array.isArray(it.extras) ? it.extras : JSON.parse(it.extras || "[]");
+    let g = byName.get(it.item_name);
+    if (!g) {
+      g = { item_name: it.item_name, quantity: 0, subtotal: 0, rows: [] };
+      byName.set(it.item_name, g);
+      groups.push(g);
+    }
+    g.quantity += Number(it.quantity) || 0;
+    g.subtotal += Number(it.subtotal) || 0;
+    g.rows.push({ it, extras });
+  }
+  return groups.flatMap((g) => {
+    const hasChoice = g.rows.some((r) => r.it.spice_level || r.extras.some((e) => /^Side: /.test(e.name)));
+    if (g.quantity <= 1 || !hasChoice) return g.rows.map((r) => r.it);
+    const meals = [];
+    for (const { it, extras } of g.rows) {
+      const parts = [it.spice_level, ...extras.map((e) => String(e.name).replace(/^Side: /, ""))].filter(Boolean);
+      for (let q = 0; q < it.quantity; q++) meals.push(parts.length ? parts.join(", ") : "Plain");
+    }
+    return [{ item_name: g.item_name, quantity: g.quantity, subtotal: g.subtotal, spice_level: null, extras: [], meals }];
+  });
+}
+
+/** "Meal 1: Hot, Chips" lines for an entry from groupOrderItems (empty string when it isn't split). */
+function mealBreakdownHtml(entry, esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c])) {
+  if (!entry.meals) return "";
+  return `<ul class="meal-breakdown">${entry.meals.map((m, i) => `<li>Meal ${i + 1}: ${esc(m)}</li>`).join("")}</ul>`;
+}
+
 function kdsItemLine(item) {
   const extras = Array.isArray(item.extras) ? item.extras : JSON.parse(item.extras || "[]");
   const bits = [];
   if (item.spice_level) bits.push(item.spice_level);
   if (extras.length) bits.push(extras.map((e) => e.name).join(", "));
-  return `${item.quantity}× ${item.item_name}${bits.length ? ` <span style="color:var(--sa-muted)">(${bits.join(" · ")})</span>` : ""}`;
+  return `${item.quantity}× ${item.item_name}${bits.length ? ` <span style="color:var(--sa-muted)">(${bits.join(" · ")})</span>` : ""}${mealBreakdownHtml(item)}`;
 }
 
 function kdsStatusMenuHtml(order) {
@@ -162,7 +201,7 @@ function kdsStatusMenuHtml(order) {
 
 function kdsCardHtml(order) {
   const { cls, mins } = kdsUrgency(order);
-  const items = order.items || [];
+  const items = groupOrderItems(order.items || []);
   const shown = items.slice(0, KDS_MAX_ITEM_LINES);
   const moreCount = items.length - shown.length;
   const nextStatus = kdsNextStage(order);
@@ -385,7 +424,7 @@ function kdsOpenDetails(order, onAction) {
   const section = (title) => `<div class="kds-detail-section">${title}</div>`;
   const typeLabel = order.order_type === "delivery" ? "Delivery" : order.order_type === "dine_in" ? "Dine in" : "Collection";
 
-  const items = order.items || [];
+  const items = groupOrderItems(order.items || []);
   const itemsTotal = items.reduce((sum, i) => sum + Number(i.subtotal || 0), 0);
   const itemsHtml = items
     .map((i) => `<li><span>${kdsItemLine(i)}</span>${i.subtotal !== undefined ? `<span>${fmt(i.subtotal)}</span>` : ""}</li>`)

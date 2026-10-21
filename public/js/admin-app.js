@@ -1075,14 +1075,13 @@ function openAdminOptionsModal(item) {
     document.body.appendChild(overlay);
     overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.classList.remove("active"); });
   }
-  const spiceHtml = item.accepts_spice && adminSpiceLevels.length
-    ? `<div class="po-opt-group"><label>Spice level</label><div class="po-pills" data-group="spice">${adminSpiceLevels
-        .map((s, i) => `<button type="button" class="po-pill${i === 0 ? " selected" : ""}" data-name="${escHtml(s.name)}">${escHtml(s.name)}</button>`)
-        .join("")}</div></div>` : "";
-  const sideHtml = (item.sides || []).length
-    ? `<div class="po-opt-group"><label>Choice of side <small>(free)</small></label><div class="po-pills" data-group="side">${item.sides
-        .map((sd) => `<button type="button" class="po-pill" data-id="${sd.id}" data-name="${escHtml(sd.name)}">${escHtml(sd.name)}</button>`)
-        .join("")}</div><p class="form-error" id="poSideError" style="display:none">Please choose a side.</p></div>` : "";
+  const hasSpice = item.accepts_spice && adminSpiceLevels.length > 0;
+  const spiceHtml = hasSpice
+    ? `<div class="po-opt-group"><label id="poSpiceLabel">Spice level</label><div id="poSpiceOptions"></div></div>` : "";
+  // Free side: one choice per meal (3 meals can be chips, pap and rice), exactly like the customer menu.
+  const hasSides = (item.sides || []).length > 0;
+  const sideHtml = hasSides
+    ? `<div class="po-opt-group" id="poSideGroup"><label id="poSideLabel">Choice of side <small>(free)</small></label><div id="poSideOptions"></div><p class="form-error" id="poSideError" style="display:none">Please choose a side.</p></div>` : "";
   const extrasHtml = item.accepts_addons && (item.addons || []).length
     ? `<div class="po-opt-group"><label>Extras</label>${item.addons
         .map((a) => `<label class="checkbox-option"><input type="checkbox" value="${a.id}" data-name="${escHtml(a.name)}" data-price="${a.price}" /> ${escHtml(a.name)} (+R${Number(a.price).toFixed(2)})</label>`)
@@ -1100,34 +1099,74 @@ function openAdminOptionsModal(item) {
   overlay.classList.add("active");
   const close = () => overlay.classList.remove("active");
   $id("poOptClose").addEventListener("click", close);
-  overlay.querySelectorAll(".po-pills").forEach((group) =>
-    group.querySelectorAll(".po-pill").forEach((btn) =>
-      btn.addEventListener("click", () => {
-        group.querySelectorAll(".po-pill").forEach((b) => b.classList.remove("selected"));
-        btn.classList.add("selected");
-        if ($id("poSideError")) $id("poSideError").style.display = "none";
-      }),
-    ),
-  );
   const qtyEl = $id("poQtyVal");
-  $id("poQtyMinus").addEventListener("click", () => (qtyEl.textContent = Math.max(1, parseInt(qtyEl.textContent, 10) - 1)));
-  $id("poQtyPlus").addEventListener("click", () => (qtyEl.textContent = parseInt(qtyEl.textContent, 10) + 1));
+  const sideChoices = []; // chosen side per meal: [{ id, name }, ...]
+  const spiceChoices = []; // chosen spice level per meal: ["Mild", "Hot", ...]
+
+  /** One row of buttons per meal, same as the customer's "for each meal" choices. */
+  const renderMealChoices = () => {
+    const quantity = parseInt(qtyEl.textContent, 10) || 1;
+    const rowsFor = (pillsFor) =>
+      Array.from({ length: quantity }, (_, meal) =>
+        `<div class="po-side-row">${quantity > 1 ? `<span class="po-side-label">Meal ${meal + 1}</span>` : ""}<div class="po-pills">${pillsFor(meal)}</div></div>`,
+      ).join("");
+    if (hasSpice) {
+      spiceChoices.length = Math.min(spiceChoices.length, quantity);
+      for (let m = 0; m < quantity; m++) if (!spiceChoices[m]) spiceChoices[m] = adminSpiceLevels[0].name; // first level is the default
+      $id("poSpiceLabel").textContent = quantity > 1 ? "Spice level for each meal" : "Spice level";
+      $id("poSpiceOptions").innerHTML = rowsFor((meal) =>
+        adminSpiceLevels
+          .map((sp) => `<button type="button" class="po-pill${spiceChoices[meal] === sp.name ? " selected" : ""}" data-meal="${meal}" data-name="${escHtml(sp.name)}">${escHtml(sp.name)}</button>`)
+          .join(""),
+      );
+      $id("poSpiceOptions").querySelectorAll(".po-pill").forEach((btn) =>
+        btn.addEventListener("click", () => {
+          spiceChoices[Number(btn.dataset.meal)] = btn.dataset.name;
+          btn.parentElement.querySelectorAll(".po-pill").forEach((b) => b.classList.toggle("selected", b === btn));
+        }),
+      );
+    }
+    if (hasSides) {
+      sideChoices.length = Math.min(sideChoices.length, quantity);
+      $id("poSideLabel").innerHTML = quantity > 1 ? "Choose a side for each meal <small>(free)</small>" : "Choose your side <small>(free)</small>";
+      $id("poSideOptions").innerHTML = rowsFor((meal) =>
+        item.sides
+          .map((sd) => `<button type="button" class="po-pill${sideChoices[meal]?.id === sd.id ? " selected" : ""}" data-meal="${meal}" data-id="${sd.id}" data-name="${escHtml(sd.name)}">${escHtml(sd.name)}</button>`)
+          .join(""),
+      );
+      $id("poSideOptions").querySelectorAll(".po-pill").forEach((btn) =>
+        btn.addEventListener("click", () => {
+          sideChoices[Number(btn.dataset.meal)] = { id: parseInt(btn.dataset.id, 10), name: btn.dataset.name };
+          btn.parentElement.querySelectorAll(".po-pill").forEach((b) => b.classList.toggle("selected", b === btn));
+          if (sideChoices.filter(Boolean).length === quantity) $id("poSideError").style.display = "none";
+        }),
+      );
+    }
+  };
+  renderMealChoices();
+
+  $id("poQtyMinus").addEventListener("click", () => { qtyEl.textContent = Math.max(1, parseInt(qtyEl.textContent, 10) - 1); renderMealChoices(); });
+  $id("poQtyPlus").addEventListener("click", () => { qtyEl.textContent = parseInt(qtyEl.textContent, 10) + 1; renderMealChoices(); });
   $id("poOptConfirm").addEventListener("click", () => {
-    const spiceBtn = overlay.querySelector('[data-group="spice"] .po-pill.selected');
-    const sideBtn = overlay.querySelector('[data-group="side"] .po-pill.selected');
-    if ((item.sides || []).length && !sideBtn) {
+    const qty = parseInt(qtyEl.textContent, 10) || 1;
+    if (hasSides && sideChoices.filter(Boolean).length < qty) {
+      $id("poSideError").textContent = qty > 1 ? "Please choose a side for every meal." : "Please choose a side.";
       $id("poSideError").style.display = "block";
       return;
     }
     const extras = [...overlay.querySelectorAll('input[type="checkbox"]:checked')].map((c) => ({
       id: parseInt(c.value, 10), name: c.dataset.name, price: parseFloat(c.dataset.price),
     }));
-    addLineToAdminCart(item, {
-      spice: spiceBtn ? spiceBtn.dataset.name : null,
-      side: sideBtn ? { id: parseInt(sideBtn.dataset.id, 10), name: sideBtn.dataset.name } : null,
-      extras,
-      qty: parseInt(qtyEl.textContent, 10) || 1,
-    });
+    // Meals with the same spice level and side share a cart line: 2x (hot + chips) + 1x (mild + rice) -> two lines.
+    const groups = [];
+    for (let meal = 0; meal < qty; meal++) {
+      const spice = hasSpice ? spiceChoices[meal] || null : null;
+      const side = hasSides ? sideChoices[meal] : null;
+      const group = groups.find((g) => g.spice === spice && (g.side ? g.side.id : null) === (side ? side.id : null));
+      if (group) group.qty += 1;
+      else groups.push({ spice, side, qty: 1 });
+    }
+    for (const group of groups) addLineToAdminCart(item, { spice: group.spice, side: group.side, extras, qty: group.qty });
     close();
   });
 }
@@ -1324,10 +1363,62 @@ function waNumber(phone) {
 const waLink = (phone, text) => `https://wa.me/${waNumber(phone)}?text=${encodeURIComponent(text)}`;
 window.waLink = waLink;
 
+// ---- Dine in: date + time like the customer's table booking (South Africa time) ----
+const PO_HOURS = { open: 9 * 60, close: { 0: 20 * 60, 1: 18 * 60, 2: 18 * 60, 3: 18 * 60, 4: 18 * 60, 5: 20 * 60, 6: 21 * 60 } }; // keep in sync with functions/_lib/hours.js
+const PO_SLOT_MIN = 30;
+const PO_LEAD_MIN = 90; // same lead the customer gets for collection/delivery times today
+
+function poCafeNow() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Johannesburg", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date());
+  const get = (t) => parts.find((p) => p.type === t)?.value;
+  return { dateKey: `${get("year")}-${get("month")}-${get("day")}`, minutes: (+get("hour") % 24) * 60 + +get("minute") };
+}
+
+/** Half-hour times the cafe is open on a date, from `earliest` minutes past midnight. */
+function poSlotsFor(dateStr, earliest = 0) {
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr || "");
+  if (!d) return [];
+  const weekday = new Date(Date.UTC(+d[1], +d[2] - 1, +d[3])).getUTCDay();
+  const start = Math.max(PO_HOURS.open, Math.ceil(earliest / PO_SLOT_MIN) * PO_SLOT_MIN);
+  const slots = [];
+  for (let m = start; m < PO_HOURS.close[weekday]; m += PO_SLOT_MIN) {
+    slots.push(`${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`);
+  }
+  return slots;
+}
+
+/** Fills the dine-in Time list: today = As soon as possible + slots from 1h30 ahead; later date = every half-hour. */
+function renderDineTimes() {
+  const sel = $id("poDineTime");
+  if (!sel) return;
+  const now = poCafeNow();
+  const dateInput = $id("poDineDate");
+  if (dateInput) {
+    dateInput.min = now.dateKey;
+    if (!dateInput.value || dateInput.value < now.dateKey) dateInput.value = now.dateKey;
+  }
+  const date = dateInput?.value || now.dateKey;
+  const later = date > now.dateKey;
+  const previous = sel.value;
+  sel.innerHTML = later
+    ? `<option value="">Choose a time</option>` + poSlotsFor(date).map((t) => `<option value="${t}">${t}</option>`).join("")
+    : `<option value="As soon as possible">As soon as possible</option>` + poSlotsFor(date, now.minutes + PO_LEAD_MIN).map((t) => `<option value="At ${t}">${t}</option>`).join("");
+  if ([...sel.options].some((o) => o.value === previous)) sel.value = previous;
+  $id("poPartyField").style.display = later ? "" : "none";
+  $id("poDineNote").style.display = later ? "" : "none";
+  const tableLabel = document.querySelector('label[for="orderTableNumber"]');
+  if (tableLabel) tableLabel.innerHTML = later ? "Table number <small>(optional for a booking)</small>" : "Table number";
+}
+
 function updateOrderTypeFields() {
   const type = poOrderType();
   $id("poDeliveryFields").style.display = type === "delivery" ? "" : "none";
   $id("poTableField").style.display = type === "dine_in" ? "" : "none";
+  $id("poDineFields").style.display = type === "dine_in" ? "" : "none";
+  $id("poWhenField").style.display = type === "dine_in" ? "none" : "";
+  if (type === "dine_in") renderDineTimes();
   if (type !== "delivery") {
     poReset();
     poClearManualFee();
@@ -1359,9 +1450,17 @@ async function generatePaymentLink() {
   ) {
     return;
   }
-  if (type === "dine_in" && !table) {
+  const dineDate = type === "dine_in" ? ($id("poDineDate")?.value || poCafeNow().dateKey) : null;
+  const dineLater = type === "dine_in" && dineDate > poCafeNow().dateKey;
+  const dineTime = type === "dine_in" ? ($id("poDineTime")?.value || "") : "";
+  const partySize = parseInt($id("poPartySize")?.value, 10);
+  if (type === "dine_in" && !dineLater && !table) {
     toast("Enter the table number.");
     return;
+  }
+  if (dineLater) {
+    if (!dineTime) { toast("Choose the booking time."); return; }
+    if (!Number.isInteger(partySize) || partySize < 1) { toast("Enter how many people the booking is for."); return; }
   }
   if (type === "delivery") {
     const missing = poMissingAddressParts();
@@ -1395,7 +1494,10 @@ async function generatePaymentLink() {
         delivery_lng: type === "delivery" ? poDelivery.lng : undefined,
         delivery_fee_override: type === "delivery" && poDelivery.manualFee !== null ? poDelivery.manualFee : undefined,
         table_number: type === "dine_in" ? table : undefined,
-        pickup_time: $id("orderPickupTime")?.value || undefined,
+        pickup_time: type === "dine_in" ? (dineLater ? undefined : dineTime || undefined) : $id("orderPickupTime")?.value || undefined,
+        dine_date: type === "dine_in" ? dineDate : undefined,
+        dine_time: dineLater ? dineTime : undefined,
+        party_size: dineLater ? partySize : undefined,
         special_instructions: cleanText($id("orderInstructions")?.value, 500),
         cart_items: adminCart.map((l) => ({
           id: l.itemId,
@@ -1413,7 +1515,9 @@ async function generatePaymentLink() {
       return;
     }
 
-    const msg = `Hi ${customerName}, your Fulude's Cafe order #${data.order_id} comes to R${Number(data.total_amount).toFixed(2)}. Please pay securely here to confirm it: ${data.pay_url}`;
+    const msg = data.is_reservation
+      ? `Hi ${customerName}, your Fulude's Cafe table booking for ${data.reservation_when} with a food pre-order (#${data.order_id}) comes to R${Number(data.total_amount).toFixed(2)}. Please pay securely here to confirm your booking: ${data.pay_url}`
+      : `Hi ${customerName}, your Fulude's Cafe order #${data.order_id} comes to R${Number(data.total_amount).toFixed(2)}. Please pay securely here to confirm it: ${data.pay_url}`;
     const linkEl = $id("paymentLinkResult");
     if (linkEl) {
       linkEl.style.display = "";
@@ -1428,7 +1532,7 @@ async function generatePaymentLink() {
             <button type="button" class="btn btn-primary copy-paylink-btn">Copy</button>
           </div>
           <a class="btn btn-primary btn-block" style="margin-top:8px" target="_blank" rel="noopener" href="${waLink(customerPhone, msg)}"><i class="fab fa-whatsapp"></i> Send link on WhatsApp</a>
-          <small class="admin-hint">The order only goes to the kitchen once the customer has paid.</small>
+          <small class="admin-hint">${data.is_reservation ? `Reservation for ${escHtml(data.reservation_when)}: it is confirmed once the customer pays, and the order shows on the dashboard 20 minutes before that time.` : "The order only goes to the kitchen once the customer has paid."}</small>
         </div>`;
       $id("paymentLinkUrl").addEventListener("click", (e) => e.target.select());
       linkEl.querySelector(".copy-paylink-btn").addEventListener("click", () => {
@@ -1472,6 +1576,8 @@ function cancelPlaceOrder() {
   });
   $id("orderType").value = "collection";
   $id("orderPickupTime").selectedIndex = 0;
+  if ($id("poDineDate")) $id("poDineDate").value = "";
+  if ($id("poPartySize")) $id("poPartySize").value = "";
   $id("poDeliveryStatus").textContent = "";
   const linkEl = $id("paymentLinkResult");
   linkEl.style.display = "none";
@@ -1567,7 +1673,22 @@ function initPlaceOrderTab() {
             <label for="orderTableNumber">Table number</label>
             <input type="text" id="orderTableNumber" placeholder="e.g. 4">
           </div>
-          <div class="form-group">
+          <div id="poDineFields" style="display:none">
+            <div class="form-group">
+              <label for="poDineDate">Date</label>
+              <input type="date" id="poDineDate">
+            </div>
+            <div class="form-group">
+              <label for="poDineTime">Time</label>
+              <select id="poDineTime"></select>
+            </div>
+            <div class="form-group" id="poPartyField" style="display:none">
+              <label for="poPartySize">No. of people</label>
+              <input type="number" id="poPartySize" min="1" max="200" placeholder="e.g. 4">
+            </div>
+            <small id="poDineNote" class="admin-hint" style="display:none;margin:0 0 10px">A later date is saved as a table reservation with this pre-order. It confirms once the customer pays, and the order reaches the dashboard 20 minutes before the booking time.</small>
+          </div>
+          <div class="form-group" id="poWhenField">
             <label for="orderPickupTime">When</label>
             <select id="orderPickupTime">
               <option value="As soon as possible">As soon as possible</option>
@@ -1622,6 +1743,7 @@ function initPlaceOrderTab() {
     renderAdminCart();
   });
   $id("orderType").addEventListener("change", updateOrderTypeFields);
+  $id("poDineDate").addEventListener("change", renderDineTimes);
   $id("poAddressOkBtn").addEventListener("click", poConfirmAddress);
   const onAddressEdit = () => {
     if (poComposeAddress() !== poDelivery.lastInput && (poDelivery.lat !== null || poDelivery.error || poDelivery.tooFar)) {

@@ -6,6 +6,8 @@ import { generateToken } from "../../_lib/password.js";
 import { logAudit } from "../../_lib/audit.js";
 import { calculateDeliveryFee } from "../../_lib/delivery.js";
 import { createYocoCheckout } from "../../_lib/yoco.js";
+import { validateReservationSlot, validatePickupSlot } from "../../_lib/hours.js";
+import { ensureScheduleColumns, scheduledForFromPickup } from "../../_lib/scheduledOrders.js";
 
 export async function onRequestPost(context) {
   const { request, env } = context;
@@ -30,7 +32,13 @@ export async function onRequestPost(context) {
   const orderType = ["delivery", "dine_in"].includes(body.order_type) ? body.order_type : "collection";
   const deliveryAddress = sanitizeText(body.delivery_address || "", 500);
   const tableNumber = sanitizeText(body.table_number || "", 30);
-  const pickupTime = sanitizeText(body.pickup_time || "As soon as possible", 60);
+  let pickupTime = sanitizeText(body.pickup_time || "As soon as possible", 60);
+  // Dine in works like the customer's table booking: a date, a time and (for a later day) the party size.
+  const todaySA = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Johannesburg" }).format(new Date());
+  const dineDate = orderType === "dine_in" ? sanitizeText(body.dine_date || todaySA, 10) : todaySA;
+  const dineTime = sanitizeText(body.dine_time || "", 5); // "HH:MM" for a later day
+  const partySize = parseInt(body.party_size, 10);
+  const isReservation = orderType === "dine_in" && dineDate !== todaySA;
   const specialInstructions = sanitizeText(body.special_instructions || "", 500);
 
   if (customerName && !isValidName(customerName)) return jsonResponse({ error: VALIDATION_MESSAGES.name }, 400);
@@ -226,9 +234,27 @@ export async function onRequestPost(context) {
       }
       if (manualFee !== null) deliveryFee = manualFee;
     }
-    if (orderType === "dine_in" && !tableNumber) {
+    if (orderType === "dine_in" && !isReservation && !tableNumber) {
       return jsonResponse({ error: "Enter the table number for a dine-in order." }, 400);
     }
+
+    // Dine in on a later date = a table reservation with a pre-order; today = a timed/ASAP order.
+    let scheduledFor = null;
+    if (orderType === "dine_in" && isReservation) {
+      const slotError = validateReservationSlot(dineDate, dineTime);
+      if (slotError) return jsonResponse({ error: slotError }, 400);
+      if (!Number.isInteger(partySize) || partySize < 1 || partySize > 200) {
+        return jsonResponse({ error: "Enter how many people the booking is for." }, 400);
+      }
+      // South Africa has no daylight saving: always UTC+2
+      scheduledFor = new Date(`${dineDate}T${dineTime}:00+02:00`);
+      pickupTime = `Reservation ${dineDate} at ${dineTime}`;
+    } else {
+      const slotError = validatePickupSlot(pickupTime);
+      if (slotError && orderType === "dine_in") return jsonResponse({ error: slotError }, 400);
+      scheduledFor = scheduledForFromPickup(pickupTime);
+    }
+    await ensureScheduleColumns(env);
 
     const itemsTotal = lineItems.reduce((s, li) => s + li.subtotal, 0);
     const totalAmount = itemsTotal + deliveryFee;
@@ -240,8 +266,8 @@ export async function onRequestPost(context) {
       INSERT INTO orders
         (customer_id, customer_name, customer_phone, order_type, delivery_address, delivery_lat, delivery_lng,
          delivery_distance_km, delivery_fee, table_number, pickup_time, special_instructions,
-         total_amount, status, payment_method, payment_status, stock_decremented)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'New', 'online', 'awaiting', FALSE)
+         total_amount, status, payment_method, payment_status, stock_decremented, scheduled_for)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'New', 'online', 'awaiting', FALSE, $14)
       RETURNING id, created_at;
     `,
       [
@@ -250,6 +276,7 @@ export async function onRequestPost(context) {
         deliveryLat, deliveryLng, deliveryDistanceKm, deliveryFee,
         orderType === "dine_in" ? tableNumber : null,
         pickupTime, specialInstructions || null, totalAmount,
+        scheduledFor ? scheduledFor.toISOString() : null,
       ],
     );
     const newOrderId = orderInsert.rows[0].id;
@@ -275,6 +302,26 @@ export async function onRequestPost(context) {
       );
     }
 
+    // Later-date dine in: save the booking and tie this order to it as its pre-order.
+    // It stays "AwaitingPayment" (hidden) until paid, then payment confirms it - same as a customer's.
+    if (isReservation) {
+      try {
+        await runQuery(
+          env,
+          `INSERT INTO customer_reservations (
+             customer_id, customer_name, customer_email, customer_phone,
+             reservation_date, reservation_time, party_size, table_number, notes,
+             advance_order_requested, advance_order_id, status
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 'AwaitingPayment');`,
+          [customerId, customerName, customerEmail, customerPhone, dineDate, dineTime, partySize,
+            tableNumber || null, specialInstructions || null, newOrderId],
+        );
+      } catch (resErr) {
+        await runQuery(env, "DELETE FROM orders WHERE id = $1;", [newOrderId]).catch(() => {});
+        return jsonResponse({ error: `Couldn't save the reservation: ${resErr.message}` }, 500);
+      }
+    }
+
     // Stock is deliberately NOT decremented here: payment/notify.js does it once the
     // payment is confirmed (decrementing now would take stock twice and hold it for unpaid links).
 
@@ -295,6 +342,7 @@ export async function onRequestPost(context) {
       checkoutUrl = checkout.redirect_url;
     } catch (yocoErr) {
       // No usable link - don't leave an orphan unpaid order behind (items cascade).
+      await runQuery(env, "DELETE FROM customer_reservations WHERE advance_order_id = $1 AND status = 'AwaitingPayment';", [newOrderId]).catch(() => {});
       await runQuery(env, "DELETE FROM orders WHERE id = $1 AND payment_status = 'awaiting';", [newOrderId]).catch(() => {});
       return jsonResponse({ error: `Couldn't create the Yoco payment: ${yocoErr.message}` }, 502);
     }
@@ -315,7 +363,7 @@ export async function onRequestPost(context) {
       action: "admin_build_cart",
       target_type: "order",
       target_id: newOrderId,
-      details: { customer_email: customerEmail, total_amount: totalAmount, order_type: orderType, delivery_fee: deliveryFee },
+      details: { customer_email: customerEmail, total_amount: totalAmount, order_type: orderType, delivery_fee: deliveryFee, reservation: isReservation ? { date: dineDate, time: dineTime, party_size: partySize } : undefined },
     });
 
     // Opens straight onto the Yoco payment page (functions/api/paylink.js).
@@ -329,6 +377,8 @@ export async function onRequestPost(context) {
       delivery_fee: deliveryFee,
       pay_url: payUrl,
       token,
+      is_reservation: isReservation,
+      reservation_when: isReservation ? `${dineDate} at ${dineTime}` : null,
     });
   } catch (err) {
     return jsonResponse(

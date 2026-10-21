@@ -2124,8 +2124,46 @@ function formatClearsIn(createdAt) {
   return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`;
 }
 
+/**
+ * Splits an order's items into numbered meals when the customer chose a spice level or side per meal.
+ * 3x Wings -> one entry carrying meals: ["Hot, Chips", "Mild, Rice", "Hot, Pap"] (shown as Meal 1, Meal 2...).
+ * Items that were ordered once, or with no spice/side choice, come back unchanged.
+ */
+function groupOrderItems(items) {
+  const groups = [];
+  const byName = new Map();
+  for (const it of items || []) {
+    const extras = Array.isArray(it.extras) ? it.extras : JSON.parse(it.extras || "[]");
+    let g = byName.get(it.item_name);
+    if (!g) {
+      g = { item_name: it.item_name, quantity: 0, subtotal: 0, rows: [] };
+      byName.set(it.item_name, g);
+      groups.push(g);
+    }
+    g.quantity += Number(it.quantity) || 0;
+    g.subtotal += Number(it.subtotal) || 0;
+    g.rows.push({ it, extras });
+  }
+  return groups.flatMap((g) => {
+    const hasChoice = g.rows.some((r) => r.it.spice_level || r.extras.some((e) => /^Side: /.test(e.name)));
+    if (g.quantity <= 1 || !hasChoice) return g.rows.map((r) => r.it);
+    const meals = [];
+    for (const { it, extras } of g.rows) {
+      const parts = [it.spice_level, ...extras.map((e) => String(e.name).replace(/^Side: /, ""))].filter(Boolean);
+      for (let q = 0; q < it.quantity; q++) meals.push(parts.length ? parts.join(", ") : "Plain");
+    }
+    return [{ item_name: g.item_name, quantity: g.quantity, subtotal: g.subtotal, spice_level: null, extras: [], meals }];
+  });
+}
+
+/** "Meal 1: Hot, Chips" lines for an entry from groupOrderItems (empty string when it isn't split). */
+function mealBreakdownHtml(entry, esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c])) {
+  if (!entry.meals) return "";
+  return `<ul class="meal-breakdown">${entry.meals.map((m, i) => `<li>Meal ${i + 1}: ${esc(m)}</li>`).join("")}</ul>`;
+}
+
 function renderReceiptCard(order, { history = false } = {}) {
-  const itemsHtml = order.items
+  const itemsHtml = groupOrderItems(order.items)
     .map((item) => {
       const extras = Array.isArray(item.extras)
         ? item.extras
@@ -2133,7 +2171,7 @@ function renderReceiptCard(order, { history = false } = {}) {
       const bits = [];
       if (item.spice_level) bits.push(item.spice_level);
       if (extras.length) bits.push(extras.map((e) => e.name).join(", "));
-      return `<li>${item.quantity}x ${item.item_name}${bits.length ? ` (${bits.join(" · ")})` : ""} — ${money(item.subtotal)}</li>`;
+      return `<li>${item.quantity}x ${item.item_name}${bits.length ? ` (${bits.join(" · ")})` : ""} — ${money(item.subtotal)}${mealBreakdownHtml(item)}</li>`;
     })
     .join("");
 

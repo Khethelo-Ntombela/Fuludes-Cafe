@@ -3,6 +3,7 @@ import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
 import { queueDueNewOrderPushes } from "../../_lib/push.js";
 import { ensureScheduleColumns } from "../../_lib/scheduledOrders.js";
+import { ORDER_SHOW_AT, ORDER_VISIBLE_NOW } from "../../_lib/preorderVisibility.js";
 
 export async function onRequestGet(context) {
   const { request, env } = context;
@@ -24,7 +25,7 @@ export async function onRequestGet(context) {
       FROM orders
       WHERE status IN ('New', 'Preparing', 'Ready', 'Collection', 'Delivery', 'Out for Delivery')
         AND payment_status = 'paid'
-        AND (kitchen_release_at IS NULL OR kitchen_release_at <= NOW())
+        AND ${ORDER_VISIBLE_NOW}
       ORDER BY created_at ASC;
     `,
     );
@@ -57,9 +58,9 @@ export async function onRequestGet(context) {
     // can fetch at that exact moment and ring straight away (not on the next 5s poll).
     const next = await runQuery(
       env,
-      `SELECT MIN(kitchen_release_at) AS next_release_at, NOW() AS server_now
+      `SELECT MIN(${ORDER_SHOW_AT}) AS next_release_at, NOW() AS server_now
          FROM orders
-        WHERE payment_status = 'paid' AND status = 'New' AND kitchen_release_at > NOW();`,
+        WHERE payment_status = 'paid' AND status = 'New' AND kitchen_release_at IS NOT NULL AND ${ORDER_SHOW_AT} > NOW();`,
     );
 
     return jsonResponse({

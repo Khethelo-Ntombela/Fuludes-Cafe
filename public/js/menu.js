@@ -845,31 +845,55 @@ const customizeAddonOptions = document.getElementById("customizeAddonOptions");
 const customizeQtyValue = document.getElementById("customizeQtyValue");
 
 let sideChoices = []; // chosen side per meal in the customize modal: [{ id, name }, ...]
+let spiceChoices = []; // chosen spice level per meal: ["Mild", "Hot", ...]
 
-/** One row of side buttons per meal, so 3 meals can be chips, pap and rice. */
-function renderSideChoices() {
+/** One row of buttons per meal, so 3 meals can be mild, hot and medium (and chips, pap and rice). */
+function renderMealChoices() {
   const item = pendingCustomizeItem;
-  if (!item || !Array.isArray(item.sides) || !item.sides.length) return;
+  if (!item) return;
   const quantity = parseInt(customizeQtyValue.textContent, 10) || 1;
-  sideChoices.length = Math.min(sideChoices.length, quantity);
-  customizeSideGroup.querySelector("label").innerHTML =
-    quantity > 1 ? "Choose a side for each meal <small>(free)</small>" : "Choose your side <small>(free)</small>";
-  customizeSideOptions.innerHTML = Array.from({ length: quantity }, (_, meal) => {
-    const pills = item.sides
-      .map((sd) => `<button type="button" class="pill-option${sideChoices[meal]?.id === sd.id ? " selected" : ""}" data-meal="${meal}" data-id="${sd.id}" data-name="${escapeHtml(sd.name)}">${escapeHtml(sd.name)}</button>`)
-      .join("");
-    return quantity > 1
-      ? `<div class="side-meal-row"><span class="side-meal-label">Meal ${meal + 1}</span><div class="pill-options">${pills}</div></div>`
-      : `<div class="pill-options">${pills}</div>`;
-  }).join("");
-  customizeSideOptions.querySelectorAll(".pill-option").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const meal = Number(btn.dataset.meal);
-      sideChoices[meal] = { id: parseInt(btn.dataset.id, 10), name: btn.dataset.name };
-      btn.parentElement.querySelectorAll(".pill-option").forEach((b) => b.classList.toggle("selected", b === btn));
-      if (sideChoices.filter(Boolean).length === quantity) customizeSideError.style.display = "none";
+  const rowsFor = (pillsFor) =>
+    Array.from({ length: quantity }, (_, meal) =>
+      quantity > 1
+        ? `<div class="side-meal-row"><span class="side-meal-label">Meal ${meal + 1}</span><div class="pill-options">${pillsFor(meal)}</div></div>`
+        : `<div class="pill-options">${pillsFor(meal)}</div>`,
+    ).join("");
+
+  if (item.accepts_spice && spiceLevels.length > 0) {
+    spiceChoices.length = Math.min(spiceChoices.length, quantity);
+    for (let m = 0; m < quantity; m++) if (!spiceChoices[m]) spiceChoices[m] = spiceLevels[0].name; // first level is the default
+    customizeSpiceGroup.querySelector("label").textContent = quantity > 1 ? "Spice level for each meal" : "Spice Level";
+    customizeSpiceOptions.innerHTML = rowsFor((meal) =>
+      spiceLevels
+        .map((s) => `<button type="button" class="pill-option${spiceChoices[meal] === s.name ? " selected" : ""}" data-meal="${meal}" data-name="${escapeHtml(s.name)}">${escapeHtml(s.name)}</button>`)
+        .join(""),
+    );
+    customizeSpiceOptions.querySelectorAll(".pill-option").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        spiceChoices[Number(btn.dataset.meal)] = btn.dataset.name;
+        btn.parentElement.querySelectorAll(".pill-option").forEach((b) => b.classList.toggle("selected", b === btn));
+      });
     });
-  });
+  }
+
+  if (Array.isArray(item.sides) && item.sides.length) {
+    sideChoices.length = Math.min(sideChoices.length, quantity);
+    customizeSideGroup.querySelector("label").innerHTML =
+      quantity > 1 ? "Choose a side for each meal <small>(free)</small>" : "Choose your side <small>(free)</small>";
+    customizeSideOptions.innerHTML = rowsFor((meal) =>
+      item.sides
+        .map((sd) => `<button type="button" class="pill-option${sideChoices[meal]?.id === sd.id ? " selected" : ""}" data-meal="${meal}" data-id="${sd.id}" data-name="${escapeHtml(sd.name)}">${escapeHtml(sd.name)}</button>`)
+        .join(""),
+    );
+    customizeSideOptions.querySelectorAll(".pill-option").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const meal = Number(btn.dataset.meal);
+        sideChoices[meal] = { id: parseInt(btn.dataset.id, 10), name: btn.dataset.name };
+        btn.parentElement.querySelectorAll(".pill-option").forEach((b) => b.classList.toggle("selected", b === btn));
+        if (sideChoices.filter(Boolean).length === quantity) customizeSideError.style.display = "none";
+      });
+    });
+  }
 }
 
 function openCustomizeModal(item) {
@@ -877,32 +901,17 @@ function openCustomizeModal(item) {
   customizeItemName.textContent = item.name;
   customizeQtyValue.textContent = "1";
 
-  if (item.accepts_spice && spiceLevels.length > 0) {
-    customizeSpiceGroup.style.display = "block";
-    customizeSpiceOptions.innerHTML = spiceLevels
-      .map((s, idx) => `<button type="button" class="pill-option${idx === 0 ? " selected" : ""}" data-name="${s.name}">${s.name}</button>`)
-      .join("");
-    customizeSpiceOptions.querySelectorAll(".pill-option").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        customizeSpiceOptions.querySelectorAll(".pill-option").forEach((b) => b.classList.remove("selected"));
-        btn.classList.add("selected");
-      });
-    });
-  } else {
-    customizeSpiceGroup.style.display = "none";
-    customizeSpiceOptions.innerHTML = "";
-  }
-
-  // Free choice of side (only on dishes the cafe attached sides to) - one per meal, must pick each
+  // Spice level and free side: one choice per meal (the quantity can be raised in the modal)
   customizeSideError.style.display = "none";
   sideChoices = [];
-  if (Array.isArray(item.sides) && item.sides.length > 0) {
-    customizeSideGroup.style.display = "block";
-    renderSideChoices();
-  } else {
-    customizeSideGroup.style.display = "none";
-    customizeSideOptions.innerHTML = "";
-  }
+  spiceChoices = [];
+  const showSpice = item.accepts_spice && spiceLevels.length > 0;
+  const showSides = Array.isArray(item.sides) && item.sides.length > 0;
+  customizeSpiceGroup.style.display = showSpice ? "block" : "none";
+  customizeSideGroup.style.display = showSides ? "block" : "none";
+  customizeSpiceOptions.innerHTML = "";
+  customizeSideOptions.innerHTML = "";
+  renderMealChoices();
 
   if (item.accepts_addons && item.addons.length > 0) {
     customizeAddonsGroup.style.display = "block";
@@ -929,19 +938,19 @@ customizeModal.addEventListener("click", (e) => {
 document.getElementById("customizeQtyMinus").addEventListener("click", () => {
   const val = Math.max(1, parseInt(customizeQtyValue.textContent, 10) - 1);
   customizeQtyValue.textContent = val;
-  renderSideChoices();
+  renderMealChoices();
 });
 document.getElementById("customizeQtyPlus").addEventListener("click", () => {
   const val = parseInt(customizeQtyValue.textContent, 10) + 1;
   customizeQtyValue.textContent = val;
-  renderSideChoices();
+  renderMealChoices();
 });
 
 document.getElementById("customizeConfirmBtn").addEventListener("click", () => {
   if (!pendingCustomizeItem) return;
-  const selectedSpice = customizeSpiceOptions.querySelector(".pill-option.selected");
   const quantity = parseInt(customizeQtyValue.textContent, 10) || 1;
   const hasSides = customizeSideOptions.children.length > 0;
+  const hasSpice = customizeSpiceOptions.children.length > 0;
   if (hasSides && sideChoices.filter(Boolean).length < quantity) {
     customizeSideError.textContent = quantity > 1 ? "Please choose a side for every meal." : "Please choose a side.";
     customizeSideError.style.display = "block";
@@ -953,16 +962,20 @@ document.getElementById("customizeConfirmBtn").addEventListener("click", () => {
     price: parseFloat(input.dataset.price)
   }));
 
-  // Meals with the same side share a cart line: 2x chips + 1x rice -> two lines.
+  // Meals with the same spice level and side share a cart line: 2x (hot + chips) + 1x (mild + rice) -> two lines.
   const groups = [];
-  for (const side of hasSides ? sideChoices : [null]) {
-    const group = groups.find((g) => (g.side ? g.side.id : null) === (side ? side.id : null));
+  for (let meal = 0; meal < quantity; meal++) {
+    const spiceLevel = hasSpice ? spiceChoices[meal] || null : null;
+    const side = hasSides ? sideChoices[meal] : null;
+    const group = groups.find(
+      (g) => g.spiceLevel === spiceLevel && (g.side ? g.side.id : null) === (side ? side.id : null),
+    );
     if (group) group.quantity += 1;
-    else groups.push({ side, quantity: hasSides ? 1 : quantity });
+    else groups.push({ spiceLevel, side, quantity: 1 });
   }
   for (const group of groups) {
     addToCart(pendingCustomizeItem, {
-      spiceLevel: selectedSpice ? selectedSpice.dataset.name : null,
+      spiceLevel: group.spiceLevel,
       side: group.side,
       extras: selectedExtras,
       quantity: group.quantity
@@ -1088,22 +1101,58 @@ function renderCheckoutSummary() {
     `<div class="cs-row ${cls}"><span class="cs-label">${label}</span><span class="cs-value">${value}</span></div>`;
 
   let subtotal = 0;
-  const lines = cart
-    .map((line) => {
-      const extrasUnit = line.extras.reduce((s, e) => s + e.price, 0);
-      const lineTotal = (line.price + extrasUnit) * line.quantity;
-      subtotal += lineTotal;
-      const details = [];
-      if (line.spiceLevel) details.push(row(`Spice: ${line.spiceLevel}`, "free", "cs-sub"));
-      if (line.side) details.push(row(`Side: ${line.side.name}`, "free", "cs-sub"));
-      line.extras.forEach((e) =>
-        details.push(row(`+ ${e.name}${line.quantity > 1 ? ` (${line.quantity} &times; ${money(e.price)})` : ""}`, money(e.price * line.quantity), "cs-sub")),
-      );
-      return `<div class="cs-item">
+  // Lines of the same dish are shown together; with a spice level or side chosen per meal
+  // they are broken down as "Meal 1: Hot, Chips", "Meal 2: Mild, Rice"...
+  const byItem = [];
+  for (const line of cart) {
+    let g = byItem.find((x) => x.itemId === line.itemId);
+    if (!g) byItem.push((g = { itemId: line.itemId, name: line.name, price: line.price, lines: [] }));
+    g.lines.push(line);
+  }
+  const lines = byItem
+    .map((g) => {
+      const qty = g.lines.reduce((n, l) => n + l.quantity, 0);
+      const hasChoice = g.lines.some((l) => l.spiceLevel || l.side);
+      const lineTotal = (l) => (l.price + l.extras.reduce((s, e) => s + e.price, 0)) * l.quantity;
+      const groupTotal = g.lines.reduce((sum, l) => sum + lineTotal(l), 0);
+      subtotal += groupTotal;
+
+      if (qty > 1 && hasChoice) {
+        let meal = 0;
+        const details = [];
+        for (const l of g.lines) {
+          for (let q = 0; q < l.quantity; q++) {
+            meal += 1;
+            const parts = [l.spiceLevel, l.side ? l.side.name : null].filter(Boolean);
+            const paid = l.extras.map((e) => `+ ${e.name} (${money(e.price)})`);
+            const label = `Meal ${meal}: ${[...parts, ...paid].join(", ") || "Plain"}`;
+            details.push(row(label, l.extras.length ? money(l.extras.reduce((s, e) => s + e.price, 0)) : "free", "cs-sub"));
+          }
+        }
+        return `<div class="cs-item">
+        ${row(`<strong>${qty} &times; ${g.name}</strong> <small>(${money(g.price)} each)</small>`, money(g.price * qty))}
+        ${details.join("")}
+        ${row("Item total", money(groupTotal), "cs-item-total")}
+      </div>`;
+      }
+
+      return g.lines
+        .map((line) => {
+          const extrasUnit = line.extras.reduce((s, e) => s + e.price, 0);
+          const total = (line.price + extrasUnit) * line.quantity;
+          const details = [];
+          if (line.spiceLevel) details.push(row(`Spice: ${line.spiceLevel}`, "free", "cs-sub"));
+          if (line.side) details.push(row(`Side: ${line.side.name}`, "free", "cs-sub"));
+          line.extras.forEach((e) =>
+            details.push(row(`+ ${e.name}${line.quantity > 1 ? ` (${line.quantity} &times; ${money(e.price)})` : ""}`, money(e.price * line.quantity), "cs-sub")),
+          );
+          return `<div class="cs-item">
         ${row(`<strong>${line.quantity} &times; ${line.name}</strong>${line.quantity > 1 ? ` <small>(${money(line.price)} each)</small>` : ""}`, money(line.price * line.quantity))}
         ${details.join("")}
-        ${details.length ? row("Item total", money(lineTotal), "cs-item-total") : ""}
+        ${details.length ? row("Item total", money(total), "cs-item-total") : ""}
       </div>`;
+        })
+        .join("");
     })
     .join("");
 

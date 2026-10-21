@@ -1,5 +1,6 @@
 // Web Push (phone/desktop notifications that arrive even when the app is closed)
 import { runQuery } from "./db.js";
+import { ORDER_SHOW_AT } from "./preorderVisibility.js";
 
 const enc = new TextEncoder();
 
@@ -199,8 +200,8 @@ export async function sendDueNewOrderPushes(env, { origin } = {}) {
         WHERE new_order_push_sent_at IS NULL
           AND payment_status = 'paid'
           AND status = 'New'
-          AND kitchen_release_at <= NOW() - INTERVAL '1 second'
-          AND kitchen_release_at > NOW() - INTERVAL '30 minutes'
+          AND ${ORDER_SHOW_AT} <= NOW() - INTERVAL '1 second'
+          AND ${ORDER_SHOW_AT} > NOW() - INTERVAL '30 minutes'
         RETURNING id, order_type, total_amount;`,
     );
     for (const order of due.rows) {

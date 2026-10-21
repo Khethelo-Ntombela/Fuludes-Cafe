@@ -794,7 +794,7 @@ function renderOrderHistory(orders) {
 
   list.innerHTML = orders
     .map((order) => {
-      const itemsHtml = order.items
+      const itemsHtml = groupOrderItems(order.items)
         .map((item) => {
           const extras = Array.isArray(item.extras)
             ? item.extras
@@ -802,7 +802,7 @@ function renderOrderHistory(orders) {
           const bits = [];
           if (item.spice_level) bits.push(item.spice_level);
           if (extras.length) bits.push(extras.map((e) => e.name).join(", "));
-          return `<li>${item.quantity}x ${item.item_name}${bits.length ? ` (${bits.join(" · ")})` : ""} - ${money(item.subtotal)}</li>`;
+          return `<li>${item.quantity}x ${item.item_name}${bits.length ? ` (${bits.join(" · ")})` : ""} - ${money(item.subtotal)}${mealBreakdownHtml(item)}</li>`;
         })
         .join("");
 
