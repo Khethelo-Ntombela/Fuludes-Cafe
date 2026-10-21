@@ -340,7 +340,7 @@ function renderDashKpis(history, stats, months) {
   const todayKey = localDayKey();
   const allReservations = typeof reservations !== "undefined" ? reservations : [];
   const dismissedRes = getDismissedIds("reservations");
-  const resList = allReservations.filter((r) => r.reservation_date === todayKey && (r.status === "Confirmed" || r.status === "Completed") && !dismissedRes.has(r.id));
+  const resList = allReservations.filter((r) => r.reservation_date === todayKey && r.status === "Confirmed" && !dismissedRes.has(r.id));
   const resToday = resList.length;
 
   const revSpark = sparklineSvg(months.map((m) => Number(m.revenue || 0)));

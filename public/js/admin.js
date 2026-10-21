@@ -2707,9 +2707,9 @@ function renderReservationSummary() {
   const todayKey = kdsDayKey();
   // Completed (fulfilled) bookings still count towards today's stats even
   // after the admin has cleared them from the list.
-  // Only Confirmed and Completed bookings are counted. Pending and Cancelled ones never show here.
+  // Only Confirmed bookings are counted. Pending, Cancelled and Completed ones don't show here.
   const today = reservations.filter(
-    (r) => r.reservation_date === todayKey && (r.status === "Confirmed" || r.status === "Completed"),
+    (r) => r.reservation_date === todayKey && r.status === "Confirmed",
   );
   const upcoming = reservations.filter(
     (r) => r.reservation_date > todayKey && r.status !== "Cancelled" && r.status !== "Completed",
@@ -2766,7 +2766,8 @@ function renderReservations() {
         reservation.status === "Completed" ||
         (reservation.status === "Cancelled" && Boolean(reservation.advance_order_id || reservation.advance_order_requested));
       const timePassed = reservationTimePassed(reservation);
-      const statusOptions = prepaid ? ["Confirmed", "Cancelled", "Completed"] : ["Pending", "Confirmed", "Cancelled", "Completed"];
+      // A paid pre-order, or an already Confirmed booking, can never go back to Pending.
+      const statusOptions = prepaid || reservation.status === "Confirmed" ? ["Confirmed", "Cancelled", "Completed"] : ["Pending", "Confirmed", "Cancelled", "Completed"];
       return `
         <div class="admin-item-card" style="flex-direction: column; align-items: stretch;">
           <div class="admin-item-info">

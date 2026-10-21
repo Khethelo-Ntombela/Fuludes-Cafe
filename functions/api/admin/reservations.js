@@ -114,6 +114,10 @@ export async function onRequestPost(context) {
     if (current.status === "Completed" && status !== "Completed") {
       return jsonResponse({ error: "This reservation is Completed, so its status can't be changed any more." }, 400);
     }
+    // Once Confirmed, a booking never goes back to Pending.
+    if (current.status === "Confirmed" && status === "Pending") {
+      return jsonResponse({ error: "This reservation is Confirmed, so it can't go back to Pending." }, 400);
+    }
     // Cancelled is final too, unless the booking never had a pre-order (nothing was paid or refunded).
     if (current.status === "Cancelled" && status !== "Cancelled" && (current.advance_order_id || current.advance_order_requested)) {
       return jsonResponse({ error: "This reservation is Cancelled, so its status can't be changed any more." }, 400);
