@@ -1825,6 +1825,7 @@ async function refreshMyOrders() {
       headers: { Authorization: `Bearer ${customerToken}` },
     });
     if (viewAtRequest !== myOrdersView) return; // the customer switched views meanwhile
+    if (document.activeElement?.matches?.("[data-time-select]") && myOrdersList.contains(document.activeElement)) return;
     if (res.status === 401) {
       myOrdersList.innerHTML = `<p class="menu-empty">Your session has expired. Please sign in again.</p>`;
       clearInterval(myOrdersPollTimer);
@@ -1841,9 +1842,14 @@ async function refreshMyOrders() {
     }
 
     myOrdersById = new Map(orders.map((o) => [o.id, o]));
+    const keptTimes = [...myOrdersList.querySelectorAll("[data-time-select]")].map((s) => [s.dataset.timeSelect, s.value]);
     myOrdersList.innerHTML = (myOrdersView === "history"
       ? `<p class="receipt-meta" style="margin:0 0 10px">Your ${orders.length === 1 ? "most recent completed order" : `${orders.length} most recent completed orders`}</p>`
       : "") + orders.map((o) => renderReceiptCard(o, { history: myOrdersView === "history" })).join("");
+    keptTimes.forEach(([id, value]) => {
+      const s = myOrdersList.querySelector(`[data-time-select="${id}"]`);
+      if (s && value && [...s.options].some((o) => o.value === value)) s.value = value;
+    });
   } catch {
     myOrdersList.innerHTML = `<p class="menu-empty">Couldn't load your orders right now. Please try again.</p>`;
     return;
@@ -1911,6 +1917,34 @@ async function refreshMyOrders() {
     btn.addEventListener("click", () => startEditingOrder(myOrdersById.get(Number(btn.dataset.editOrder)))),
   );
 
+  myOrdersList.querySelectorAll("[data-update-time]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = Number(btn.dataset.updateTime);
+      const select = myOrdersList.querySelector(`[data-time-select="${id}"]`);
+      if (!select || !select.value) {
+        alert("Please choose a new time.");
+        return;
+      }
+      btn.disabled = true;
+      try {
+        const res = await fetch("/api/order/update-time", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${customerToken}`,
+          },
+          body: JSON.stringify({ id, pickup_time: select.value }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || "Couldn't update the time.");
+        refreshMyOrders();
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+      }
+    });
+  });
+
   myOrdersList.querySelectorAll("[data-retry-payment]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       btn.disabled = true;
@@ -1924,6 +1958,11 @@ async function refreshMyOrders() {
           body: JSON.stringify({ id: Number(btn.dataset.retryPayment) }),
         });
         const data = await res.json();
+        if (data.time_passed) {
+          alert(data.error);
+          refreshMyOrders();
+          return;
+        }
         if (!res.ok || !(data.payment?.redirect_url || data.payment?.action_url))
           throw new Error(data.error || "Couldn't retry payment.");
         if (!confirmPriceChange(data)) { btn.disabled = false; return; }
@@ -2314,7 +2353,13 @@ function renderReceiptCard(order, { history = false } = {}) {
         ? `<div class="receipt-meta" style="color:#b3261e;font-weight:600">${ordersClosedMessage().replace("Can't order at this time", "You can't pay for this order now")}</div>
         <div class="receipt-cancel-row"><button type="button" class="receipt-cancel-btn" disabled style="opacity:.5;cursor:not-allowed">Pay Now</button></div>
         <div class="receipt-cancel-row"><button type="button" class="receipt-cancel-btn receipt-edit-btn" disabled style="opacity:.5;cursor:not-allowed"><i class="fas fa-pen"></i> Edit Order</button></div>`
-        : `<div class="receipt-cancel-row"><button type="button" class="receipt-cancel-btn" data-retry-payment="${order.id}">Pay Now</button></div>
+        : order.time_stale
+          ? `<div class="receipt-meta" style="color:#b3261e;font-weight:600">The time you chose is no longer available. Please choose a new time before paying.</div>
+        <div class="receipt-cancel-row"><select data-time-select="${order.id}" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;font:inherit"><option value="" selected disabled>Choose a new time</option><option value="As soon as possible">As soon as possible</option>${orderTimeRangesToday().map((r) => `<option value="At ${r.start} - ${r.end}">${r.start} - ${r.end}</option>`).join("")}</select></div>
+        <div class="receipt-cancel-row"><button type="button" class="receipt-cancel-btn" data-update-time="${order.id}">Update Time</button></div>
+        <div class="receipt-cancel-row"><button type="button" class="receipt-cancel-btn" disabled style="opacity:.5;cursor:not-allowed">Pay Now</button></div>
+        <div class="receipt-cancel-row"><button type="button" class="receipt-cancel-btn receipt-edit-btn" data-edit-order="${order.id}"><i class="fas fa-pen"></i> Edit Order</button></div>`
+          : `<div class="receipt-cancel-row"><button type="button" class="receipt-cancel-btn" data-retry-payment="${order.id}">Pay Now</button></div>
         <div class="receipt-cancel-row"><button type="button" class="receipt-cancel-btn receipt-edit-btn" data-edit-order="${order.id}"><i class="fas fa-pen"></i> Edit Order</button></div>`) : ""}
       ${renderCancelSection(order)}
       ${

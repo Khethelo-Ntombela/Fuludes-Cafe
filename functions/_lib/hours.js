@@ -133,6 +133,15 @@ function cafeNow() {
   };
 }
 
+/** True when a chosen "At ..." time on an unpaid order is no longer available (placed on an earlier day, or too soon now). */
+export function pickupTimeNeedsChange(pickupTime, createdAt, hours = DEFAULT_HOURS) {
+  const text = String(pickupTime || "").trim();
+  if (!/^at \d/i.test(text)) return false;
+  const placedDay = new Date(new Date(createdAt).getTime() + 2 * 3600000).toISOString().slice(0, 10);
+  if (placedDay !== cafeNow().dateKey) return true;
+  return validatePickupSlot(text, hours) !== null;
+}
+
 /** True when the cafe is open right now (South Africa time). */
 export function isOpenNow(hours = DEFAULT_HOURS) {
   const now = cafeNow();

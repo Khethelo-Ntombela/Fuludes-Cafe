@@ -5,6 +5,7 @@ import { ensureCancelledByColumn } from "../../_lib/orderCancel.js";
 import { queueDueNewOrderPushes } from "../../_lib/push.js";
 import { ensureScheduleColumns } from "../../_lib/scheduledOrders.js";
 import { deleteExpiredUnpaidOrders } from "../../_lib/repriceOrder.js";
+import { getBusinessHours, pickupTimeNeedsChange } from "../../_lib/hours.js";
 
 const MAX_ORDERS = 100;
 const HISTORY_ORDERS = 5; // "History" always shows the 5 most recent completed orders
@@ -55,8 +56,14 @@ export async function onRequestGet(context) {
       }
     }
 
+    const hours = await getBusinessHours(env);
     const orders = ordersResult.rows.map((order) => ({
       ...order,
+      time_stale:
+        ["awaiting", "failed"].includes(order.payment_status) &&
+        order.order_type !== "dine_in" &&
+        !order.reservation &&
+        pickupTimeNeedsChange(order.pickup_time, order.created_at, hours),
       total_amount: parseFloat(order.total_amount),
       delivery_fee: order.delivery_fee != null ? parseFloat(order.delivery_fee) : 0,
       items: itemsByOrder[order.id] || []
