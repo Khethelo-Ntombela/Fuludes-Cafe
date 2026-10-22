@@ -1460,7 +1460,10 @@ function renderStockCards() {
   set(
     "stockSpecials",
     menuItems.filter(
-      (i) => i.special_price !== null && i.special_price !== undefined,
+      (i) =>
+        i.special_price !== null &&
+        i.special_price !== undefined &&
+        (!i.special_ends_at || new Date(i.special_ends_at) > new Date()),
     ).length,
   );
 }
@@ -1699,10 +1702,18 @@ document.getElementById("specialForm").addEventListener("submit", async (e) => {
   const endsRaw = document.getElementById("specialEndsInput").value;
   // Convert local datetime-local string to ISO by appending timezone offset
   const normalize = (s) => (s ? new Date(s).toISOString() : null);
+  if (!startsRaw || !endsRaw) {
+    hint.textContent = "Please add the start and end date for this special.";
+    return;
+  }
   const startsIso = normalize(startsRaw);
   const endsIso = normalize(endsRaw);
-  if (startsIso && endsIso && new Date(endsIso) <= new Date(startsIso)) {
+  if (new Date(endsIso) <= new Date(startsIso)) {
     hint.textContent = "End must be after start.";
+    return;
+  }
+  if (new Date(endsIso) <= new Date()) {
+    hint.textContent = "The end date has already passed.";
     return;
   }
 
