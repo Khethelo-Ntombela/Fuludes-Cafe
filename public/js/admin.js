@@ -1673,6 +1673,26 @@ async function handleEndSpecial(id) {
   await saveMenuItemPatch(item, { special_price: null });
 }
 
+function specialStartOfToday() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function applySpecialDateMins() {
+  const d = specialStartOfToday();
+  const p = (n) => String(n).padStart(2, "0");
+  const min = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T00:00`;
+  ["specialStartsInput", "specialEndsInput"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.min = min;
+  });
+}
+applySpecialDateMins();
+["specialStartsInput", "specialEndsInput"].forEach((id) =>
+  document.getElementById(id)?.addEventListener("focus", applySpecialDateMins),
+);
+
 document.getElementById("specialForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const hint = document.getElementById("specialFormHint");
@@ -1708,6 +1728,10 @@ document.getElementById("specialForm").addEventListener("submit", async (e) => {
   }
   const startsIso = normalize(startsRaw);
   const endsIso = normalize(endsRaw);
+  if (new Date(startsRaw) < specialStartOfToday()) {
+    hint.textContent = "The start date can't be in the past.";
+    return;
+  }
   if (new Date(endsIso) <= new Date(startsIso)) {
     hint.textContent = "End must be after start.";
     return;
@@ -3931,9 +3955,17 @@ if (typeof FuludeValidation !== "undefined") {
         message: "Booking must close before the event starts.",
       },
       {
+        id: "specialStartsInput",
+        test: (v) => new Date(v) >= specialStartOfToday(),
+        message: "The start date can't be in the past.",
+      },
+      {
         id: "specialEndsInput",
-        test: (v) => !document.getElementById("specialStartsInput")?.value || v > document.getElementById("specialStartsInput").value,
-        message: "The special must end after it starts.",
+        test: (v) => (!document.getElementById("specialStartsInput")?.value || v > document.getElementById("specialStartsInput").value) && new Date(v) > new Date(),
+        message: (el) => {
+          const s = document.getElementById("specialStartsInput")?.value;
+          return s && el.value <= s ? "The special must end after it starts." : "The end date has already passed.";
+        },
       },
     ],
   });
