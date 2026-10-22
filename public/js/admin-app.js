@@ -82,6 +82,13 @@ const isToday = (isoDate) => {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
 };
 
+const isYesterday = (isoDate) => {
+  const d = new Date(isoDate);
+  const y = new Date();
+  y.setDate(y.getDate() - 1);
+  return d.getFullYear() === y.getFullYear() && d.getMonth() === y.getMonth() && d.getDate() === y.getDate();
+};
+
 // Shared data: full order history (feeds dashboard, reports
 window.adminHistoryAll = window.adminHistoryAll || [];
 
@@ -276,14 +283,14 @@ async function loadDashboardData() {
   updateKitchenCompletedToday(history);
 }
 
-function trendHtml(months, key) {
-  if (months.length < 2) return "";
-  const last = Number(months[months.length - 1][key] || 0);
-  const prev = Number(months[months.length - 2][key] || 0);
-  if (prev === 0) return "";
-  const pct = ((last - prev) / prev) * 100;
-  const dir = pct >= 0 ? "up" : "down";
-  return `<span class="kpi-trend ${dir}"><i class="fas fa-arrow-${dir === "up" ? "trend-up" : "trend-down"}"></i> ${Math.abs(pct).toFixed(1)}%</span>`;
+/** Difference between today and yesterday, e.g. "+R120 vs yesterday". */
+function trendHtml(todayValue, yesterdayValue, kind) {
+  const diff = Number(todayValue || 0) - Number(yesterdayValue || 0);
+  const dir = diff >= 0 ? "up" : "down";
+  const sign = diff >= 0 ? "+" : "-";
+  const abs = Math.abs(diff);
+  const amount = kind === "money" ? `R${abs.toFixed(0)}` : `${abs} ${abs === 1 ? "order" : "orders"}`;
+  return `<span class="kpi-trend ${dir}"><i class="fas fa-arrow-${dir === "up" ? "trend-up" : "trend-down"}"></i> ${sign}${amount} vs yesterday</span>`;
 }
 
 window.adminAwaiting = { awaiting: [], failed: [] };
@@ -331,6 +338,8 @@ function renderDashKpis(history, stats, months) {
   // Everything below counts PAID orders only - unpaid ones live under "Pending Orders".
   const todays = history.filter((o) => isPaidOrder(o) && isToday(o.created_at));
   const revenueToday = todays.reduce((s, o) => s + Number(o.total_amount || 0), 0);
+  const yesterdays = history.filter((o) => isPaidOrder(o) && isYesterday(o.created_at));
+  const revenueYesterday = yesterdays.reduce((s, o) => s + Number(o.total_amount || 0), 0);
   const avgOrder = todays.length ? revenueToday / todays.length : 0;
   const { awaiting } = window.adminAwaiting;
   const awaitingValue = awaiting.reduce((s, o) => s + Number(o.total_amount || 0), 0);
@@ -343,12 +352,20 @@ function renderDashKpis(history, stats, months) {
   const resList = allReservations.filter((r) => r.reservation_date === todayKey && r.status === "Confirmed" && !dismissedRes.has(r.id));
   const resToday = resList.length;
 
-  const revSpark = sparklineSvg(months.map((m) => Number(m.revenue || 0)));
-  const ordSpark = sparklineSvg(months.map((m) => Number(m.order_count || 0)));
+  // Sparklines show the last 7 days (oldest to today) of paid orders.
+  const last7 = Array.from({ length: 7 }, (_, i) => {
+    const day = new Date();
+    day.setDate(day.getDate() - (6 - i));
+    const key = localDayKey(day);
+    const orders = history.filter((o) => isPaidOrder(o) && localDayKey(new Date(o.created_at)) === key);
+    return { count: orders.length, revenue: orders.reduce((sum, o) => sum + Number(o.total_amount || 0), 0) };
+  });
+  const revSpark = sparklineSvg(last7.map((d) => d.revenue));
+  const ordSpark = sparklineSvg(last7.map((d) => d.count));
 
   const kpis = [
-    { label: "Today's Orders", sub: "paid", icon: "fa-receipt", value: todays.length, spark: ordSpark, trend: trendHtml(months, "order_count") },
-    { label: "Revenue Today", icon: "fa-coins", value: `R${revenueToday.toFixed(0)}`, spark: revSpark, trend: trendHtml(months, "revenue") },
+    { label: "Today's Orders", sub: "paid", icon: "fa-receipt", value: todays.length, spark: ordSpark, trend: trendHtml(todays.length, yesterdays.length, "count") },
+    { label: "Revenue Today", icon: "fa-coins", value: `R${revenueToday.toFixed(0)}`, spark: revSpark, trend: trendHtml(revenueToday, revenueYesterday, "money") },
     { label: "Avg Order Value", icon: "fa-basket-shopping", value: `R${avgOrder.toFixed(0)}`, spark: "", trend: "", note: "Based on today's orders" },
     {
       label: "Pending Orders", sub: "awaiting payment", icon: "fa-hourglass-half", value: awaiting.length,
