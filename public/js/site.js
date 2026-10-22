@@ -1138,12 +1138,14 @@ function reservationSlotsFor(dateStr) {
 }
 
 /**
- * Collection/delivery ranges for today: now + 2 hours, rounded up to the next half-hour,
+ * Collection/delivery ranges for today: now + 2 hours (opening time + 2 hours when closed), rounded up to the next half-hour,
  * then 30-minute ranges ("14:00 - 14:30") until the last one that ends by closing time.
  */
 function orderTimeRangesToday() {
   const now = cafeNow();
-  return cafeSlotsFor(now.dateKey, now.minutes + ORDER_RANGE_LEAD_MINUTES)
+  // Before opening, count the 2 hours from opening time instead of from now.
+  const openMin = OPENING_HOURS[now.weekday]?.open ?? 0;
+  return cafeSlotsFor(now.dateKey, Math.max(now.minutes, openMin) + ORDER_RANGE_LEAD_MINUTES)
     .map((start) => ({ start, end: minutesToHHMM(hhmmToMinutes(start) + SLOT_MINUTES) }))
     .filter((r) => hhmmToMinutes(r.end) <= (OPENING_HOURS[now.weekday]?.close ?? 0));
 }

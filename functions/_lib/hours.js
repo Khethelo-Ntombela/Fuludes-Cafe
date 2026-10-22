@@ -163,8 +163,8 @@ export function validatePickupSlot(pickupTime, hours = DEFAULT_HOURS) {
     if (!win || start % SLOT_MINUTES !== 0 || end - start !== SLOT_MINUTES || start < win.open || end > win.close) {
       return "Please choose one of the times in the Preferred Time list.";
     }
-    // The list starts 2 hours ahead; allow a little slack for a checkout that took a while.
-    if (start <= now.minutes + RANGE_LEAD_MINUTES - 60) {
+    // The list starts 2 hours ahead (counted from opening time when closed); allow a little slack for a checkout that took a while.
+    if (start <= Math.max(now.minutes, win.open) + RANGE_LEAD_MINUTES - 60) {
       return "That time is too soon now. Please choose a later time from the Preferred Time list.";
     }
     return null;

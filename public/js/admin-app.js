@@ -1425,8 +1425,11 @@ function renderPickupTimes() {
   if (!sel) return;
   const now = poCafeNow();
   const previous = sel.value;
+  // Before opening, count the 2 hours from opening time instead of from now.
+  const todayWin = window.adminHoursWindow ? window.adminHoursWindow(new Date(now.dateKey + "T00:00:00Z").getUTCDay()) : null;
+  const from = Math.max(now.minutes, todayWin ? todayWin.open : 0);
   sel.innerHTML = `<option value="As soon as possible">As soon as possible</option>` +
-    poSlotsFor(now.dateKey, now.minutes + PO_RANGE_LEAD_MIN).map((t) => {
+    poSlotsFor(now.dateKey, from + PO_RANGE_LEAD_MIN).map((t) => {
       const [h, m] = t.split(":").map(Number);
       const e = h * 60 + m + PO_SLOT_MIN;
       const end = `${String(Math.floor(e / 60)).padStart(2, "0")}:${String(e % 60).padStart(2, "0")}`;
