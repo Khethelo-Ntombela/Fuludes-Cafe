@@ -2648,7 +2648,7 @@ function reservationWhatsAppText(r) {
   }
   // Completed: thank the guest
   if (r.status === "Completed") {
-    return `Hi ${name}, thank you for dining with us at Fulude's Cafe on ${dateLabel}. We hope you enjoyed your visit! We would love to see you again, and a review on our website would mean a lot to us.`;
+    return `Hi ${name}, thank you for dining with us at Fulude's Cafe on ${dateLabel}. We hope you enjoyed your visit! We would love to see you again.`;
   }
   // Pending: request received, not confirmed yet
   if (r.status === "Pending") {
