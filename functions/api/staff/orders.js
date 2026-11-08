@@ -3,6 +3,7 @@ import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireStaff } from "../../_lib/auth.js";
 import { queueDueNewOrderPushes } from "../../_lib/push.js";
 import { ensureScheduleColumns } from "../../_lib/scheduledOrders.js";
+import { ensureWalkinSchema } from "../../_lib/walkin.js";
 import { ORDER_SHOW_AT, ORDER_VISIBLE_NOW } from "../../_lib/preorderVisibility.js";
 
 export async function onRequestGet(context) {
@@ -14,17 +15,19 @@ export async function onRequestGet(context) {
   queueDueNewOrderPushes(context);
   try {
     await ensureScheduleColumns(env);
+    await ensureWalkinSchema(env);
     const ordersResult = await runQuery(
       env,
       `
             SELECT id, customer_name, customer_phone, order_type, delivery_address, table_number,
                pickup_time, special_instructions, total_amount, payment_status,
                delivery_fee, delivery_distance_km, delivery_lat, delivery_lng, payment_confirmed_at, kitchen_release_at, scheduled_for, preparing_at,
+               order_source, tab_id, captured_by, (CASE WHEN tab_id IS NULL THEN NULL ELSE (SELECT COUNT(*)::int FROM orders o2 WHERE o2.tab_id = orders.tab_id AND o2.id <= orders.id) END) AS tab_round,
                CASE WHEN status = 'Out for Delivery' THEN 'Delivery' ELSE status END AS status,
                created_at
       FROM orders
       WHERE status IN ('New', 'Preparing', 'Ready', 'Collection', 'Delivery', 'Out for Delivery')
-        AND payment_status = 'paid'
+        AND payment_status IN ('paid', 'tab_open')
         AND ${ORDER_VISIBLE_NOW}
       ORDER BY created_at ASC;
     `,
@@ -60,7 +63,7 @@ export async function onRequestGet(context) {
       env,
       `SELECT MIN(${ORDER_SHOW_AT}) AS next_release_at, NOW() AS server_now
          FROM orders
-        WHERE payment_status = 'paid' AND status = 'New' AND kitchen_release_at IS NOT NULL AND ${ORDER_SHOW_AT} > NOW();`,
+        WHERE payment_status IN ('paid', 'tab_open') AND status = 'New' AND kitchen_release_at IS NOT NULL AND ${ORDER_SHOW_AT} > NOW();`,
     );
 
     return jsonResponse({

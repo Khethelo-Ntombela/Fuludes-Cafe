@@ -5,6 +5,7 @@ import { ensureCancelledByColumn } from "../../_lib/orderCancel.js";
 import { ensureScheduleColumns } from "../../_lib/scheduledOrders.js";
 import { priceUnpaidOrders, deleteExpiredUnpaidOrders, UNPAID_ORDER_HOURS } from "../../_lib/repriceOrder.js";
 import { expireStalePreorders } from "../../_lib/reservations.js";
+import { ensureWalkinSchema } from "../../_lib/walkin.js";
 
 // When a table-booking pre-order stops being payable: the booking date and time (South African time).
 const PREORDER_DUE = `(SELECT ((r.reservation_date + r.reservation_time) AT TIME ZONE 'Africa/Johannesburg') FROM customer_reservations r WHERE r.advance_order_id = orders.id LIMIT 1)`;
@@ -100,6 +101,7 @@ export async function onRequestGet(context) {
 
     await ensureCancelledByColumn(env);
     await ensureScheduleColumns(env);
+    await ensureWalkinSchema(env);
     if (asksForUnpaid) {
       await expireStalePreorders(env);
       await deleteExpiredUnpaidOrders(env);
@@ -113,7 +115,8 @@ export async function onRequestGet(context) {
              (${PREORDER_DUE} IS NOT NULL) AS is_preorder,
              ${PREORDER_DUE} AS booking_at,
              CASE WHEN status = 'Out for Delivery' THEN 'Delivery' ELSE status END AS status,
-             payment_method, payment_status, payment_ref, refund_needed, refund_processed_at, refund_ref, refund_error, cancelled_by, cancel_reason, created_at, out_for_delivery_at, delivered_at
+             payment_method, payment_status, payment_ref, refund_needed, refund_processed_at, refund_ref, refund_error, cancelled_by, cancel_reason, created_at, out_for_delivery_at, delivered_at,
+             order_source, tab_id, captured_by, (CASE WHEN tab_id IS NULL THEN NULL ELSE (SELECT COUNT(*)::int FROM orders o2 WHERE o2.tab_id = orders.tab_id AND o2.id <= orders.id) END) AS tab_round
       FROM orders
       ${whereClause}
       ORDER BY created_at DESC
@@ -198,7 +201,7 @@ export async function onRequestDelete(context) {
     const result = await runQuery(
       env,
       `
-      DELETE FROM orders WHERE status IN ('Completed', 'Cancelled') RETURNING id;
+      DELETE FROM orders WHERE status IN ('Completed', 'Cancelled') AND payment_status <> 'tab_open' RETURNING id; -- never a round of a tab that is still open
     `,
     );
     return jsonResponse({ success: true, deleted_count: result.rows.length });

@@ -1,0 +1,90 @@
+/* Walk-in orders screen (staff portal + admin dashboard). Uses the --sa-* colours from admin.css. */
+.wi-wrap { display: flex; flex-direction: column; gap: 14px; }
+.wi-switch { display: flex; gap: 8px; flex-wrap: wrap; }
+.wi-switch-btn {
+  border: 1px solid var(--sa-border-strong); background: var(--sa-card); color: var(--sa-text);
+  border-radius: 999px; padding: 9px 16px; font: inherit; font-weight: 600; cursor: pointer; display: inline-flex; gap: 8px; align-items: center;
+}
+.wi-switch-btn.active { background: #101828; color: #fff; border-color: #101828; }
+.wi-switch-btn .admin-badge { margin-left: 2px; }
+
+.wi-toast { padding: 10px 14px; border-radius: 10px; font-weight: 600; font-size: 0.9rem; }
+.wi-toast-ok { background: var(--sa-green-soft); color: var(--sa-green-deep); }
+.wi-toast-error { background: var(--sa-red-soft); color: var(--sa-red); }
+
+.wi-layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .wi-layout { grid-template-columns: 1fr; } }
+.wi-menu .admin-menu-grid { max-height: 62vh; overflow: auto; }
+.wi-side { display: flex; flex-direction: column; gap: 12px; position: sticky; top: 8px; }
+@media (max-width: 900px) { .wi-side { position: static; } }
+
+.wi-cart-list { display: flex; flex-direction: column; gap: 8px; max-height: 32vh; overflow: auto; padding: 4px 0; }
+.wi-cart-line { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; font-size: 0.9rem; }
+.wi-cart-name small { display: block; color: var(--sa-muted); }
+.wi-cart-price { font-weight: 600; min-width: 64px; text-align: right; }
+.wi-total { display: flex; justify-content: space-between; font-size: 1.05rem; }
+
+.wi-form { display: flex; flex-direction: column; gap: 10px; }
+.wi-type { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.wi-type-btn {
+  border: 2px solid var(--sa-border); background: var(--sa-card); border-radius: 12px; padding: 10px; font: inherit;
+  text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 2px; color: var(--sa-text);
+}
+.wi-type-btn small { color: var(--sa-muted); }
+.wi-type-btn.active { border-color: var(--sa-gold); background: var(--sa-gold-soft); }
+.wi-field { display: flex; flex-direction: column; gap: 4px; }
+.wi-field label { font-size: 0.8rem; font-weight: 600; color: var(--sa-muted); }
+.wi-field input, .wi-field select {
+  border: 1px solid var(--sa-border-strong); border-radius: 8px; padding: 10px 12px; font: inherit; background: #fff; color: var(--sa-text);
+}
+.wi-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.wi-go { padding: 14px; font-size: 1rem; }
+.wi-clear { align-self: center; }
+
+.wi-tab-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.wi-tab-card { background: var(--sa-card); border: 1px solid var(--sa-border); border-left: 4px solid var(--sa-gold); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.wi-tab-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+.wi-tab-title { font-size: 1.1rem; }
+.wi-tab-guest { margin-left: 8px; color: var(--sa-muted); }
+.wi-tab-meta { display: block; color: var(--sa-muted); margin-top: 2px; }
+.wi-tab-total { font-size: 1.2rem; }
+.wi-tab-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.wi-bill { display: flex; flex-direction: column; gap: 10px; border-top: 1px dashed var(--sa-border-strong); padding-top: 10px; }
+.wi-round-head { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+.wi-round-head small { color: var(--sa-muted); margin-left: auto; }
+.wi-chip { background: var(--sa-gold-soft); color: var(--sa-gold); border-radius: 999px; padding: 2px 8px; font-size: 0.72rem; font-weight: 700; }
+.wi-bill-line { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; font-size: 0.88rem; padding: 3px 0; }
+.wi-bill-line small { color: var(--sa-muted); }
+.wi-round-cancelled { opacity: 0.55; text-decoration: line-through; }
+.wi-note { font-size: 0.8rem; color: #b54708; background: var(--sa-amber-soft); border-radius: 6px; padding: 4px 8px; margin-top: 4px; }
+
+.wi-overlay { position: fixed; inset: 0; background: rgba(16, 24, 40, 0.55); display: flex; align-items: center; justify-content: center; z-index: 5000; padding: 16px; }
+.wi-modal { background: #fff; border-radius: 16px; padding: 20px; width: 100%; max-width: 460px; max-height: 90vh; overflow: auto; display: flex; flex-direction: column; gap: 12px; color: var(--sa-text); }
+.wi-modal h3 { margin: 0; }
+.wi-modal-amount { font-size: 2rem; font-weight: 800; margin: 0; }
+.wi-modal-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+.wi-paid-btn { background: var(--sa-green-deep) !important; border-color: var(--sa-green-deep) !important; color: #fff !important; }
+
+/* Staff portal: full-screen walk-in window */
+.wi-fullscreen { position: fixed; inset: 0; background: var(--sa-bg); z-index: 4000; display: none; flex-direction: column; }
+.wi-fullscreen.open { display: flex; }
+.wi-fullscreen-head { background: #0a0a0a; color: #fff; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; }
+.wi-fullscreen-head h2 { margin: 0; font-size: 1.1rem; }
+.wi-fullscreen-body { padding: 14px; overflow: auto; flex: 1; }
+
+/* Kitchen cards: walk-in badge */
+.badge-walkin { background: #101828; color: #fff; }
+.walkin-open-btn { position: relative; }
+.walkin-open-btn .admin-badge { margin-left: 6px; }
+
+/* Dashboard: open tabs banner and the Online / Walk-in split under the KPI cards */
+.wi-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; background: var(--sa-amber-soft); border: 1px solid #fedf89; color: #b54708; border-radius: 12px; padding: 12px 16px; margin-bottom: 14px; font-weight: 600; }
+.wi-banner button { background: #101828; color: #fff; border: 0; border-radius: 999px; padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer; }
+.kpi-split { display: block; margin-top: 2px; font-size: 0.75rem; color: var(--sa-muted); }
+.kpi-split b { color: var(--sa-text); }
+.wi-channel-bar { display: flex; height: 12px; border-radius: 999px; overflow: hidden; background: var(--sa-border); margin: 6px 0 10px; }
+.wi-channel-bar span { display: block; height: 100%; }
+.wi-ch-online { background: #2e90fa; } .wi-ch-takeaway { background: #a88b4a; } .wi-ch-dinein { background: #6941c6; }
+.wi-channel-row { display: grid; grid-template-columns: 14px 1fr auto auto auto; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--sa-border); font-size: 0.9rem; }
+.wi-channel-row small { color: var(--sa-muted); }
+.wi-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }

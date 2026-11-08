@@ -72,10 +72,10 @@ async function loadOrders() {
     kdsScheduleNextRelease(data, loadOrders);
     renderBoard(data.orders || []);
 
-    // Detect newly arrived PAID orders (status New && payment_status === 'paid')
+    // Detect newly arrived PAID orders (status New && payment_status === 'paid') - and tickets of a walk-in tab ('tab_open')
     const paidNewIds = new Set(
       (data.orders || [])
-        .filter((o) => o.status === "New" && o.payment_status === "paid")
+        .filter((o) => o.status === "New" && ["paid", "tab_open"].includes(o.payment_status))
         .map((o) => String(o.id)),
     );
     const newOnes = [...paidNewIds].filter(
@@ -152,6 +152,13 @@ function renderBoard(orders) {
   kdsBindBoard(container, orders, {
     onAction: handleAdvance,
     confirmAction: (order, status) => {
+      if (status === "Cancelled" && order.order_source === "walk_in") {
+        return confirm(
+          order.payment_status === "paid"
+            ? `Order #${order.id} was already paid by card at the cafe. Cancelling marks it "Refund needed" - the admin must give the guest their money back on the card machine and then record it in Order History.\n\nCancel this order anyway?`
+            : `Cancel order #${order.id}? It is taken off the table's bill.`,
+        );
+      }
       // Every ticket on this board has already been paid for, so cancelling always means a refund is owed
       if (status === "Cancelled") {
         return confirm(
@@ -171,6 +178,49 @@ async function handleAdvance(status, orderId) {
   });
 
   loadOrders();
+}
+
+// ---------------- Walk-in orders (guests at the cafe) ----------------
+let walkinWidget = null;
+function setWalkinBadge(count) {
+  const badge = document.getElementById("staffWalkinCount");
+  if (!badge) return;
+  badge.textContent = count;
+  badge.style.display = count > 0 ? "" : "none";
+}
+document.getElementById("staffWalkinBtn").addEventListener("click", () => {
+  document.getElementById("walkinOverlay").classList.add("open");
+  if (!walkinWidget) {
+    walkinWidget = FuludeWalkin.mount(document.getElementById("walkinRoot"), {
+      api: "/api/staff/walkin",
+      fetchFn: staffFetch,
+      isAdmin: false,
+      onTabsChanged: (tabs) => {
+        setWalkinBadge(tabs.length);
+        loadOrders(); // a new walk-in ticket shows on the board straight away
+      },
+    });
+  } else {
+    walkinWidget.refresh();
+  }
+});
+document.getElementById("walkinCloseBtn").addEventListener("click", () => {
+  document.getElementById("walkinOverlay").classList.remove("open");
+  loadOrders();
+});
+// The badge on the Walk-in button: how many tables have an open tab
+async function refreshWalkinBadge() {
+  try {
+    const res = await staffFetch("/api/staff/walkin");
+    const data = await res.json();
+    if (res.ok) setWalkinBadge((data.tabs || []).length);
+  } catch {
+    /* next time */
+  }
+}
+if (staffToken) {
+  refreshWalkinBadge();
+  setInterval(refreshWalkinBadge, 20000);
 }
 
 // Init

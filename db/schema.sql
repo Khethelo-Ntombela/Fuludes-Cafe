@@ -544,3 +544,25 @@ CREATE TABLE IF NOT EXISTS order_checkouts (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_order_checkouts_order ON order_checkouts(order_id);
+
+-- ---------------- Walk-in orders and open tabs (migration 020) ----------------
+CREATE TABLE IF NOT EXISTS walkin_tabs (
+  id               SERIAL PRIMARY KEY,
+  table_number     TEXT NOT NULL,
+  customer_name    TEXT,
+  status           TEXT NOT NULL DEFAULT 'open', -- open | closed | written_off
+  opened_by        TEXT,
+  opened_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  closed_at        TIMESTAMPTZ,
+  closed_by        TEXT,
+  payment_ref      TEXT,
+  write_off_reason TEXT
+);
+
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_source TEXT NOT NULL DEFAULT 'online';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS tab_id INTEGER REFERENCES walkin_tabs(id) ON DELETE SET NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS captured_by TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_orders_source_created ON orders (order_source, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_orders_tab ON orders (tab_id) WHERE tab_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_walkin_tabs_open ON walkin_tabs (status) WHERE status = 'open';

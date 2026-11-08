@@ -8,6 +8,7 @@
   
     <link rel="stylesheet" href="css/style.css?v=31" />
     <link rel="stylesheet" href="css/admin.css?v=39" />
+    <link rel="stylesheet" href="css/walkin.css?v=1" />
     <link
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css"
@@ -202,6 +203,9 @@
           <button class="admin-tab-btn" data-tab="placeorder">
             <i class="fas fa-cart-shopping"></i> <span>Place Order</span>
           </button>
+          <button class="admin-tab-btn" data-tab="walkin">
+            <i class="fas fa-person-walking"></i> <span>Walk-in</span>
+          </button>
           <button class="admin-tab-btn" data-tab="history">
             <i class="fas fa-clock-rotate-left"></i> <span>History</span>
           </button>
@@ -338,6 +342,7 @@
           <!-- ---------------- Dashboard home ---------------- -->
           <section id="tab-dashboard" class="admin-tab-panel active">
             <div class="sa-section">
+              <div class="wi-banner" id="dashOpenTabs" style="display: none"></div>
               <div class="kpi-grid" id="dashKpis">
                 <div class="skel skel-card"></div>
                 <div class="skel skel-card"></div>
@@ -461,6 +466,14 @@
           </section>
 
           <!-- ---------------- Place Order ---------------- -->
+          <section id="tab-walkin" class="admin-tab-panel">
+            <div class="admin-panel-header">
+              <h2>Walk-in Orders</h2>
+            </div>
+            <p class="admin-hint">For guests who are at the cafe. Takeaway is paid by card first; dine-in orders go on the table's tab and are paid at the end.</p>
+            <div id="walkinRoot"></div>
+          </section>
+
           <section id="tab-placeorder" class="admin-tab-panel">
             <div class="admin-panel-header">
               <h2>Place Customer Order</h2>
@@ -603,10 +616,23 @@
               </div>
             </div>
 
+            <div class="sa-card sa-section" id="salesChannelsCard">
+              <div class="sa-card-title">Sales by Channel <small class="admin-hint" style="margin-left:8px">Online vs guests who came to the cafe</small></div>
+              <div id="salesChannels"><p class="menu-loading">Loading…</p></div>
+            </div>
+
             <div class="sa-card sa-section" id="salesChartWrap">
               <p class="menu-loading">Loading…</p>
             </div>
 
+            <div class="wi-field" style="max-width: 260px; margin-bottom: 8px">
+              <label for="reportChannelFilter">Show the widgets below for</label>
+              <select id="reportChannelFilter">
+                <option value="all">All sales</option>
+                <option value="online">Online only</option>
+                <option value="walk_in">Walk-in only</option>
+              </select>
+            </div>
             <p class="admin-hint" id="reportPeriodNote"></p>
 
             <div class="sa-grid-2">
@@ -1644,10 +1670,11 @@
 
     <script src="js/pwa.js?v=17"></script>
     <script src="js/order-alert.js?v=1"></script>
-    <script src="js/kds.js?v=24"></script>
+    <script src="js/kds.js?v=25"></script>
     <script src="js/form-validation.js?v=1"></script>
-    <script src="js/admin.js?v=55"></script>
-    <script src="js/admin-app.js?v=48"></script>
+    <script src="js/admin.js?v=57"></script>
+    <script src="js/walkin.js?v=1"></script>
+    <script src="js/admin-app.js?v=49"></script>
   <script>
   if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 </script>

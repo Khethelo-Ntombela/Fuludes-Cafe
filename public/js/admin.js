@@ -50,6 +50,11 @@ addAdminPasswordVisibilityToggle("newAdminPassword");
 
 /** "Delivery: 12 Main Rd" / "Dine In (Table 5)" / "Collection" */
 function describeOrderType(order) {
+  if (order.order_source === "walk_in") {
+    return order.order_type === "dine_in"
+      ? `Walk-in dine-in (Table ${order.table_number || "?"}${order.tab_round ? `, round ${order.tab_round}` : ""})`
+      : "Walk-in takeaway";
+  }
   if (order.order_type === "delivery")
     return `Delivery: ${order.delivery_address || ""}`;
   if (order.order_type === "dine_in")
@@ -80,6 +85,15 @@ function cancelledStatusLabel(order) {
 }
 
 function paymentBadgeHtml(order) {
+  if (order.payment_status === "tab_open" && order.status !== "Cancelled") {
+    return `<span class="badge badge-unpaid">Open Tab</span>`;
+  }
+  if (order.payment_status === "written_off") {
+    return `<span class="badge badge-refund">Written Off</span>`;
+  }
+  if (order.payment_status === "void") {
+    return `<span class="badge badge-unpaid">Removed from Bill</span>`;
+  }
   if (order.status === "Cancelled" && order.payment_status === "paid") {
     return `<span class="badge badge-refund">Refund Needed</span>`;
   }
@@ -87,7 +101,7 @@ function paymentBadgeHtml(order) {
     return `<span class="badge badge-paid">Refunded</span>`;
   }
   if (order.payment_status === "paid") {
-    return `<span class="badge badge-paid">Paid Online</span>`;
+    return `<span class="badge badge-paid">${order.order_source === "walk_in" ? "Paid by Card (Walk-in)" : "Paid Online"}</span>`;
   }
   if (order.payment_status === "failed") {
     return `<span class="badge badge-refund">Payment Failed</span>`;
@@ -119,7 +133,7 @@ const adminCan = (perm) => Boolean(adminPermissions.all || adminPermissions[perm
 window.adminCan = adminCan;
 
 const TAB_PERMISSIONS = {
-  dashboard: ["orders"], orders: ["orders"], placeorder: ["orders"], history: ["orders"], sales: ["orders"],
+  dashboard: ["orders"], orders: ["orders"], placeorder: ["orders"], walkin: ["orders"], history: ["orders"], sales: ["orders"],
   reservations: ["orders"], menu: ["menu"], specials: ["menu"], addons: ["menu"], reviews: ["reviews"],
   buffet: ["buffet"], customers: ["customers"], audit: ["audit"],
   settings: ["settings", "admin_accounts", "marketing", "menu"],
@@ -527,7 +541,7 @@ async function loadOrders() {
     // Detect newly arrived PAID orders (status New && payment_status === 'paid')
     const paidNewIds = new Set(
       orders
-        .filter((o) => o.status === "New" && o.payment_status === "paid")
+        .filter((o) => o.status === "New" && ["paid", "tab_open"].includes(o.payment_status))
         .map((o) => String(o.id)),
     );
     const newOnes = [...paidNewIds].filter(
@@ -699,12 +713,19 @@ function renderOrders(orders) {
   kdsBindBoard(list, orders, {
     onAction: handleOrderAction,
     confirmAction: (order, status) => {
+      if (status === "Cancelled" && order.order_source === "walk_in") {
+        return confirm(
+          order.payment_status === "paid"
+            ? `Order #${order.id} was already paid by card at the cafe (${money(order.total_amount)}). Cancelling marks it "Refund needed" - give the guest their money back on the card machine, then tap "Already refunded" in Order History.\n\nCancel this order?`
+            : `Cancel order #${order.id}? It is taken off the table's bill.`,
+        );
+      }
       if (status === "Cancelled" && order.payment_status === "paid") {
         return confirm(
           `Order #${order.id} was already paid online (${money(order.total_amount)}). Cancelling marks it "Refund needed" - you can then refund it with one tap from Order History (the "Refund via Yoco" button).\n\nCancel this order?`,
         );
       }
-      if (status !== "Cancelled" && order.payment_status !== "paid") {
+      if (status !== "Cancelled" && !["paid", "tab_open"].includes(order.payment_status)) {
         return confirm(
           `Order #${order.id} hasn't been confirmed as paid yet (payment status: ${order.payment_status}). Advancing it means preparing food nobody's actually paid for.\n\nContinue anyway?`,
         );
@@ -840,14 +861,19 @@ function renderOrderHistory(orders) {
           <span>${money(order.total_amount)}</span>
         </div>
         <div class="admin-order-meta">
-          ${orderDate} · ${order.status === "Cancelled" ? `<strong class="${refundNeeded ? "refund-needed-note" : ""}">${statusLabel}</strong>` : statusLabel} · ${order.customer_phone} · ${describeOrderType(order)} · ${order.pickup_time} · ${paymentBadgeHtml(order)}
+          ${orderDate} · ${order.status === "Cancelled" ? `<strong class="${refundNeeded ? "refund-needed-note" : ""}">${statusLabel}</strong>` : statusLabel} · ${order.customer_phone || (order.order_source === "walk_in" ? "Walk-in" : "")} · ${describeOrderType(order)} · ${order.pickup_time} · ${paymentBadgeHtml(order)}
           ${order.special_instructions ? `<br>Note: ${order.special_instructions}` : ""}
           ${
             refundNeeded
               ? `<div class="refund-actions">
                   ${order.refund_error ? `<div class="refund-error">Last refund attempt failed: ${escapeHtml(order.refund_error)}</div>` : ""}
-                  <button type="button" class="admin-mini-btn refund-yoco-btn" data-order-id="${order.id}" data-amount="${order.total_amount}"><i class="fas fa-rotate-left"></i> Refund ${money(order.total_amount)} via Yoco</button>
-                  <button type="button" class="admin-mini-btn mark-refund-btn" data-order-id="${order.id}">Already refunded in Yoco</button>
+                  ${
+                    order.order_source === "walk_in"
+                      ? `<div class="refund-error" style="color:var(--sa-text)">This was paid by card at the cafe. Give the guest ${money(order.total_amount)} back on the card machine, then tap the button.</div>
+                  <button type="button" class="admin-mini-btn mark-refund-btn" data-order-id="${order.id}">Already refunded on the card machine</button>`
+                      : `<button type="button" class="admin-mini-btn refund-yoco-btn" data-order-id="${order.id}" data-amount="${order.total_amount}"><i class="fas fa-rotate-left"></i> Refund ${money(order.total_amount)} via Yoco</button>
+                  <button type="button" class="admin-mini-btn mark-refund-btn" data-order-id="${order.id}">Already refunded in Yoco</button>`
+                  }
                 </div>`
               : order.refund_processed_at
                 ? `<br>Refunded ${new Date(order.refund_processed_at).toLocaleString("en-ZA")}${order.refund_ref ? ` (Yoco ref: ${escapeHtml(order.refund_ref)})` : ""}`
@@ -1121,12 +1147,66 @@ async function loadSalesStats() {
       data.monthly_breakdown || [],
       selectedMonths,
     );
+    renderSalesChannels(data);
     // Store for the sidebar status card + dashboard (admin-app.js reads this).
     window.adminLastStats = data;
     if (typeof window.onStatsLoaded === "function") window.onStatsLoaded(data);
   } catch (err) {
     chartWrap.innerHTML = `<p class="menu-empty">Couldn't load sales stats.</p>`;
   }
+}
+
+/** "Sales by Channel": online vs walk-in takeaway vs walk-in dine-in, with each one's share of the total. */
+function renderSalesChannels(data) {
+  const box = document.getElementById("salesChannels");
+  if (!box) return;
+  const defs = [
+    { key: "online", label: "Online (website)", cls: "wi-ch-online" },
+    { key: "walk_in_takeaway", label: "Walk-in takeaway", cls: "wi-ch-takeaway" },
+    { key: "walk_in_dine_in", label: "Walk-in dine-in", cls: "wi-ch-dinein" },
+  ];
+  const byKey = Object.fromEntries((data.channels || []).map((c) => [c.channel, c]));
+  const totalRevenue = defs.reduce((s, d) => s + Number(byKey[d.key]?.revenue || 0), 0);
+  const totalOrders = defs.reduce((s, d) => s + Number(byKey[d.key]?.orders || 0), 0);
+  if (!totalOrders) {
+    box.innerHTML = '<p class="menu-empty">No paid orders in this period yet.</p>';
+    return;
+  }
+  const pct = (v) => (totalRevenue > 0 ? (Number(v) / totalRevenue) * 100 : 0);
+  const walkRevenue = Number(byKey.walk_in_takeaway?.revenue || 0) + Number(byKey.walk_in_dine_in?.revenue || 0);
+  const onlineRevenue = Number(byKey.online?.revenue || 0);
+  const summary =
+    walkRevenue === 0 && onlineRevenue === 0
+      ? ""
+      : `<p class="admin-hint" style="margin:0 0 6px"><strong>${pct(onlineRevenue).toFixed(0)}%</strong> of sales came from the website and <strong>${pct(walkRevenue).toFixed(0)}%</strong> from guests at the cafe.</p>`;
+  const bar = `<div class="wi-channel-bar">${defs
+    .map((d) => `<span class="${d.cls}" style="width:${pct(byKey[d.key]?.revenue || 0).toFixed(2)}%"></span>`)
+    .join("")}</div>`;
+  const rows = defs
+    .map((d) => {
+      const c = byKey[d.key] || { orders: 0, revenue: 0 };
+      const avg = c.orders ? Number(c.revenue) / c.orders : 0;
+      return `<div class="wi-channel-row">
+        <span class="wi-dot ${d.cls}"></span>
+        <span><strong>${d.label}</strong><br><small>${c.orders} order${c.orders === 1 ? "" : "s"} · avg R${avg.toFixed(0)}</small></span>
+        <span>R${Number(c.revenue).toFixed(2)}</span>
+        <strong>${pct(c.revenue).toFixed(0)}%</strong>
+        <span></span>
+      </div>`;
+    })
+    .join("");
+  // month by month, so the owner sees whether walk-ins are growing
+  const months = (data.monthly_breakdown || []).filter((m) => m.walk_in_revenue || m.revenue);
+  const monthRows = months.length > 1
+    ? `<div style="margin-top:12px"><small class="admin-hint">Month by month</small>${months
+        .map((m) => {
+          const online = Math.max(0, Number(m.revenue) - Number(m.walk_in_revenue));
+          const label = new Date(`${m.month}-01T00:00:00`).toLocaleString("en-ZA", { month: "short", year: "2-digit" });
+          return `<div class="wi-channel-row" style="grid-template-columns: 70px 1fr 1fr"><strong>${label}</strong><span>Online R${online.toFixed(0)}</span><span>Walk-in R${Number(m.walk_in_revenue).toFixed(0)}</span></div>`;
+        })
+        .join("")}</div>`
+    : "";
+  box.innerHTML = summary + bar + rows + monthRows;
 }
 
 /** Renders the month-by-month revenue trend as simple div-based bars (no chart library). */
@@ -3746,6 +3826,11 @@ const AUDIT_LABELS = {
   buffet_visibility_updated: "Buffet visibility changed",
   order_completed: "Order completed",
   order_cancelled: "Order cancelled",
+  walkin_takeaway_paid_by_card: "Walk-in takeaway paid by card",
+  walkin_tab_round_added: "Walk-in tab: items sent to kitchen",
+  walkin_tab_item_removed: "Walk-in tab: item removed from bill",
+  walkin_tab_closed_paid_by_card: "Walk-in tab closed, paid by card",
+  walkin_tab_written_off: "Walk-in tab written off (unpaid)",
 };
 
 // Who did it. The server sends the account's CURRENT username/name (api/admin/audit.js), so the same
@@ -3763,7 +3848,7 @@ function auditLabel(action) {
 }
 
 function auditTone(action) {
-  if (/deleted|removed|enabled$|refund|cancelled/.test(action || "")) return "danger";
+  if (/deleted|removed|enabled$|refund|cancelled|written_off/.test(action || "")) return "danger";
   if (/disabled$|created|added|completed/.test(action || "")) return "good";
   return "";
 }

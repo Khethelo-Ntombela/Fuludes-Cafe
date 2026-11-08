@@ -69,6 +69,10 @@ function monthLabel(monthKey) {
 /** A real, confirmed sale: paid online and not cancelled. Dashboard numbers are built ONLY from these. */
 const isPaidOrder = (o) => o.payment_status === "paid" && o.status !== "Cancelled";
 
+/** How many orders a list really is: the rounds of one walk-in tab are ONE bill, every other order is one. */
+const billCount = (list) => new Set(list.map((o) => (o.tab_id ? `t${o.tab_id}` : `o${o.id}`))).size;
+const isWalkIn = (o) => o.order_source === "walk_in";
+
 function waitingFor(isoDate) {
   const mins = Math.max(0, Math.round((Date.now() - new Date(isoDate).getTime()) / 60000));
   if (mins < 60) return `${mins} min`;
@@ -133,6 +137,7 @@ const TAB_TITLES = {
   dashboard: "Dashboard",
   orders: "Live Orders",
   placeorder: "Place Order",
+  walkin: "Walk-in Orders",
   history: "Order History",
   sales: "Sales & Reports",
   menu: "Menu & Stock",
@@ -165,6 +170,7 @@ document.querySelectorAll(".admin-tab-btn").forEach((btn) => {
     if (btn.dataset.tab === "sales") loadReportWidgets();
     if (btn.dataset.tab === "specials") fetchHistoryAll().then(() => renderSpecialsList());
     if (btn.dataset.tab === "placeorder") setTimeout(() => initPlaceOrderTab(), 50);
+    if (btn.dataset.tab === "walkin") openWalkinTab();
   });
 });
 
@@ -251,12 +257,12 @@ function updateStatusCard() {
   if (!window.adminHistoryLoaded) return;
   const todays = window.adminHistoryAll.filter((o) => isToday(o.created_at) && isPaidOrder(o));
   const revenue = todays.reduce((s, o) => s + Number(o.total_amount || 0), 0);
-  $id("statusOrdersToday").textContent = todays.length;
+  $id("statusOrdersToday").textContent = billCount(todays);
   $id("statusRevenueToday").textContent = `R${revenue.toFixed(0)}`;
   try {
     localStorage.setItem(
       STATUS_CARD_CACHE_KEY,
-      JSON.stringify({ day: new Date().toDateString(), orders: todays.length, revenue: `R${revenue.toFixed(0)}` }),
+      JSON.stringify({ day: new Date().toDateString(), orders: billCount(todays), revenue: `R${revenue.toFixed(0)}` }),
     );
   } catch {
     /* ignore */
@@ -275,6 +281,7 @@ async function loadDashboardData() {
   const months = statsRes?.monthly_breakdown || [];
 
   await fetchAwaitingOrders();
+  await fetchOpenTabs();
   window.adminDashMonths = months;
   updateStatusCard();
   renderDashKpis(history, statsRes, months);
@@ -294,6 +301,60 @@ function trendHtml(todayValue, yesterdayValue, kind) {
 }
 
 window.adminAwaiting = { awaiting: [], failed: [] };
+
+// Walk-in tabs that haven't been paid yet (dine-in guests still at the table)
+window.adminOpenTabs = [];
+async function fetchOpenTabs() {
+  try {
+    const res = await adminFetch("/api/admin/walkin");
+    const data = await res.json();
+    if (res.ok) window.adminOpenTabs = data.tabs || [];
+  } catch {
+    /* keep the last list */
+  }
+  renderOpenTabsBanner();
+}
+function renderOpenTabsBanner() {
+  const el = $id("dashOpenTabs");
+  if (!el) return;
+  const tabs = window.adminOpenTabs || [];
+  if (!tabs.length) {
+    el.style.display = "none";
+    return;
+  }
+  const total = tabs.reduce((s, t) => s + Number(t.total || 0), 0);
+  el.style.display = "flex";
+  el.innerHTML = `<span><i class="fas fa-receipt"></i> ${tabs.length} open tab${tabs.length === 1 ? "" : "s"} &middot; R${total.toFixed(2)} not paid yet</span><button type="button" id="dashOpenTabsBtn">View tabs</button>`;
+  $id("dashOpenTabsBtn").addEventListener("click", () => {
+    openWalkinTab("tabs");
+    activateTab("walkin");
+  });
+}
+
+// Walk-in screen (shared with the staff portal, see walkin.js)
+let adminWalkin = null;
+let walkinStartView = null;
+function openWalkinTab(view) {
+  if (view) walkinStartView = view;
+  if (!adminWalkin) {
+    adminWalkin = FuludeWalkin.mount($id("walkinRoot"), {
+      api: "/api/admin/walkin",
+      fetchFn: adminFetch,
+      isAdmin: true,
+      onTabsChanged: (tabs) => {
+        window.adminOpenTabs = tabs;
+        renderOpenTabsBanner();
+        if (typeof loadOrders === "function") loadOrders();
+      },
+    });
+  } else {
+    adminWalkin.refresh();
+  }
+  if (walkinStartView === "tabs") {
+    document.querySelector('#walkinRoot .wi-switch-btn[data-view="tabs"]')?.click();
+    walkinStartView = null;
+  }
+}
 
 /** Loads unpaid and failed orders outside the order-history window. */
 async function fetchAwaitingOrders() {
@@ -340,7 +401,14 @@ function renderDashKpis(history, stats, months) {
   const revenueToday = todays.reduce((s, o) => s + Number(o.total_amount || 0), 0);
   const yesterdays = history.filter((o) => isPaidOrder(o) && isYesterday(o.created_at));
   const revenueYesterday = yesterdays.reduce((s, o) => s + Number(o.total_amount || 0), 0);
-  const avgOrder = todays.length ? revenueToday / todays.length : 0;
+  const todayBills = billCount(todays);
+  const yesterdayBills = billCount(yesterdays);
+  const avgOrder = todayBills ? revenueToday / todayBills : 0;
+  const walkToday = todays.filter(isWalkIn);
+  const onlineToday = todays.filter((o) => !isWalkIn(o));
+  const sumRev = (l) => l.reduce((s, o) => s + Number(o.total_amount || 0), 0);
+  const splitOrders = walkToday.length ? `Online <b>${billCount(onlineToday)}</b> · Walk-in <b>${billCount(walkToday)}</b>` : "";
+  const splitRevenue = walkToday.length ? `Online <b>R${sumRev(onlineToday).toFixed(0)}</b> · Walk-in <b>R${sumRev(walkToday).toFixed(0)}</b>` : "";
   const { awaiting } = window.adminAwaiting;
   const awaitingValue = awaiting.reduce((s, o) => s + Number(o.total_amount || 0), 0);
   const dismissedDelivery = getDismissedIds("delivery");
@@ -358,14 +426,14 @@ function renderDashKpis(history, stats, months) {
     day.setDate(day.getDate() - (6 - i));
     const key = localDayKey(day);
     const orders = history.filter((o) => isPaidOrder(o) && localDayKey(new Date(o.created_at)) === key);
-    return { count: orders.length, revenue: orders.reduce((sum, o) => sum + Number(o.total_amount || 0), 0) };
+    return { count: billCount(orders), revenue: orders.reduce((sum, o) => sum + Number(o.total_amount || 0), 0) };
   });
   const revSpark = sparklineSvg(last7.map((d) => d.revenue));
   const ordSpark = sparklineSvg(last7.map((d) => d.count));
 
   const kpis = [
-    { label: "Today's Orders", sub: "paid", icon: "fa-receipt", value: todays.length, spark: ordSpark, trend: trendHtml(todays.length, yesterdays.length, "count") },
-    { label: "Revenue Today", icon: "fa-coins", value: `R${revenueToday.toFixed(0)}`, spark: revSpark, trend: trendHtml(revenueToday, revenueYesterday, "money") },
+    { label: "Today's Orders", sub: "paid", icon: "fa-receipt", value: todayBills, spark: ordSpark, trend: trendHtml(todayBills, yesterdayBills, "count"), split: splitOrders },
+    { label: "Revenue Today", icon: "fa-coins", value: `R${revenueToday.toFixed(0)}`, spark: revSpark, trend: trendHtml(revenueToday, revenueYesterday, "money"), split: splitRevenue },
     { label: "Avg Order Value", icon: "fa-basket-shopping", value: `R${avgOrder.toFixed(0)}`, spark: "", trend: "", note: "Based on today's orders" },
     {
       label: "Pending Orders", sub: "awaiting payment", icon: "fa-hourglass-half", value: awaiting.length,
@@ -382,6 +450,7 @@ function renderDashKpis(history, stats, months) {
       <div class="kpi-card${k.action ? " kpi-clickable" : ""}"${k.action ? ` data-kpi-action="${k.action}" role="button" tabindex="0"` : ""}>
         <div class="kpi-top"><span class="kpi-label">${k.label}${k.sub ? `<small class="kpi-sub">${k.sub}</small>` : ""}</span><span class="kpi-icon"><i class="fas ${k.icon}"></i></span></div>
         <span class="kpi-value">${k.value}</span>
+        ${k.split ? `<span class="kpi-split">${k.split}</span>` : ""}
         <div class="kpi-foot">${k.trend || "<span></span>"}${k.spark}</div>
         <span class="kpi-clears">${k.note || `Clears in: ${clearsInMidnight()}`}</span>
         ${k.clear ? `<button type="button" class="kpi-clear-btn" data-kpi-clear="${k.clear}"><i class="fas fa-eraser"></i> Clear</button>` : ""}
@@ -605,7 +674,7 @@ function renderDashLists(history, reviews) {
   // Top customers: order count + spend per customer name.
   const customers = {};
   history.forEach((o) => {
-    if (!isPaidOrder(o)) return;
+    if (!isPaidOrder(o) || isWalkIn(o)) return; // walk-in guests are anonymous - they stay out of Top Customers
     const c = (customers[o.customer_name] = customers[o.customer_name] || { count: 0, spend: 0 });
     c.count += 1;
     c.spend += Number(o.total_amount || 0);
@@ -662,7 +731,19 @@ async function fetchReportOrders() {
 // Sales & Reports derived widgets
 async function loadReportWidgets() {
   const { orders: history, since, failed, truncated } = await fetchReportOrders();
-  const active = history.filter(isPaidOrder);
+  const channelFilter = $id("reportChannelFilter")?.value || "all";
+  const active = history
+    .filter(isPaidOrder)
+    .filter((o) => channelFilter === "all" || (channelFilter === "walk_in" ? isWalkIn(o) : !isWalkIn(o)));
+
+  // One entry per bill: the rounds of a walk-in tab are one order for the hours / types / payments widgets.
+  const seenTabs = new Set();
+  const bills = [...active].reverse().filter((o) => {
+    if (!o.tab_id) return true;
+    if (seenTabs.has(o.tab_id)) return false;
+    seenTabs.add(o.tab_id);
+    return true;
+  });
 
   // Top selling items by revenue
   const itemRevenue = {};
@@ -680,7 +761,7 @@ async function loadReportWidgets() {
     { label: "15-17", from: 15 }, { label: "17-19", from: 17 }, { label: "19-21", from: 19 }
   ].map((b) => ({ ...b, value: 0 }));
   let outsideHours = 0;
-  active.forEach((o) => {
+  bills.forEach((o) => {
     const h = new Date(o.created_at).getHours();
     const bucket = buckets.find((b) => h >= b.from && h < b.from + 2);
     if (bucket) bucket.value += 1;
@@ -691,9 +772,9 @@ async function loadReportWidgets() {
   const note = $id("reportPeriodNote");
   if (note) {
     if (failed) note.textContent = "Could not load all orders for these reports. Try refreshing.";
-    else if (!active.length) note.textContent = `No paid orders in the last ${REPORT_DAYS} days.`;
+    else if (!bills.length) note.textContent = `No paid orders in the last ${REPORT_DAYS} days.`;
     else {
-      const count = `${active.length} paid order${active.length === 1 ? "" : "s"}`;
+      const count = `${bills.length} paid order${bills.length === 1 ? "" : "s"}`;
       const range = truncated ? "the most recent orders" : `${day(since)} to ${day(new Date())}`;
       const extra = outsideHours ? ` ${outsideHours} placed outside 9:00-21:00 ${outsideHours === 1 ? "is" : "are"} left out of Peak Ordering Hours.` : "";
       note.textContent = `Based on ${count} from the last ${REPORT_DAYS} days (${range}).${extra}`;
@@ -704,8 +785,8 @@ async function loadReportWidgets() {
   // Payment methods + order types
   const payments = {};
   const types = { collection: 0, delivery: 0, dine_in: 0 };
-  active.forEach((o) => {
-    const label = "Online (Yoco)";
+  bills.forEach((o) => {
+    const label = isWalkIn(o) ? "Card machine (walk-in)" : "Online (Yoco)";
     payments[label] = (payments[label] || 0) + 1;
     if (types[o.order_type] !== undefined) types[o.order_type] += 1;
   });
@@ -716,6 +797,8 @@ async function loadReportWidgets() {
     { label: "Dine In", value: types.dine_in }
   ]);
 }
+
+$id("reportChannelFilter")?.addEventListener("change", () => loadReportWidgets());
 
 // Settings sub-tabs
 document.querySelectorAll(".settings-tab-btn").forEach((btn) => {

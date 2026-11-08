@@ -1,6 +1,7 @@
 // Web Push (phone/desktop notifications that arrive even when the app is closed)
 import { runQuery } from "./db.js";
 import { ORDER_SHOW_AT } from "./preorderVisibility.js";
+import { ensureWalkinSchema } from "./walkin.js";
 
 const enc = new TextEncoder();
 
@@ -194,21 +195,23 @@ export async function ensureNewOrderPushColumn(env) {
 export async function sendDueNewOrderPushes(env, { origin } = {}) {
   try {
     await ensureNewOrderPushColumn(env);
+    await ensureWalkinSchema(env);
     const due = await runQuery(
       env,
       `UPDATE orders SET new_order_push_sent_at = NOW()
         WHERE new_order_push_sent_at IS NULL
-          AND payment_status = 'paid'
+          AND payment_status IN ('paid', 'tab_open')
           AND status = 'New'
           AND ${ORDER_SHOW_AT} <= NOW() - INTERVAL '1 second'
           AND ${ORDER_SHOW_AT} > NOW() - INTERVAL '30 minutes'
-        RETURNING id, order_type, total_amount;`,
+        RETURNING id, order_type, total_amount, order_source, table_number;`,
     );
     for (const order of due.rows) {
       const type = order.order_type === "delivery" ? "Delivery" : order.order_type === "dine_in" ? "Dine in" : "Collection";
+      const walkIn = order.order_source === "walk_in";
       await sendPush(env, { roles: ["admin", "staff"] }, {
-        title: `New paid order #${order.id}`,
-        body: `${type} · R${Number(order.total_amount).toFixed(2)}`,
+        title: walkIn ? `New walk-in order #${order.id}` : `New paid order #${order.id}`,
+        body: `${walkIn && order.table_number ? `Table ${order.table_number} · ` : `${type} · `}R${Number(order.total_amount).toFixed(2)}`,
         url: { admin: "/fc-hq.html#orders", staff: "/fc-kitchen.html" },
         tag: `order-${order.id}`,
       }, { origin });

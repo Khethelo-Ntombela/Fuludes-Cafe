@@ -6,6 +6,7 @@ import { queueOrderStatusPush } from "../../_lib/push.js";
 import { ensureCancelledByColumn, restoreOrderStock } from "../../_lib/orderCancel.js";
 import { logAudit } from "../../_lib/audit.js";
 import { ensureScheduleColumns } from "../../_lib/scheduledOrders.js";
+import { ensureWalkinSchema } from "../../_lib/walkin.js";
 
 const ALLOWED_STATUSES = [
   "New",
@@ -112,10 +113,11 @@ export async function onRequestPost(context) {
   }
 
   try {
+    await ensureWalkinSchema(env);
     const orderResult = await runQuery(
       env,
       `
-        SELECT id, status, order_type, delivery_address, payment_status
+        SELECT id, status, order_type, delivery_address, payment_status, order_source
         FROM orders
         WHERE id = $1;
       `,
@@ -125,7 +127,8 @@ export async function onRequestPost(context) {
     if (!order) {
       return jsonResponse({ error: "Order not found." }, 404);
     }
-    if (order.payment_status !== "paid" && status !== "Cancelled") {
+    const isOpenTabRound = order.order_source === "walk_in" && order.payment_status === "tab_open";
+    if (order.payment_status !== "paid" && !isOpenTabRound && status !== "Cancelled") {
       return jsonResponse(
         { error: "Only paid orders can be moved on the staff board." },
         400,

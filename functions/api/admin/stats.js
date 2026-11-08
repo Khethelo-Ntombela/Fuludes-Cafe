@@ -1,6 +1,7 @@
 // GET /api/admin/stats
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
+import { ensureWalkinSchema } from "../../_lib/walkin.js";
 
 function parseDateInput(value, endOfDay = false) {
   if (!value) return null;
@@ -72,6 +73,7 @@ export async function onRequestGet(context) {
   if (authError) return authError;
 
   try {
+    await ensureWalkinSchema(env);
     const { start, end, period, months } = resolveRange(request.url);
     const monthFilter =
       months && months.length > 0
@@ -82,12 +84,12 @@ export async function onRequestGet(context) {
         ? "AND TO_CHAR(o.created_at, 'YYYY-MM') = ANY($3::text[])"
         : "";
 
-    const [summaryResult, monthlyResult, categoryResult] = await Promise.all([
+    const [summaryResult, monthlyResult, categoryResult, channelResult] = await Promise.all([
       runQuery(
         env,
         `
         SELECT
-          COUNT(*)::int AS total_orders,
+          COUNT(DISTINCT CASE WHEN tab_id IS NOT NULL THEN 't' || tab_id ELSE 'o' || id END)::int AS total_orders,
           COALESCE(SUM(CASE WHEN payment_status = 'paid' THEN total_amount ELSE 0 END)::numeric(12,2), 0) AS total_revenue
         FROM orders
         WHERE payment_status = 'paid'
@@ -102,8 +104,10 @@ export async function onRequestGet(context) {
         `
         SELECT
           TO_CHAR(created_at, 'YYYY-MM') AS month_key,
-          COUNT(*)::int AS order_count,
-          COALESCE(SUM(CASE WHEN payment_status = 'paid' THEN total_amount ELSE 0 END)::numeric(12,2), 0) AS revenue
+          COUNT(DISTINCT CASE WHEN tab_id IS NOT NULL THEN 't' || tab_id ELSE 'o' || id END)::int AS order_count,
+          COALESCE(SUM(CASE WHEN payment_status = 'paid' THEN total_amount ELSE 0 END)::numeric(12,2), 0) AS revenue,
+          COUNT(DISTINCT CASE WHEN order_source = 'walk_in' THEN CASE WHEN tab_id IS NOT NULL THEN 't' || tab_id ELSE 'o' || id END END)::int AS walk_in_orders,
+          COALESCE(SUM(CASE WHEN order_source = 'walk_in' THEN total_amount ELSE 0 END)::numeric(12,2), 0) AS walk_in_revenue
         FROM orders
         WHERE payment_status = 'paid'
           AND ($1::timestamptz IS NULL OR created_at >= $1)
@@ -131,6 +135,25 @@ export async function onRequestGet(context) {
       `,
         months && months.length > 0 ? [start, end, months] : [start, end],
       ),
+      // Sales by channel: online / walk-in takeaway / walk-in dine-in (a dine-in tab counts as ONE bill)
+      runQuery(
+        env,
+        `
+        SELECT
+          CASE WHEN order_source = 'walk_in' AND order_type = 'dine_in' THEN 'walk_in_dine_in'
+               WHEN order_source = 'walk_in' THEN 'walk_in_takeaway'
+               ELSE 'online' END AS channel,
+          COUNT(DISTINCT CASE WHEN tab_id IS NOT NULL THEN 't' || tab_id ELSE 'o' || id END)::int AS orders,
+          COALESCE(SUM(total_amount)::numeric(12,2), 0) AS revenue
+        FROM orders
+        WHERE payment_status = 'paid'
+          AND ($1::timestamptz IS NULL OR created_at >= $1)
+          AND ($2::timestamptz IS NULL OR created_at < $2)
+          ${monthFilter}
+        GROUP BY channel;
+      `,
+        months && months.length > 0 ? [start, end, months] : [start, end],
+      ),
     ]);
 
     const summary = summaryResult.rows[0] || {};
@@ -146,6 +169,13 @@ export async function onRequestGet(context) {
       monthly_breakdown: monthlyRows.map((row) => ({
         month: row.month_key,
         order_count: row.order_count,
+        revenue: Number(row.revenue || 0),
+        walk_in_orders: row.walk_in_orders || 0,
+        walk_in_revenue: Number(row.walk_in_revenue || 0),
+      })),
+      channels: (channelResult.rows || []).map((row) => ({
+        channel: row.channel,
+        orders: row.orders,
         revenue: Number(row.revenue || 0),
       })),
       categories: categoryResult.rows,

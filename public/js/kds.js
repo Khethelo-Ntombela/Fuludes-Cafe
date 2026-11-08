@@ -118,6 +118,14 @@ function kdsUrgency(order) {
 }
 
 function kdsTypeBadgeHtml(order) {
+  if (order.order_source === "walk_in") {
+    const round = order.tab_round ? ` · R${order.tab_round}` : "";
+    const walkLabel =
+      order.order_type === "dine_in"
+        ? `Walk-in · Table ${order.table_number || "?"}${round}`
+        : "Walk-in · Takeaway";
+    return `<span class="badge badge-walkin">${walkLabel}</span>`;
+  }
   const label =
     order.order_type === "delivery"
       ? "Delivery"
@@ -137,10 +145,11 @@ function kdsNextStage(order) {
 }
 
 function kdsNextStageLabel(order) {
+  const tableService = order.order_source === "walk_in" && order.order_type === "dine_in";
   if (order.status === "New") return "Start Preparing";
   if (order.status === "Preparing") return "Mark Ready";
-  if (order.status === "Ready") return order.order_type === "delivery" ? "Send Delivery" : "Ready for Collection";
-  if (order.status === "Collection") return "Collected";
+  if (order.status === "Ready") return tableService ? "Ready to Serve" : order.order_type === "delivery" ? "Send Delivery" : "Ready for Collection";
+  if (order.status === "Collection") return tableService ? "Served" : "Collected";
   if (order.status === "Delivery" || order.status === "Out for Delivery") return "Complete Delivery";
   return "";
 }
@@ -194,6 +203,10 @@ function kdsItemLine(item) {
 
 function kdsStatusMenuHtml(order) {
   if (order.status !== "Ready") return "";
+  if (order.order_source === "walk_in") {
+    return `
+          <button type="button" data-status="Collection" data-id="${order.id}">${order.order_type === "dine_in" ? "Move to Ready to serve" : "Move to Collection"}</button>`;
+  }
   return `
           <button type="button" data-status="Collection" data-id="${order.id}">Move to Collection</button>
           <button type="button" data-status="Delivery" data-id="${order.id}">Move to Delivery</button>`;
@@ -238,7 +251,10 @@ function kdsCardHtml(order) {
 /* Compact row for hand-off columns. */
 function kdsRowHtml(order) {
   const mins = kdsMinutes(order);
-  const type = order.order_type === "delivery" ? "Delivery" : order.order_type === "dine_in" ? "Dine In" : "Collection";
+  const type =
+    order.order_source === "walk_in"
+      ? order.order_type === "dine_in" ? `Walk-in · T${order.table_number || "?"}` : "Walk-in · Takeaway"
+      : order.order_type === "delivery" ? "Delivery" : order.order_type === "dine_in" ? "Dine In" : "Collection";
   return `
     <div class="kds-row" data-open-details="${order.id}" data-order-id="${order.id}" draggable="true">
       <strong>#${order.id}</strong>
@@ -445,17 +461,21 @@ function kdsOpenDetails(order, onAction) {
   }
 
   const phone = order.customer_phone ? `<a href="tel:${esc(order.customer_phone.replace(/s+/g, ""))}">${esc(order.customer_phone)}</a>` : "";
+  const walkIn = order.order_source === "walk_in";
   const payment =
     order.payment_status === "paid"
-      ? `Paid online${order.payment_confirmed_at ? ` · ${when(order.payment_confirmed_at)}` : ""}`
-      : esc(order.payment_status || "");
+      ? `${walkIn ? "Paid by card at the cafe" : "Paid online"}${order.payment_confirmed_at ? ` · ${when(order.payment_confirmed_at)}` : ""}`
+      : order.payment_status === "tab_open"
+        ? "On the table's open tab - not paid yet"
+        : esc(order.payment_status || "");
 
   overlay.querySelector("#kdsDetailTitle").textContent = `Order #${order.id}`;
   overlay.querySelector("#kdsDetailBody").innerHTML = `
     <div class="kds-detail-rows">
       ${section("Order")}
       ${row("Status", `${esc(order.status)} · ${mins} min in kitchen`)}
-      ${row("Type", order.order_type === "dine_in" && order.table_number ? `Dine in · Table ${esc(order.table_number)}` : typeLabel)}
+      ${row("Type", `${walkIn ? "Walk-in · " : ""}${order.order_type === "dine_in" && order.table_number ? `Dine in · Table ${esc(order.table_number)}${order.tab_round ? ` · Round ${order.tab_round}` : ""}` : typeLabel}`)}
+      ${walkIn && order.captured_by ? row("Taken by", esc(order.captured_by)) : ""}
       ${row("Placed", when(order.created_at))}
       ${order.kitchen_release_at ? row("Reached kitchen", when(order.kitchen_release_at)) : ""}
       ${row("Timing", esc(order.pickup_time || ""))}
