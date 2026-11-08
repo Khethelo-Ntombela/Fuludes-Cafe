@@ -231,6 +231,12 @@
           </div>
         </div>`;
 
+      if (cart.length) {
+        paneNew.insertAdjacentHTML(
+          "beforeend",
+          `<button type="button" class="wi-mobile-bar" data-wi-jump><span><i class="fas fa-basket-shopping"></i> ${cartCount()} item${cartCount() === 1 ? "" : "s"}</span><span>${money(total)} &middot; Review &amp; pay</span></button>`,
+        );
+      }
       if (keepSearch) {
         const s = paneNew.querySelector("#wiSearch");
         s.focus();
@@ -282,6 +288,7 @@
         if (confirm("Clear this order?")) { cart = []; renderNew(); }
       });
       paneNew.querySelector("[data-wi-go]")?.addEventListener("click", () => { readFields(); submitOrder(); });
+      paneNew.querySelector("[data-wi-jump]")?.addEventListener("click", () => paneNew.querySelector(".wi-side")?.scrollIntoView({ behavior: "smooth", block: "start" }));
     }
 
     function payload() {

@@ -13,7 +13,9 @@
 .wi-toast-error { background: var(--sa-red-soft); color: var(--sa-red); }
 
 .wi-layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
-@media (max-width: 900px) { .wi-layout { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .wi-layout { grid-template-columns: minmax(0, 1fr); } }
+.wi-menu, .wi-side, .wi-layout > * { min-width: 0; }
+.wi-menu .po-chips { max-width: 100%; }
 .wi-menu .admin-menu-grid { max-height: 62vh; overflow: auto; }
 .wi-side { display: flex; flex-direction: column; gap: 12px; position: sticky; top: 8px; }
 @media (max-width: 900px) { .wi-side { position: static; } }
@@ -105,3 +107,50 @@
   .wi-modal { box-shadow: none !important; max-width: 300px !important; padding: 0 !important; margin: 0 auto; overflow: visible !important; max-height: none !important; }
   .wi-receipt-actions { display: none !important; }
 }
+
+/* ---------- Phones ---------- */
+@media (max-width: 640px) {
+  /* Staff header: the buttons get their own row instead of running off the screen */
+  .staff-header { flex-wrap: wrap; padding: 8px 12px !important; gap: 8px !important; }
+  .staff-header > div:last-child { width: 100%; flex-wrap: wrap; justify-content: flex-start; }
+  .staff-header > div:last-child .admin-mini-btn { min-height: 40px; }
+  .walkin-open-btn { flex: 1 1 100%; justify-content: center; min-height: 46px !important; background: var(--sa-gold) !important; color: #fff !important; border-color: var(--sa-gold) !important; font-weight: 700; font-size: 1rem; }
+}
+@media (max-width: 900px) {
+  .wi-menu .admin-menu-grid { max-height: none; }
+  .wi-wrap { padding-bottom: 76px; }
+  .wi-mobile-bar { display: flex; }
+}
+@media (min-width: 901px) {
+  .wi-mobile-bar { display: none; }
+}
+.wi-mobile-bar {
+  position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 4500; align-items: center; justify-content: space-between; gap: 10px;
+  background: #101828; color: #fff; border: 0; border-radius: 14px; padding: 14px 18px; font: inherit; font-weight: 700; font-size: 1rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3); cursor: pointer;
+}
+.wi-tab-grid { grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); }
+.wi-field input, .wi-field select { font-size: 16px; } /* stops iPhones zooming in when a field is tapped */
+.wi-fullscreen-head { gap: 10px; }
+.wi-back-short { display: none; }
+@media (max-width: 640px) {
+  .wi-back-long { display: none; }
+  .wi-back-short { display: inline; }
+  .wi-cart-line .admin-mini-btn, .wi-tab-actions .admin-mini-btn, .wi-bill-line .admin-mini-btn { min-height: 40px; min-width: 40px; }
+  .wi-tab-actions .admin-mini-btn { flex: 1 1 auto; justify-content: center; }
+  .wi-modal-actions .btn { flex: 1 1 100%; padding: 14px; }
+  .wi-switch-btn { flex: 1 1 auto; justify-content: center; }
+}
+.wi-channel-row { grid-template-columns: 14px 1fr auto auto; }
+
+/* Buttons inside the walk-in screens do not depend on the site-wide button styles (the staff page doesn't load them) */
+.wi-wrap .btn, .wi-modal .btn, .wi-modal-actions .btn { font-family: inherit; font-weight: 600; border-radius: 10px; cursor: pointer; border: 1px solid var(--sa-border-strong); }
+.wi-modal .btn, .wi-modal-actions .btn { padding: 12px 18px; font-size: 1rem; }
+.wi-wrap .btn-secondary, .wi-modal .btn-secondary { background: #fff; color: var(--sa-text); }
+.wi-wrap .btn-primary, .wi-modal .btn-primary { background: var(--sa-gold); border-color: var(--sa-gold); color: #fff; }
+.wi-go { width: 100%; border-radius: 12px; }
+.wi-clear { color: var(--sa-red) !important; background: none; border: 0; cursor: pointer; font: inherit; padding: 6px; }
+.wi-fullscreen-head h2 { color: #fff; }
+.wi-fullscreen-head .admin-link-btn { color: #fff; border: 1px solid rgba(255,255,255,0.4); border-radius: 10px; padding: 8px 14px; background: none; font: inherit; cursor: pointer; }
+
+.kpi-spark { min-width: 70px; }
