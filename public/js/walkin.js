@@ -34,7 +34,7 @@
     let pollTimer = null;
     let lastTabsKey = "";
 
-    const form = { table: "", guest: "", notes: "", cardRef: "" };
+    const form = { table: "", guest: "", notes: "" };
 
     root.innerHTML = `
       <div class="wi-wrap">
@@ -146,6 +146,7 @@
           <div class="admin-menu-item${soldOut ? " sold-out" : ""}">
             <div class="admin-menu-item-info">
               <strong>${esc(item.name)}</strong>
+              ${item.description ? `<small>${esc(item.description)}</small>` : ""}
               <span class="admin-menu-item-price">${item.is_on_special ? `<s>R${Number(item.price).toFixed(2)}</s> ` : ""}R${price.toFixed(2)}</span>
             </div>
             <div class="admin-menu-item-actions">
@@ -197,16 +198,10 @@
         ${
           targetTab
             ? `<p class="admin-hint" style="margin:0">Adds a new round to Table ${esc(targetTab.table_number)}'s bill. It goes to the kitchen straight away.</p>`
-            : `<div class="wi-row2">
-                <div class="wi-field"><label for="wiTable">Table number</label><input type="text" id="wiTable" maxlength="30" value="${esc(form.table)}" placeholder="e.g. 5" autocomplete="off"></div>
-                <div class="wi-field"><label for="wiGuest">Guest name <small>(optional)</small></label><input type="text" id="wiGuest" maxlength="100" value="${esc(form.guest)}" autocomplete="off"></div>
-              </div>`
+            : `<div class="wi-field"><label for="wiTable">Table number</label><input type="text" id="wiTable" maxlength="30" value="${esc(form.table)}" placeholder="e.g. 5" autocomplete="off"></div>`
         }`
         : `
-        <div class="wi-row2">
-          <div class="wi-field"><label for="wiGuest">Guest name <small>(optional)</small></label><input type="text" id="wiGuest" maxlength="100" value="${esc(form.guest)}" autocomplete="off"></div>
-          <div class="wi-field"><label for="wiCardRef">Card slip no. <small>(optional)</small></label><input type="text" id="wiCardRef" maxlength="100" value="${esc(form.cardRef)}" autocomplete="off"></div>
-        </div>`;
+        <div class="wi-field"><label for="wiGuest">Guest name <small>(optional)</small></label><input type="text" id="wiGuest" maxlength="100" value="${esc(form.guest)}" autocomplete="off"></div>`;
 
       paneNew.innerHTML = `
         <div class="wi-layout">
@@ -246,11 +241,10 @@
 
     function readFields() {
       const v = (id) => paneNew.querySelector(id)?.value ?? null;
-      const t = v("#wiTable"), g = v("#wiGuest"), n = v("#wiNotes"), c = v("#wiCardRef");
+      const t = v("#wiTable"), g = v("#wiGuest"), n = v("#wiNotes");
       if (t !== null) form.table = t;
       if (g !== null) form.guest = g;
       if (n !== null) form.notes = n;
-      if (c !== null) form.cardRef = c;
     }
 
     function bindNew() {
@@ -308,7 +302,7 @@
         action: "order",
         type: orderType,
         items: payload(),
-        customer_name: form.guest.trim(),
+        customer_name: dine ? "" : form.guest.trim(),
         special_instructions: form.notes.trim(),
       };
       if (dine) {
@@ -318,11 +312,16 @@
           body.table_number = form.table.trim();
         }
       } else {
-        const paid = await confirmCard({ title: "Take card payment", amount: total, refValue: form.cardRef, askRef: false });
+        const paid = await confirmCard({ title: "Take card payment", amount: total });
         if (!paid) return;
         body.card_paid = true;
-        body.card_reference = form.cardRef.trim();
       }
+      const receiptLines = cart.map((l) => ({
+        qty: l.qty,
+        name: l.name,
+        detail: [l.spice, l.side ? l.side.name : "", ...l.extras.map((e) => e.name)].filter(Boolean).join(" · "),
+        amount: (l.unit + l.extras.reduce((x, e) => x + e.price, 0)) * l.qty,
+      }));
       busy = true;
       renderNew();
       try {
@@ -330,12 +329,13 @@
         toast(dine ? `Sent to the kitchen · order #${data.order_id}${data.new_tab ? " · new tab opened" : ""}` : `Paid by card · order #${data.order_id} is with the kitchen`);
         cart = [];
         form.notes = "";
-        form.cardRef = "";
         if (dine) {
           tabChoice = data.tab_id; // next round for this table goes onto the same tab
           form.table = "";
+        } else {
+          showReceipt({ heading: "Receipt", reference: `Order #${data.order_id}`, guest: form.guest.trim(), lines: receiptLines, total: data.total_amount, paid: true });
           form.guest = "";
-        } else form.guest = "";
+        }
         await loadTabs();
       } catch (err) {
         if (err.data && err.data.existing_tab_id) {
@@ -361,25 +361,50 @@
     }
 
     /** "Has the guest paid by card?" - the money is taken on the card machine, here staff only confirm it. */
-    function confirmCard({ title, amount, refValue, askRef }) {
+    function confirmCard({ title, amount }) {
       return new Promise((resolve) => {
         const m = modal(`
           <h3>${esc(title)}</h3>
           <p class="wi-modal-amount">${money(amount)}</p>
           <p class="admin-hint">Take this amount on the card machine. Only tap the green button once the card payment went through.</p>
-          ${askRef ? `<div class="wi-field"><label for="wiModalRef">Card slip no. <small>(optional)</small></label><input type="text" id="wiModalRef" maxlength="100" value="${esc(refValue || "")}" autocomplete="off"></div>` : ""}
           <div class="wi-modal-actions">
             <button type="button" class="btn btn-secondary" data-no>Not yet</button>
             <button type="button" class="btn btn-primary wi-paid-btn" data-yes><i class="fas fa-credit-card"></i> Card payment successful</button>
           </div>`);
         m.q("[data-no]").addEventListener("click", () => { m.close(); resolve(false); });
         m.overlay.addEventListener("click", (e) => { if (e.target === m.overlay) resolve(false); });
-        m.q("[data-yes]").addEventListener("click", () => {
-          const ref = m.q("#wiModalRef") ? m.q("#wiModalRef").value.trim() : "";
-          m.close();
-          resolve(askRef ? { ref } : true);
-        });
+        m.q("[data-yes]").addEventListener("click", () => { m.close(); resolve(true); });
       });
+    }
+
+    /** A receipt (or, before payment, the bill) that can be shown to the guest or printed. */
+    function showReceipt({ heading, reference, guest, lines, total, paid }) {
+      const now = new Date().toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" });
+      const m = modal(`
+        <div class="wi-receipt">
+          <div class="wi-receipt-brand">Fulude's Cafe</div>
+          <div class="wi-receipt-sub">${esc(heading)}</div>
+          <div class="wi-receipt-meta">
+            <span>${esc(reference)}</span><span>${esc(now)}</span>
+            ${guest ? `<span>${esc(guest)}</span>` : ""}
+          </div>
+          <div class="wi-receipt-lines">
+            ${lines
+              .map(
+                (l) => `<div class="wi-receipt-line"><span>${l.qty}× ${esc(l.name)}${l.detail ? `<small>${esc(l.detail)}</small>` : ""}</span><span>${money(l.amount)}</span></div>`,
+              )
+              .join("")}
+          </div>
+          <div class="wi-receipt-total"><span>Total</span><span>${money(total)}</span></div>
+          <div class="wi-receipt-paid">${paid ? "PAID BY CARD" : "NOT PAID YET"}</div>
+          <div class="wi-receipt-thanks">Thank you for visiting Fulude's Cafe!</div>
+        </div>
+        <div class="wi-modal-actions wi-receipt-actions">
+          <button type="button" class="btn btn-secondary" data-print><i class="fas fa-print"></i> Print</button>
+          <button type="button" class="btn btn-primary" data-done>Done</button>
+        </div>`);
+      m.q("[data-print]").addEventListener("click", () => window.print());
+      m.q("[data-done]").addEventListener("click", m.close);
     }
 
     function openOptions(item) {
@@ -510,7 +535,7 @@
           return `
           <div class="wi-tab-card" data-tab="${t.id}">
             <div class="wi-tab-head">
-              <div><strong class="wi-tab-title">Table ${esc(t.table_number)}</strong>${t.customer_name ? `<span class="wi-tab-guest">${esc(t.customer_name)}</span>` : ""}
+              <div><strong class="wi-tab-title">Table ${esc(t.table_number)}</strong>
                 <small class="wi-tab-meta">Open ${ago(t.opened_at)} &middot; ${t.rounds.filter((r) => r.status !== "Cancelled").length} round${t.rounds.filter((r) => r.status !== "Cancelled").length === 1 ? "" : "s"}${t.opened_by ? ` &middot; ${esc(t.opened_by)}` : ""}</small></div>
               <strong class="wi-tab-total">${money(t.total)}</strong>
             </div>
@@ -518,6 +543,7 @@
             <div class="wi-tab-actions">
               <button type="button" class="btn btn-secondary admin-mini-btn" data-wi-addto="${t.id}"><i class="fas fa-plus"></i> Add items</button>
               <button type="button" class="btn btn-secondary admin-mini-btn" data-wi-bill="${t.id}">${open ? "Hide bill" : "View bill"}</button>
+              <button type="button" class="btn btn-secondary admin-mini-btn" data-wi-printbill="${t.id}"><i class="fas fa-print"></i> Print bill</button>
               <button type="button" class="btn btn-primary admin-mini-btn wi-paid-btn" data-wi-close="${t.id}"><i class="fas fa-credit-card"></i> Close bill &middot; card</button>
               ${isAdmin ? `<button type="button" class="admin-mini-btn danger" data-wi-writeoff="${t.id}">Write off</button>` : ""}
             </div>
@@ -536,9 +562,32 @@
         setView("new");
         renderNew();
       }));
+      paneTabs.querySelectorAll("[data-wi-printbill]").forEach((b) => b.addEventListener("click", () => {
+        const tab = tabs.find((t) => t.id === Number(b.dataset.wiPrintbill));
+        if (!tab) return;
+        const lines = billLines(tab);
+        if (!lines.length) return toast("Nothing on this bill yet.", true);
+        showReceipt({ heading: "Bill", reference: `Table ${tab.table_number}`, guest: "", lines, total: tab.total, paid: false });
+      }));
       paneTabs.querySelectorAll("[data-wi-close]").forEach((b) => b.addEventListener("click", () => closeBill(Number(b.dataset.wiClose))));
       paneTabs.querySelectorAll("[data-wi-remove]").forEach((b) => b.addEventListener("click", () => removeItem(b.dataset.order, b.dataset.item, b.dataset.name)));
       paneTabs.querySelectorAll("[data-wi-writeoff]").forEach((b) => b.addEventListener("click", () => writeOff(Number(b.dataset.wiWriteoff))));
+    }
+
+    /** Every item still on the tab's bill (cancelled rounds are not on it). */
+    function billLines(tab) {
+      return tab.rounds
+        .filter((r) => r.status !== "Cancelled")
+        .flatMap((r) => r.items)
+        .map((it) => {
+          const extras = Array.isArray(it.extras) ? it.extras : JSON.parse(it.extras || "[]");
+          return {
+            qty: it.quantity,
+            name: it.item_name,
+            detail: [it.spice_level, ...extras.map((e) => String(e.name).replace(/^Side: /, ""))].filter(Boolean).join(" · "),
+            amount: Number(it.subtotal),
+          };
+        });
     }
 
     async function closeBill(id) {
@@ -547,12 +596,14 @@
       if (!tab.total) {
         if (!confirm(`Table ${tab.table_number} has nothing to pay. Close this tab?`)) return;
       }
-      const res = tab.total ? await confirmCard({ title: `Close bill · Table ${tab.table_number}`, amount: tab.total, askRef: true }) : { ref: "" };
-      if (!res) return;
+      const paid = tab.total ? await confirmCard({ title: `Close bill · Table ${tab.table_number}`, amount: tab.total }) : true;
+      if (!paid) return;
+      const receiptLines = billLines(tab);
       try {
-        const data = await post({ action: "close_tab", tab_id: id, card_reference: res.ref || "" });
+        const data = await post({ action: "close_tab", tab_id: id });
         openBills.delete(id);
         toast(`Table ${tab.table_number} paid by card · ${money(data.total_amount)}`);
+        if (receiptLines.length) showReceipt({ heading: "Receipt", reference: `Table ${tab.table_number}`, guest: "", lines: receiptLines, total: data.total_amount, paid: true });
         await loadTabs();
       } catch (err) {
         toast(err.message, true);
