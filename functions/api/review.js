@@ -1,8 +1,9 @@
 // GET  /api/review
 import { runQuery, jsonResponse } from "../_lib/db.js";
-import { sanitizeText, isValidEmail, isValidName, normalizePhone, VALIDATION_MESSAGES } from "../_lib/security.js";
+import { sanitizeText, isValidName, VALIDATION_MESSAGES, getRequestIp } from "../_lib/security.js";
 import { requireCustomer } from "../_lib/customerAuth.js";
 import { reviewItemsByOrder } from "../_lib/reviewItems.js";
+import { checkRateLimit } from "../_lib/rateLimit.js";
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -35,25 +36,36 @@ export async function onRequest(context) {
 
   if (request.method === "POST") {
     try {
-      const body = await request.json();
-      const { customer, error } = await requireCustomer(request, env);
-      if (error) return error;
-
-      // Only customers who have actually bought something (a paid order)
-      // may leave a review.
-      const purchased = await runQuery(
-        env,
-        "SELECT 1 FROM orders WHERE customer_id = $1 AND payment_status = 'paid' LIMIT 1;",
-        [customer.id],
-      );
-      if (!purchased.rows.length) {
+      try {
+        const requestIp = getRequestIp(request);
+        if (!(await checkRateLimit(env, `review-submit:${requestIp}`, 5, 3600))) {
+          return jsonResponse(
+            { error: "Too many review submissions. Please try again later." },
+            429,
+          );
+        }
+      } catch (err) {
+        console.error("review rate-limit/database check failed:", err);
         return jsonResponse(
-          {
-            error: "Sorry, you cannot leave a review yet.",
-            code: "no_purchase",
-          },
-          403,
+          { error: "The cafe service is temporarily unavailable. Please try again shortly." },
+          503,
         );
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse({ error: "Invalid JSON body." }, 400);
+      }
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return jsonResponse({ error: "Invalid review details." }, 400);
+      }
+
+      let customer = null;
+      if ((request.headers.get("Authorization") || "").startsWith("Bearer ")) {
+        const auth = await requireCustomer(request, env);
+        customer = auth.customer || null;
       }
 
       const customerName = sanitizeText(body.customer_name || "", 100);
@@ -82,6 +94,12 @@ export async function onRequest(context) {
       }
 
       if (orderId) {
+        if (!customer) {
+          return jsonResponse(
+            { error: "Sign in to associate a review with an order." },
+            400,
+          );
+        }
         const order = await runQuery(
           env,
           "SELECT id FROM orders WHERE id = $1 AND customer_id = $2 AND payment_status = 'paid';",
@@ -104,7 +122,7 @@ export async function onRequest(context) {
         VALUES ($1, $2, $3, $4, $5, NOW(), 'pending')
         RETURNING id, customer_name, rating, comment, owner_reply, created_at, status;
       `,
-        [customer.id, orderId, customerName, rating, comment],
+        [customer?.id || null, orderId, customerName, rating, comment],
       );
 
       // Review submitted into moderation queue

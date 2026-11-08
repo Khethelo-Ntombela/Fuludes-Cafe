@@ -32,23 +32,6 @@ async function loadReviews() {
 
 document.getElementById("reviewForm").addEventListener("submit", async (e) => {
   e.preventDefault();
-  if (
-    typeof currentCustomer === "undefined" ||
-    !currentCustomer ||
-    typeof customerToken === "undefined" ||
-    !customerToken
-  ) {
-    const message = "Please sign in before submitting a review.";
-    const target = document.getElementById("reviewFormMessage");
-    if (target) {
-      target.textContent = message;
-      target.className = "form-error";
-      target.style.display = "block";
-    } else {
-      alert(message);
-    }
-    return;
-  }
   const nameInput = document.getElementById("reviewName");
   const ratingSelect = document.getElementById("reviewRating");
   const commentInput = document.getElementById("reviewComment");
