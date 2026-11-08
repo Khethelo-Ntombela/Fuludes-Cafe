@@ -44,6 +44,7 @@
           <a href="menu.html" class="nav-link">Menu</a>
           <a href="reviews.html" class="nav-link active">Reviews</a>
           <a href="catering.html" class="nav-link">Catering</a>
+          <a href="home.html#about" class="nav-link">About</a>
           <a href="contact.html" class="nav-link">Contact</a>
           <a href="#" class="nav-link" id="navReservationLink"
             >Book Reservation</a
@@ -104,9 +105,10 @@
           </div>
           <form class="review-form" id="reviewForm">
             <h3>Leave a Review</h3>
+            <p class="auth-hint">No account or sign-in required.</p>
             <div class="form-group">
               <label for="reviewName">Your Name</label>
-              <input type="text" id="reviewName" required />
+              <input type="text" id="reviewName" maxlength="100" required />
             </div>
             <div class="form-group">
               <label for="reviewRating">Rating</label>
@@ -120,7 +122,12 @@
             </div>
             <div class="form-group">
               <label for="reviewComment">Your Review</label>
-              <textarea id="reviewComment" rows="4" required></textarea>
+              <textarea
+                id="reviewComment"
+                rows="4"
+                maxlength="1000"
+                required
+              ></textarea>
             </div>
             <div
               id="reviewFormMessage"
