@@ -542,7 +542,7 @@ async function loadReportWidgets() {
     if (start && d < start) return false;
     if (end && d >= end) return false;
     if (channel === "walk_in" && o.order_type === "delivery") return false;
-    if (channel === "delivery" && o.order_type !== "delivery") return false;
+    if (channel === "online_only" && o.order_type !== "delivery") return false;
     return true;
   });
 
@@ -572,7 +572,7 @@ async function loadReportWidgets() {
   const payments = {};
   const types = { collection: 0, delivery: 0, dine_in: 0 };
   active.forEach((o) => {
-    const label = o.payment_method === "online" ? "Online (Yoco)" : "Pay in person";
+    const label = o.payment_method === "online" ? "Paid Online" : "Card Machine In Store";
     payments[label] = (payments[label] || 0) + 1;
     if (types[o.order_type] !== undefined) types[o.order_type] += 1;
   });
@@ -580,7 +580,7 @@ async function loadReportWidgets() {
 
   // Order Types: only show rows relevant to the selected channel
   const orderTypeRows = [];
-  if (channel !== "delivery") {
+  if (channel !== "online_only") {
     orderTypeRows.push({ label: "Collection", value: types.collection });
     orderTypeRows.push({ label: "Dine In", value: types.dine_in });
   }
