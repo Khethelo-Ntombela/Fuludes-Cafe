@@ -1,14 +1,31 @@
-// GET /api/admin/orders
+/**
+ * functions/api/admin/orders.js
+ * -----------------------------------------------------------------------
+ * GET /api/admin/orders
+ * Full order history (every status - New, Preparing, Ready, Collection, Delivery, Completed,
+ * Cancelled), for the admin "History" tab. Distinct from
+ * /api/admin/pending-orders, which only ever shows the live kitchen queue.
+ *
+ * Query params (all optional):
+ *   status         - "New" | "Preparing" | "Ready" | "Collection" | "Delivery" | "Completed" | "Cancelled"
+ *   payment_status - "paid" | "awaiting" | "failed" | "not_required" (e.g. combined
+ *                     with status=Cancelled, this is how the admin "Refund Needed"
+ *                     history filter finds cancelled orders that were already paid)
+ *   search         - matches customer name, phone, or exact order id
+ *   limit          - default 30, max 500
+ *   offset         - default 0 (for "Load more" pagination)
+ *
+ * DELETE /api/admin/orders
+ * "Clear History" - permanently removes every Completed and Cancelled
+ * order (and their order_items, via ON DELETE CASCADE). Live orders
+ * still in New, Preparing, Ready, Collection, or Delivery are never touched by this, so an
+ * admin can't accidentally wipe an order the kitchen hasn't finished
+ * yet. Note this also reduces the counts shown on the Your Sales tab,
+ * since those are computed live from the same orders table.
+ * -----------------------------------------------------------------------
+ */
 import { runQuery, jsonResponse } from "../../_lib/db.js";
 import { requireAdmin } from "../../_lib/auth.js";
-import { ensureCancelledByColumn } from "../../_lib/orderCancel.js";
-import { ensureScheduleColumns } from "../../_lib/scheduledOrders.js";
-import { priceUnpaidOrders, deleteExpiredUnpaidOrders, UNPAID_ORDER_HOURS } from "../../_lib/repriceOrder.js";
-import { expireStalePreorders } from "../../_lib/reservations.js";
-import { ensureWalkinSchema } from "../../_lib/walkin.js";
-
-// When a table-booking pre-order stops being payable: the booking date and time (South African time).
-const PREORDER_DUE = `(SELECT ((r.reservation_date + r.reservation_time) AT TIME ZONE 'Africa/Johannesburg') FROM customer_reservations r WHERE r.advance_order_id = orders.id LIMIT 1)`;
 
 export async function onRequestGet(context) {
   const { request, env } = context;
@@ -22,22 +39,13 @@ export async function onRequestGet(context) {
   const search = (url.searchParams.get("search") || "").trim();
   const limit = Math.min(
     parseInt(url.searchParams.get("limit"), 10) || 30,
-    100,
+    500,
   );
   const offset = Math.max(parseInt(url.searchParams.get("offset"), 10) || 0, 0);
 
   try {
-    // Order History never lists unpaid orders (payment still awaiting, or failed)
-    const asksForUnpaid = paymentStatus === "awaiting" || paymentStatus === "failed";
-    const conditions = asksForUnpaid
-      ? []
-      : [`payment_status NOT IN ('awaiting', 'failed')`];
+    const conditions = [];
     const params = [];
-    // Expired unpaid orders are hidden: a normal one 24 hours after it was placed, a table-booking
-    // pre-order when its booking time passes (expired "awaiting" ones are also deleted, see deleteExpiredUnpaidOrders).
-    if (asksForUnpaid) {
-      conditions.push(`COALESCE(${PREORDER_DUE}, created_at + INTERVAL '${UNPAID_ORDER_HOURS} hours') > NOW()`);
-    }
 
     if (
       status &&
@@ -61,7 +69,7 @@ export async function onRequestGet(context) {
     }
     if (
       paymentStatus &&
-      ["paid", "awaiting", "failed", "refunded"].includes(paymentStatus)
+      ["paid", "awaiting", "failed", "not_required"].includes(paymentStatus)
     ) {
       params.push(paymentStatus);
       conditions.push(`payment_status = $${params.length}`);
@@ -69,12 +77,6 @@ export async function onRequestGet(context) {
     if (refundFilter === "true" || refundFilter === "false") {
       params.push(refundFilter === "true");
       conditions.push(`refund_needed = $${params.length}`);
-    }
-    // Optional: only orders placed on or after this date (used by the Reports tab)
-    const since = url.searchParams.get("since");
-    if (since && !Number.isNaN(Date.parse(since))) {
-      params.push(new Date(since).toISOString());
-      conditions.push(`created_at >= $${params.length}`);
     }
     if (search) {
       params.push(`%${search}%`);
@@ -99,24 +101,13 @@ export async function onRequestGet(context) {
     params.push(offset);
     const offsetIndex = params.length;
 
-    await ensureCancelledByColumn(env);
-    await ensureScheduleColumns(env);
-    await ensureWalkinSchema(env);
-    if (asksForUnpaid) {
-      await expireStalePreorders(env);
-      await deleteExpiredUnpaidOrders(env);
-    }
     const ordersResult = await runQuery(
       env,
       `
       SELECT id, customer_name, customer_phone, order_type, delivery_address, table_number,
              pickup_time, special_instructions, total_amount,
-             COALESCE(${PREORDER_DUE}, created_at + INTERVAL '${UNPAID_ORDER_HOURS} hours') AS expires_at,
-             (${PREORDER_DUE} IS NOT NULL) AS is_preorder,
-             ${PREORDER_DUE} AS booking_at,
              CASE WHEN status = 'Out for Delivery' THEN 'Delivery' ELSE status END AS status,
-             payment_method, payment_status, payment_ref, refund_needed, refund_processed_at, refund_ref, refund_error, cancelled_by, cancel_reason, created_at, out_for_delivery_at, delivered_at,
-             order_source, tab_id, captured_by, (CASE WHEN tab_id IS NULL THEN NULL ELSE (SELECT COUNT(*)::int FROM orders o2 WHERE o2.tab_id = orders.tab_id AND o2.id <= orders.id) END) AS tab_round
+             payment_method, payment_status, payment_ref, refund_needed, refund_processed_at, created_at
       FROM orders
       ${whereClause}
       ORDER BY created_at DESC
@@ -143,27 +134,11 @@ export async function onRequestGet(context) {
       }
     }
 
-    // Unpaid orders are listed at today's prices (display only - nothing is saved here).
-    // The price actually charged is re-checked when the customer pays.
-    let live = new Map();
-    if (asksForUnpaid) {
-      const unpaidIds = ordersResult.rows
-        .filter((o) => ["awaiting", "failed"].includes(o.payment_status))
-        .map((o) => o.id);
-      live = await priceUnpaidOrders(env, unpaidIds).catch(() => new Map());
-    }
-
-    const orders = ordersResult.rows.map((order) => {
-      const l = live.get(order.id);
-      return {
-        ...order,
-        total_amount: l ? l.total : parseFloat(order.total_amount),
-        ...(l
-          ? { original_total: l.stored_total, price_changed: l.total !== l.stored_total, problems: l.problems }
-          : {}),
-        items: l ? l.items : itemsByOrder[order.id] || [],
-      };
-    });
+    const orders = ordersResult.rows.map((order) => ({
+      ...order,
+      total_amount: parseFloat(order.total_amount),
+      items: itemsByOrder[order.id] || [],
+    }));
 
     return jsonResponse({ orders, limit, offset });
   } catch (err) {
@@ -180,28 +155,10 @@ export async function onRequestDelete(context) {
   if (authError) return authError;
 
   try {
-    // "Clear all" / the bin icon in the Orders awaiting payment pop-up: deletes unpaid orders (awaiting / failed) early.
-    // (Unpaid orders also delete themselves automatically, see deleteExpiredUnpaidOrders.)
-    const url = new URL(request.url);
-    if (url.searchParams.get("scope") === "unpaid") {
-      const id = parseInt(url.searchParams.get("id"), 10);
-      const result = Number.isInteger(id)
-        ? await runQuery(
-            env,
-            `DELETE FROM orders WHERE id = $1 AND payment_status IN ('awaiting', 'failed') RETURNING id;`,
-            [id],
-          )
-        : await runQuery(
-            env,
-            `DELETE FROM orders WHERE payment_status IN ('awaiting', 'failed') RETURNING id;`,
-          );
-      return jsonResponse({ success: true, deleted_count: result.rows.length });
-    }
-
     const result = await runQuery(
       env,
       `
-      DELETE FROM orders WHERE status IN ('Completed', 'Cancelled') AND payment_status <> 'tab_open' RETURNING id; -- never a round of a tab that is still open
+      DELETE FROM orders WHERE status IN ('Completed', 'Cancelled') RETURNING id;
     `,
     );
     return jsonResponse({ success: true, deleted_count: result.rows.length });

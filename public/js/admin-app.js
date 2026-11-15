@@ -1,6 +1,22 @@
-// Dashboard shell and analytics, built on top of admin.js (which handles login)
+/**
+ * public/js/admin-app.js
+ * -----------------------------------------------------------------------
+ * SaaS shell + analytics layer on top of admin.js (which owns auth, CRUD
+ * and the per-tab data loading). This file owns:
+ *   - sidebar collapse / mobile drawer
+ *   - sticky topbar: page titles, global search, quick actions, bell
+ *   - the Dashboard home tab (KPIs, charts, recent activity, top lists)
+ *   - Sales & Reports derived widgets (top items, peak hours, breakdowns)
+ *   - restaurant status card, toasts, settings sub-tabs
+ * Everything here is derived client-side from the existing endpoints
+ * (/api/admin/stats, /api/admin/orders, /api/review) - no new backend.
+ * Load AFTER admin.js.
+ * -----------------------------------------------------------------------
+ */
 
+// ---------------------------------------------------------------------
 // Small helpers
+// ---------------------------------------------------------------------
 const $id = (id) => document.getElementById(id);
 
 const escHtml = (v) =>
@@ -69,10 +85,6 @@ function monthLabel(monthKey) {
 /** A real, confirmed sale: paid online and not cancelled. Dashboard numbers are built ONLY from these. */
 const isPaidOrder = (o) => o.payment_status === "paid" && o.status !== "Cancelled";
 
-/** How many orders a list really is: the rounds of one walk-in tab are ONE bill, every other order is one. */
-const billCount = (list) => new Set(list.map((o) => (o.tab_id ? `t${o.tab_id}` : `o${o.id}`))).size;
-const isWalkIn = (o) => o.order_source === "walk_in";
-
 function waitingFor(isoDate) {
   const mins = Math.max(0, Math.round((Date.now() - new Date(isoDate).getTime()) / 60000));
   if (mins < 60) return `${mins} min`;
@@ -86,29 +98,50 @@ const isToday = (isoDate) => {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
 };
 
-const isYesterday = (isoDate) => {
-  const d = new Date(isoDate);
-  const y = new Date();
-  y.setDate(y.getDate() - 1);
-  return d.getFullYear() === y.getFullYear() && d.getMonth() === y.getMonth() && d.getDate() === y.getDate();
-};
-
-// Shared data: full order history (feeds dashboard, reports
+// ---------------------------------------------------------------------
+// Shared data: full order history (feeds dashboard, reports, specials)
+// ---------------------------------------------------------------------
 window.adminHistoryAll = window.adminHistoryAll || [];
 
 async function fetchHistoryAll() {
   try {
-    const res = await adminFetch("/api/admin/orders?limit=200&offset=0");
+    const res = await adminFetch("/api/admin/orders?limit=500&offset=0");
     const data = await res.json();
     window.adminHistoryAll = data.orders || [];
-    window.adminHistoryLoaded = true;
   } catch {
     window.adminHistoryAll = [];
   }
   return window.adminHistoryAll;
 }
 
+function getReportDateRange() {
+  const period = document.getElementById("salesPeriodSelect")?.value || "last_6_months";
+  const now = new Date();
+  if (period === "custom") {
+    const from = document.getElementById("salesFromDate")?.value;
+    const to = document.getElementById("salesToDate")?.value;
+    return {
+      start: from ? new Date(from + "T00:00:00") : null,
+      end: to ? new Date(to + "T23:59:59.999") : null,
+    };
+  }
+  if (period === "current_month") return {
+    start: new Date(now.getFullYear(), now.getMonth(), 1),
+    end: new Date(now.getFullYear(), now.getMonth() + 1, 1),
+  };
+  if (period === "last_3_months") return {
+    start: new Date(now.getFullYear(), now.getMonth() - 2, 1),
+    end: new Date(now.getFullYear(), now.getMonth() + 1, 1),
+  };
+  return {
+    start: new Date(now.getFullYear(), now.getMonth() - 5, 1),
+    end: new Date(now.getFullYear(), now.getMonth() + 1, 1),
+  };
+}
+
+// ---------------------------------------------------------------------
 // Sidebar: collapse (desktop) + drawer (mobile)
+// ---------------------------------------------------------------------
 const dashShell = $id("dashboard");
 const SIDEBAR_KEY = "fulude_admin_sidebar";
 
@@ -132,12 +165,13 @@ document.addEventListener("click", (e) => {
   }
 });
 
+// ---------------------------------------------------------------------
 // Topbar: page titles, tab hooks, search, quick actions, bell
+// ---------------------------------------------------------------------
 const TAB_TITLES = {
   dashboard: "Dashboard",
   orders: "Live Orders",
   placeorder: "Place Order",
-  walkin: "Walk-in Orders",
   history: "Order History",
   sales: "Sales & Reports",
   menu: "Menu & Stock",
@@ -145,7 +179,6 @@ const TAB_TITLES = {
   addons: "Extras & Spice Levels",
   reviews: "Customer Reviews",
   reservations: "Reservations",
-  buffet: "Buffet Events",
   audit: "Audit Logs",
   settings: "Settings"
 };
@@ -157,10 +190,6 @@ function activateTab(tabName) {
 
 document.querySelectorAll(".admin-tab-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
-    try {
-      sessionStorage.setItem("fulude_admin_tab", btn.dataset.tab);
-      history.replaceState(null, "", `#${btn.dataset.tab}`);
-    } catch { /* ignore */ }
     $id("topbarTitle").textContent = TAB_TITLES[btn.dataset.tab] || "Dashboard";
     dashShell.classList.remove("sidebar-open");
     $id("topbarSearch").value = "";
@@ -170,7 +199,6 @@ document.querySelectorAll(".admin-tab-btn").forEach((btn) => {
     if (btn.dataset.tab === "sales") loadReportWidgets();
     if (btn.dataset.tab === "specials") fetchHistoryAll().then(() => renderSpecialsList());
     if (btn.dataset.tab === "placeorder") setTimeout(() => initPlaceOrderTab(), 50);
-    if (btn.dataset.tab === "walkin") openWalkinTab();
   });
 });
 
@@ -226,52 +254,29 @@ function updateBell(orders) {
   el.style.display = fresh > 0 ? "flex" : "none";
 }
 
+// ---------------------------------------------------------------------
 // Restaurant status card (sidebar)
-const STATUS_CARD_CACHE_KEY = "fc_admin_status_card_v1";
-
-/** Last known Orders/Revenue Today, only reused on the same calendar day. */
-function paintCachedStatusCounts() {
-  try {
-    const c = JSON.parse(localStorage.getItem(STATUS_CARD_CACHE_KEY) || "null");
-    if (!c || c.day !== new Date().toDateString()) return;
-    $id("statusOrdersToday").textContent = c.orders;
-    $id("statusRevenueToday").textContent = c.revenue;
-  } catch {
-    /* ignore */
-  }
-}
-
+// ---------------------------------------------------------------------
 function updateStatusCard() {
-  // Open/Closed follows the opening hours saved in Settings > General > Business Hours (South Africa time)
-  const open = window.adminIsOpenNow ? window.adminIsOpenNow() : false;
+  // Opening hours: Mon-Thu 09:00-18:00, Fri & Sun 09:00-20:00, Sat 09:00-21:00
+  const nowDate = new Date();
+  const day = nowDate.getDay(); // 0 = Sunday ... 6 = Saturday
+  const closeHour = day === 6 ? 21 : day === 5 || day === 0 ? 20 : 18;
+  const minutesNow = nowDate.getHours() * 60 + nowDate.getMinutes();
+  const open = minutesNow >= 9 * 60 && minutesNow < closeHour * 60;
   $id("statusOpenLabel").textContent = open ? "Open" : "Closed";
   $id("statusOpenDot").classList.toggle("closed", !open);
-  // Payment links can't be generated while closed - say so on the order form too
-  const closedNote = $id("payLinkClosedNote");
-  if (closedNote) {
-    closedNote.textContent = open ? "" : "The cafe is closed right now (outside working hours), so payment links can't be generated. A table booking for a later date still can.";
-    closedNote.style.display = open ? "none" : "block";
-  }
 
-  // Orders can't be counted until the history has loaded - keep whatever is showing.
-  if (!window.adminHistoryLoaded) return;
   const todays = window.adminHistoryAll.filter((o) => isToday(o.created_at) && isPaidOrder(o));
+  $id("statusOrdersToday").textContent = todays.length;
   const revenue = todays.reduce((s, o) => s + Number(o.total_amount || 0), 0);
-  $id("statusOrdersToday").textContent = billCount(todays);
   $id("statusRevenueToday").textContent = `R${revenue.toFixed(0)}`;
-  try {
-    localStorage.setItem(
-      STATUS_CARD_CACHE_KEY,
-      JSON.stringify({ day: new Date().toDateString(), orders: billCount(todays), revenue: `R${revenue.toFixed(0)}` }),
-    );
-  } catch {
-    /* ignore */
-  }
 }
 
+// ---------------------------------------------------------------------
 // Dashboard home
+// ---------------------------------------------------------------------
 async function loadDashboardData() {
-  if (window.adminCan && !window.adminCan("orders")) return; // dashboard figures need the Orders permission
   const [history, statsRes, reviewsRes] = await Promise.all([
     fetchHistoryAll(),
     adminFetch("/api/admin/stats").then((r) => r.json()).catch(() => null),
@@ -281,7 +286,6 @@ async function loadDashboardData() {
   const months = statsRes?.monthly_breakdown || [];
 
   await fetchAwaitingOrders();
-  await fetchOpenTabs();
   window.adminDashMonths = months;
   updateStatusCard();
   renderDashKpis(history, statsRes, months);
@@ -290,73 +294,19 @@ async function loadDashboardData() {
   updateKitchenCompletedToday(history);
 }
 
-/** Difference between today and yesterday, e.g. "+R120 vs yesterday". */
-function trendHtml(todayValue, yesterdayValue, kind) {
-  const diff = Number(todayValue || 0) - Number(yesterdayValue || 0);
-  const dir = diff >= 0 ? "up" : "down";
-  const sign = diff >= 0 ? "+" : "-";
-  const abs = Math.abs(diff);
-  const amount = kind === "money" ? `R${abs.toFixed(0)}` : `${abs} ${abs === 1 ? "order" : "orders"}`;
-  return `<span class="kpi-trend ${dir}"><i class="fas fa-arrow-${dir === "up" ? "trend-up" : "trend-down"}"></i> ${sign}${amount} vs yesterday</span>`;
+function trendHtml(months, key) {
+  if (months.length < 2) return "";
+  const last = Number(months[months.length - 1][key] || 0);
+  const prev = Number(months[months.length - 2][key] || 0);
+  if (prev === 0) return "";
+  const pct = ((last - prev) / prev) * 100;
+  const dir = pct >= 0 ? "up" : "down";
+  return `<span class="kpi-trend ${dir}"><i class="fas fa-arrow-${dir === "up" ? "trend-up" : "trend-down"}"></i> ${Math.abs(pct).toFixed(1)}%</span>`;
 }
 
 window.adminAwaiting = { awaiting: [], failed: [] };
 
-// Walk-in tabs that haven't been paid yet (dine-in guests still at the table)
-window.adminOpenTabs = [];
-async function fetchOpenTabs() {
-  try {
-    const res = await adminFetch("/api/admin/walkin");
-    const data = await res.json();
-    if (res.ok) window.adminOpenTabs = data.tabs || [];
-  } catch {
-    /* keep the last list */
-  }
-  renderOpenTabsBanner();
-}
-function renderOpenTabsBanner() {
-  const el = $id("dashOpenTabs");
-  if (!el) return;
-  const tabs = window.adminOpenTabs || [];
-  if (!tabs.length) {
-    el.style.display = "none";
-    return;
-  }
-  const total = tabs.reduce((s, t) => s + Number(t.total || 0), 0);
-  el.style.display = "flex";
-  el.innerHTML = `<span><i class="fas fa-receipt"></i> ${tabs.length} open tab${tabs.length === 1 ? "" : "s"} &middot; R${total.toFixed(2)} not paid yet</span><button type="button" id="dashOpenTabsBtn">View tabs</button>`;
-  $id("dashOpenTabsBtn").addEventListener("click", () => {
-    openWalkinTab("tabs");
-    activateTab("walkin");
-  });
-}
-
-// Walk-in screen (shared with the staff portal, see walkin.js)
-let adminWalkin = null;
-let walkinStartView = null;
-function openWalkinTab(view) {
-  if (view) walkinStartView = view;
-  if (!adminWalkin) {
-    adminWalkin = FuludeWalkin.mount($id("walkinRoot"), {
-      api: "/api/admin/walkin",
-      fetchFn: adminFetch,
-      isAdmin: true,
-      onTabsChanged: (tabs) => {
-        window.adminOpenTabs = tabs;
-        renderOpenTabsBanner();
-        if (typeof loadOrders === "function") loadOrders();
-      },
-    });
-  } else {
-    adminWalkin.refresh();
-  }
-  if (walkinStartView === "tabs") {
-    document.querySelector('#walkinRoot .wi-switch-btn[data-view="tabs"]')?.click();
-    walkinStartView = null;
-  }
-}
-
-/** Loads unpaid and failed orders outside the order-history window. */
+/** Orders placed but not yet paid (and ones whose payment failed). Fetched by payment status so old ones aren't lost past the 200-order history window. */
 async function fetchAwaitingOrders() {
   const get = async (status) => {
     try {
@@ -372,134 +322,48 @@ async function fetchAwaitingOrders() {
   return window.adminAwaiting;
 }
 
-// Manual "Clear" for the dashboard's Pending Orders /
-const localDayKey = (d = new Date()) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-
-function getDismissedIds(kind) {
-  try {
-    const raw = JSON.parse(localStorage.getItem(`fulude_dash_cleared_${kind}`) || "null");
-    if (raw && raw.day === localDayKey()) return new Set(raw.ids);
-  } catch { /* ignore */ }
-  return new Set();
-}
-function dismissIds(kind, ids) {
-  const merged = new Set([...getDismissedIds(kind), ...ids]);
-  localStorage.setItem(`fulude_dash_cleared_${kind}`, JSON.stringify({ day: localDayKey(), ids: [...merged] }));
-}
-
-/** "5h 12m" until local midnight, when the "today" numbers roll over. */
-function clearsInMidnight() {
-  const n = new Date();
-  const mins = Math.ceil((new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1) - n) / 60000);
-  return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`;
-}
-
 function renderDashKpis(history, stats, months) {
   // Everything below counts PAID orders only - unpaid ones live under "Pending Orders".
   const todays = history.filter((o) => isPaidOrder(o) && isToday(o.created_at));
   const revenueToday = todays.reduce((s, o) => s + Number(o.total_amount || 0), 0);
-  const yesterdays = history.filter((o) => isPaidOrder(o) && isYesterday(o.created_at));
-  const revenueYesterday = yesterdays.reduce((s, o) => s + Number(o.total_amount || 0), 0);
-  const todayBills = billCount(todays);
-  const yesterdayBills = billCount(yesterdays);
-  const avgOrder = todayBills ? revenueToday / todayBills : 0;
-  const walkToday = todays.filter(isWalkIn);
-  const onlineToday = todays.filter((o) => !isWalkIn(o));
-  const sumRev = (l) => l.reduce((s, o) => s + Number(o.total_amount || 0), 0);
-  const splitOrders = walkToday.length ? `Online <b>${billCount(onlineToday)}</b> · Walk-in <b>${billCount(walkToday)}</b>` : "";
-  const splitRevenue = walkToday.length ? `Online <b>R${sumRev(onlineToday).toFixed(0)}</b> · Walk-in <b>R${sumRev(walkToday).toFixed(0)}</b>` : "";
+  const avgOrder = todays.length ? revenueToday / todays.length : 0;
   const { awaiting } = window.adminAwaiting;
   const awaitingValue = awaiting.reduce((s, o) => s + Number(o.total_amount || 0), 0);
-  const dismissedDelivery = getDismissedIds("delivery");
-  const deliveryList = todays.filter((o) => o.order_type === "delivery" && !dismissedDelivery.has(o.id));
-  const deliveryToday = deliveryList.length;
-  const todayKey = localDayKey();
+  const deliveryToday = todays.filter((o) => o.order_type === "delivery").length;
+  const todayKey = new Date().toISOString().slice(0, 10);
   const allReservations = typeof reservations !== "undefined" ? reservations : [];
-  const dismissedRes = getDismissedIds("reservations");
-  const resList = allReservations.filter((r) => r.reservation_date === todayKey && r.status === "Confirmed" && !dismissedRes.has(r.id));
-  const resToday = resList.length;
+  const resToday = allReservations.filter((r) => r.reservation_date === todayKey && r.status !== "Cancelled").length;
 
-  // Sparklines show the last 7 days (oldest to today) of paid orders.
-  const last7 = Array.from({ length: 7 }, (_, i) => {
-    const day = new Date();
-    day.setDate(day.getDate() - (6 - i));
-    const key = localDayKey(day);
-    const orders = history.filter((o) => isPaidOrder(o) && localDayKey(new Date(o.created_at)) === key);
-    return { count: billCount(orders), revenue: orders.reduce((sum, o) => sum + Number(o.total_amount || 0), 0) };
-  });
-  const revSpark = sparklineSvg(last7.map((d) => d.revenue));
-  const ordSpark = sparklineSvg(last7.map((d) => d.count));
+  const revSpark = sparklineSvg(months.map((m) => Number(m.revenue || 0)));
+  const ordSpark = sparklineSvg(months.map((m) => Number(m.order_count || 0)));
 
   const kpis = [
-    { label: "Today's Orders", sub: "paid", icon: "fa-receipt", value: todayBills, spark: ordSpark, trend: trendHtml(todayBills, yesterdayBills, "count"), split: splitOrders },
-    { label: "Revenue Today", icon: "fa-coins", value: `R${revenueToday.toFixed(0)}`, spark: revSpark, trend: trendHtml(revenueToday, revenueYesterday, "money"), split: splitRevenue },
-    { label: "Avg Order Value", icon: "fa-basket-shopping", value: `R${avgOrder.toFixed(0)}`, spark: "", trend: "", note: "Based on today's orders" },
+    { label: "Today's Orders", sub: "paid", icon: "fa-receipt", value: todays.length, spark: ordSpark, trend: trendHtml(months, "order_count") },
+    { label: "Revenue Today", icon: "fa-coins", value: `R${revenueToday.toFixed(0)}`, spark: revSpark, trend: trendHtml(months, "revenue") },
+    { label: "Avg Order Value", icon: "fa-basket-shopping", value: `R${avgOrder.toFixed(0)}`, spark: "", trend: "" },
     {
       label: "Pending Orders", sub: "awaiting payment", icon: "fa-hourglass-half", value: awaiting.length,
       spark: "", trend: `<span class="kpi-hint">${awaiting.length ? `R${awaitingValue.toFixed(0)} unpaid · ` : ""}View <i class="fas fa-arrow-right"></i></span>`,
-      action: "awaiting", clear: "", note: "An order clears after 24 hours"
+      action: "awaiting"
     },
-    { label: "Delivery Orders", sub: "paid", icon: "fa-motorcycle", value: deliveryToday, spark: "", trend: "", clear: deliveryToday ? "delivery" : "" },
-    { label: "Reservations Today", icon: "fa-calendar-check", value: resToday, spark: "", trend: "", clear: resToday ? "reservations" : "" }
+    { label: "Delivery Orders", sub: "paid", icon: "fa-motorcycle", value: deliveryToday, spark: "", trend: "" },
+    { label: "Reservations Today", icon: "fa-calendar-check", value: resToday, spark: "", trend: "" }
   ];
 
   $id("dashKpis").innerHTML = kpis
     .map(
       (k) => `
-      <div class="kpi-card${k.action ? " kpi-clickable" : ""}"${k.action ? ` data-kpi-action="${k.action}" role="button" tabindex="0"` : ""}>
+      <${k.action ? `button type="button" data-kpi-action="${k.action}"` : "div"} class="kpi-card${k.action ? " kpi-clickable" : ""}">
         <div class="kpi-top"><span class="kpi-label">${k.label}${k.sub ? `<small class="kpi-sub">${k.sub}</small>` : ""}</span><span class="kpi-icon"><i class="fas ${k.icon}"></i></span></div>
         <span class="kpi-value">${k.value}</span>
-        ${k.split ? `<span class="kpi-split">${k.split}</span>` : ""}
         <div class="kpi-foot">${k.trend || "<span></span>"}${k.spark}</div>
-        <span class="kpi-clears">${k.note || `Clears in: ${clearsInMidnight()}`}</span>
-        ${k.clear ? `<button type="button" class="kpi-clear-btn" data-kpi-clear="${k.clear}"><i class="fas fa-eraser"></i> Clear</button>` : ""}
-      </div>`
+      </${k.action ? "button" : "div"}>`
     )
     .join("");
-
-  window._dashClearable = {
-    delivery: deliveryList.map((o) => o.id),
-    reservations: resList.map((r) => r.id)
-  };
 }
-
-async function clearPendingOrders(singleId) {
-  const msg = singleId
-    ? `Delete unpaid order #${singleId}? This can't be undone.`
-    : "Delete ALL unpaid (awaiting payment / failed) orders? Paid orders are never affected. This can't be undone.";
-  if (!confirm(msg)) return false;
-  try {
-    const qs = singleId ? `&id=${singleId}` : "";
-    const res = await adminFetch(`/api/admin/orders?scope=unpaid${qs}`, { method: "DELETE" });
-    const data = await res.json();
-    if (!res.ok || !data.success) throw new Error(data.error || "Couldn't clear.");
-  } catch (err) {
-    alert(err.message || "Couldn't clear pending orders.");
-    return false;
-  }
-  await fetchAwaitingOrders();
-  loadDashboardKpisOnly();
-  return true;
-}
-
-// "Clear" buttons on the KPI cards
-$id("dashKpis").addEventListener("click", async (e) => {
-  const clearBtn = e.target.closest("[data-kpi-clear]");
-  if (!clearBtn) return;
-  e.stopPropagation();
-  const kind = clearBtn.dataset.kpiClear;
-  if (kind === "pending") {
-    await clearPendingOrders();
-  } else if (kind === "delivery" || kind === "reservations") {
-    dismissIds(kind, (window._dashClearable || {})[kind] || []);
-    loadDashboardKpisOnly();
-  }
-}, true);
 
 // Click the Pending Orders card -> list of orders awaiting payment + stats
 $id("dashKpis").addEventListener("click", (e) => {
-  if (e.target.closest("[data-kpi-clear]")) return;
   const card = e.target.closest("[data-kpi-action]");
   if (card && card.dataset.kpiAction === "awaiting") openAwaitingModal();
 });
@@ -514,7 +378,6 @@ async function openAwaitingModal() {
       <div class="sa-modal" role="dialog" aria-modal="true" aria-labelledby="awaitingTitle">
         <div class="sa-modal-head">
           <h3 id="awaitingTitle">Orders awaiting payment</h3>
-          <button type="button" class="admin-mini-btn" id="awaitingClearAll"><i class="fas fa-eraser"></i> Clear all</button>
           <button type="button" class="admin-mini-btn" id="awaitingRefresh"><i class="fas fa-rotate"></i> Refresh</button>
           <button type="button" class="admin-mini-btn" id="awaitingClose" aria-label="Close">&times;</button>
         </div>
@@ -524,35 +387,6 @@ async function openAwaitingModal() {
     overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.classList.remove("active"); });
     $id("awaitingClose").addEventListener("click", () => overlay.classList.remove("active"));
     $id("awaitingRefresh").addEventListener("click", async () => { await fetchAwaitingOrders(); renderAwaitingModal(); loadDashboardKpisOnly(); });
-    $id("awaitingClearAll").addEventListener("click", async () => { if (await clearPendingOrders()) renderAwaitingModal(); });
-    $id("awaitingBody").addEventListener("click", async (e) => {
-      const paidBtn = e.target.closest("[data-mark-paid]");
-      if (paidBtn) {
-        const id = parseInt(paidBtn.dataset.markPaid, 10);
-        const recorded = paidBtn.dataset.recordedAmount;
-        if (!confirm(`Mark order #${id} as PAID?\n\nIt will be recorded at ${recorded}, the price saved on the order.\n\nOnly do this after checking the payment in your Yoco dashboard (Transactions). The order will then go to the kitchen.`)) return;
-        paidBtn.disabled = true;
-        const res = await adminFetch("/api/admin/mark-paid", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data.success) {
-          alert(data.error || "Couldn't mark the order as paid.");
-          paidBtn.disabled = false;
-          return;
-        }
-        toast(`Order #${id} marked as paid.`);
-        await fetchAwaitingOrders();
-        renderAwaitingModal();
-        loadDashboardKpisOnly();
-        if (typeof loadOrders === "function") loadOrders();
-        return;
-      }
-      const btn = e.target.closest("[data-clear-pending]");
-      if (btn && (await clearPendingOrders(parseInt(btn.dataset.clearPending, 10)))) renderAwaitingModal();
-    });
   }
   overlay.classList.add("active");
   $id("awaitingBody").innerHTML = '<p class="menu-loading">Loading&hellip;</p>';
@@ -567,50 +401,39 @@ function loadDashboardKpisOnly() {
 
 function renderAwaitingModal() {
   const { awaiting, failed } = window.adminAwaiting;
-  const regular = awaiting.filter((o) => !o.is_preorder);
-  const preorders = awaiting.filter((o) => o.is_preorder);
   const total = awaiting.reduce((s, o) => s + Number(o.total_amount || 0), 0);
-  const oldestOf = (list) => (list.length ? list[list.length - 1] : null); // API returns newest first
-  const todayCount = regular.filter((o) => isToday(o.created_at)).length;
+  const oldest = awaiting.length ? awaiting[awaiting.length - 1] : null; // API returns newest first
+  const todayCount = awaiting.filter((o) => isToday(o.created_at)).length;
 
   const stat = (label, value) => `<div class="sa-mini-stat"><span>${label}</span><strong>${value}</strong></div>`;
-  const row = (o, extraLine) => {
-    const items = (o.items || []).map((i) => `${i.quantity}× ${escHtml(i.item_name)}`).join(", ");
-    const phone = escHtml(o.customer_phone || "");
-    return `
+  const rows = awaiting.length
+    ? awaiting
+        .map((o) => {
+          const items = (o.items || []).map((i) => `${i.quantity}× ${escHtml(i.item_name)}`).join(", ");
+          const phone = escHtml(o.customer_phone || "");
+          return `
           <div class="sa-list-item">
             <div class="sa-list-main">
               <div class="sa-list-title">#${o.id} · ${escHtml(o.customer_name)}</div>
               <div class="sa-list-sub">${items || "—"}</div>
-              ${(o.problems || []).length ? `<div class="sa-list-sub sa-price-warn"><i class="fas fa-triangle-exclamation"></i> ${escHtml(o.problems[0])}</div>` : ""}
-              ${extraLine || ""}
               <div class="sa-list-sub">${new Date(o.created_at).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" })} · waiting ${waitingFor(o.created_at)}${phone ? ` · <a href="tel:${phone}">${phone}</a>` : ""}</div>
             </div>
-            <span class="sa-list-end">${money(o.total_amount)}${o.price_changed ? `<small class="sa-price-was">was ${money(o.original_total)}</small>` : ""}<br><button type="button" class="admin-mini-btn" data-mark-paid="${o.id}" data-recorded-amount="${money(o.original_total ?? o.total_amount)}" title="Customer paid on Yoco but it didn't come through"><i class="fas fa-check"></i> Mark paid</button> <button type="button" class="admin-mini-btn" data-clear-pending="${o.id}" title="Remove this unpaid order"><i class="fas fa-trash"></i></button></span>
+            <span class="sa-list-end">${money(o.total_amount)}</span>
           </div>`;
-  };
-  const bookingLine = (o) =>
-    o.booking_at
-      ? `<div class="sa-list-sub"><i class="fas fa-calendar-check"></i> Booking ${new Date(o.booking_at).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" })} · clears at booking time</div>`
-      : "";
-
-  const regularRows = regular.length
-    ? regular.map((o) => row(o)).join("")
-    : '<p class="menu-empty">No normal orders are waiting for payment.</p>';
-  const preorderRows = preorders.length ? preorders.map((o) => row(o, bookingLine(o))).join("") : "";
+        })
+        .join("")
+    : '<p class="menu-empty">Nothing is waiting for payment right now.</p>';
 
   $id("awaitingBody").innerHTML = `
     <div class="sa-mini-stats">
-      ${stat("Awaiting payment", regular.length)}
+      ${stat("Awaiting payment", awaiting.length)}
       ${stat("Unpaid value", money(total))}
       ${stat("Placed today", todayCount)}
-      ${stat("Pre-orders", preorders.length)}
-      ${stat("Longest wait (pre-orders)", oldestOf(preorders) ? waitingFor(oldestOf(preorders).created_at) : "—")}
+      ${stat("Longest wait", oldest ? waitingFor(oldest.created_at) : "—")}
       ${stat("Payment failed", failed.length)}
     </div>
-    <p class="admin-hint">These customers placed an order but haven't paid yet, so they are <strong>not</strong> counted in sales, revenue or top customers. Prices shown are today's prices (specials included). Orders are deleted automatically after 24 hours, and a table-booking pre-order is deleted when its booking time passes.</p>
-    <div class="sa-list">${regularRows}</div>
-    ${preorders.length ? `<h4 class="sa-subhead">Table-booking pre-orders</h4><div class="sa-list">${preorderRows}</div>` : ""}`;
+    <p class="admin-hint">These customers placed an order but haven't paid yet, so they are <strong>not</strong> counted in sales, revenue or top customers. Once payment is confirmed the order moves to Live Orders and the stats.</p>
+    <div class="sa-list">${rows}</div>`;
 }
 
 function renderDashCharts(months) {
@@ -674,7 +497,7 @@ function renderDashLists(history, reviews) {
   // Top customers: order count + spend per customer name.
   const customers = {};
   history.forEach((o) => {
-    if (!isPaidOrder(o) || isWalkIn(o)) return; // walk-in guests are anonymous - they stay out of Top Customers
+    if (!isPaidOrder(o)) return;
     const c = (customers[o.customer_name] = customers[o.customer_name] || { count: 0, spend: 0 });
     c.count += 1;
     c.spend += Number(o.total_amount || 0);
@@ -705,43 +528,21 @@ function updateKitchenCompletedToday(history) {
   el.textContent = history.filter((o) => o.status === "Completed" && isToday(o.created_at)).length;
 }
 
-// Reports tab: every order from the last REPORT_DAYS days, fetched 100 at a time
-const REPORT_DAYS = 30;
-const REPORT_MAX_PAGES = 30;
-
-async function fetchReportOrders() {
-  const since = new Date();
-  since.setDate(since.getDate() - REPORT_DAYS);
-  since.setHours(0, 0, 0, 0);
-  const orders = [];
-  try {
-    for (let page = 0; page < REPORT_MAX_PAGES; page++) {
-      const res = await adminFetch(`/api/admin/orders?limit=100&offset=${page * 100}&since=${encodeURIComponent(since.toISOString())}`);
-      const data = await res.json();
-      const batch = data.orders || [];
-      orders.push(...batch);
-      if (batch.length < 100) return { orders, since, failed: false, truncated: false };
-    }
-    return { orders, since, failed: false, truncated: true };
-  } catch {
-    return { orders, since, failed: true, truncated: false };
-  }
-}
-
+// ---------------------------------------------------------------------
 // Sales & Reports derived widgets
+// ---------------------------------------------------------------------
 async function loadReportWidgets() {
-  const { orders: history, since, failed, truncated } = await fetchReportOrders();
-  const channelFilter = $id("reportChannelFilter")?.value || "all";
-  const active = history
-    .filter(isPaidOrder)
-    .filter((o) => channelFilter === "all" || (channelFilter === "walk_in" ? isWalkIn(o) : !isWalkIn(o)));
+  const history = await fetchHistoryAll();
+  const channel = document.getElementById("salesChannelFilter")?.value || "all";
+  const { start, end } = getReportDateRange();
 
-  // One entry per bill: the rounds of a walk-in tab are one order for the hours / types / payments widgets.
-  const seenTabs = new Set();
-  const bills = [...active].reverse().filter((o) => {
-    if (!o.tab_id) return true;
-    if (seenTabs.has(o.tab_id)) return false;
-    seenTabs.add(o.tab_id);
+  const active = history.filter((o) => {
+    if (!isPaidOrder(o)) return false;
+    const d = new Date(o.created_at);
+    if (start && d < start) return false;
+    if (end && d >= end) return false;
+    if (channel === "walk_in" && o.order_type === "delivery") return false;
+    if (channel === "delivery" && o.order_type !== "delivery") return false;
     return true;
   });
 
@@ -760,47 +561,39 @@ async function loadReportWidgets() {
     { label: "9-11", from: 9 }, { label: "11-13", from: 11 }, { label: "13-15", from: 13 },
     { label: "15-17", from: 15 }, { label: "17-19", from: 17 }, { label: "19-21", from: 19 }
   ].map((b) => ({ ...b, value: 0 }));
-  let outsideHours = 0;
-  bills.forEach((o) => {
+  active.forEach((o) => {
     const h = new Date(o.created_at).getHours();
     const bucket = buckets.find((b) => h >= b.from && h < b.from + 2);
     if (bucket) bucket.value += 1;
-    else outsideHours += 1;
   });
-
-  const day = (d) => d.toLocaleDateString("en-ZA", { day: "numeric", month: "short" });
-  const note = $id("reportPeriodNote");
-  if (note) {
-    if (failed) note.textContent = "Could not load all orders for these reports. Try refreshing.";
-    else if (!bills.length) note.textContent = `No paid orders in the last ${REPORT_DAYS} days.`;
-    else {
-      const count = `${bills.length} paid order${bills.length === 1 ? "" : "s"}`;
-      const range = truncated ? "the most recent orders" : `${day(since)} to ${day(new Date())}`;
-      const extra = outsideHours ? ` ${outsideHours} placed outside 9:00-21:00 ${outsideHours === 1 ? "is" : "are"} left out of Peak Ordering Hours.` : "";
-      note.textContent = `Based on ${count} from the last ${REPORT_DAYS} days (${range}).${extra}`;
-    }
-  }
   $id("reportPeakHours").innerHTML = barsHtml(buckets.map((b) => ({ label: b.label, value: b.value, alt: true })));
 
   // Payment methods + order types
   const payments = {};
   const types = { collection: 0, delivery: 0, dine_in: 0 };
-  bills.forEach((o) => {
-    const label = isWalkIn(o) ? "Card machine (walk-in)" : "Online (Yoco)";
+  active.forEach((o) => {
+    const label = o.payment_method === "online" ? "Online (Yoco)" : "Pay in person";
     payments[label] = (payments[label] || 0) + 1;
     if (types[o.order_type] !== undefined) types[o.order_type] += 1;
   });
   $id("reportPayments").innerHTML = rowsHtml(Object.entries(payments).map(([label, value]) => ({ label, value })));
-  $id("reportOrderTypes").innerHTML = rowsHtml([
-    { label: "Collection", value: types.collection },
-    { label: "Delivery", value: types.delivery },
-    { label: "Dine In", value: types.dine_in }
-  ]);
+
+  // Order Types: only show rows relevant to the selected channel
+  const orderTypeRows = [];
+  if (channel !== "delivery") {
+    orderTypeRows.push({ label: "Collection", value: types.collection });
+    orderTypeRows.push({ label: "Dine In", value: types.dine_in });
+  }
+  if (channel !== "walk_in") {
+    orderTypeRows.push({ label: "Delivery", value: types.delivery });
+  }
+  $id("reportOrderTypes").innerHTML = rowsHtml(orderTypeRows);
 }
+window.loadReportWidgets = loadReportWidgets;
 
-$id("reportChannelFilter")?.addEventListener("change", () => loadReportWidgets());
-
+// ---------------------------------------------------------------------
 // Settings sub-tabs
+// ---------------------------------------------------------------------
 document.querySelectorAll(".settings-tab-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".settings-tab-btn").forEach((b) => b.classList.remove("active"));
@@ -811,55 +604,12 @@ document.querySelectorAll(".settings-tab-btn").forEach((btn) => {
     if (btn.dataset.settingsTab === "delivery") {
       loadDeliveryFeeSettings();
     }
-    if (btn.dataset.settingsTab === "payments") loadPaymentSettings();
   });
 });
 
-// Payments (Yoco): key mode, payment-notification webhook
-const PAYMENT_EVENT_TEXT = {
-  payment_notify_processed: "Payment confirmed",
-  payment_notify_payment_failed: "Payment failed on Yoco",
-  payment_notify_invalid_signature: "Rejected: signature didn't match (reconnect below)",
-  payment_notify_not_configured: "Rejected: payment notifications not connected",
-  payment_notify_unmatched: "Rejected: couldn't tell which order it was for",
-  payment_notify_amount_mismatch: "Rejected: amount didn't match the order",
-  payment_notify_stock_mismatch: "Rejected: not enough stock",
-  payment_notify_ignored: "Ignored: order no longer waiting for payment",
-  payment_notify_error: "Error while processing",
-  order_marked_paid: "Marked as paid by admin",
-};
-
-async function loadPaymentSettings() {
-  const box = $id("yocoStatus");
-  if (!box) return;
-  box.innerHTML = '<p class="menu-loading">Loading&hellip;</p>';
-  try {
-    const res = await adminFetch("/api/admin/yoco");
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Couldn't load the payment setup.");
-    renderPaymentSettings(data);
-  } catch (err) {
-    box.innerHTML = `<p class="form-error">${escHtml(err.message)}</p>`;
-  }
-}
-
-function renderPaymentSettings(d) {
-  const events = (d.recent_events || []).length
-    ? d.recent_events
-        .map((e) => {
-          const when = new Date(e.created_at).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" });
-          return `<div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">${escHtml(PAYMENT_EVENT_TEXT[e.action] || e.action)}${e.target_id ? ` · order #${e.target_id}` : ""}</div><div class="sa-list-sub">${when}</div></div></div>`;
-        })
-        .join("")
-    : '<p class="admin-hint">No payment notifications yet this month.</p>';
-
-  $id("yocoStatus").innerHTML = `
-    <h4 style="margin:16px 0 2px">Payment notifications this month</h4>
-    <p class="admin-hint" style="margin:0 0 6px">Clears automatically on the 1st of each month.</p>
-    <div class="sa-list">${events}</div>`;
-}
-
+// ---------------------------------------------------------------------
 // Delivery fee settings
+// ---------------------------------------------------------------------
 async function loadDeliveryFeeSettings() {
   try {
     const res = await adminFetch("/api/admin/delivery-fee");
@@ -973,7 +723,9 @@ $id("cafeLocationForm")?.addEventListener("submit", (e) => {
   saveCafeLocation();
 });
 
+// ---------------------------------------------------------------------
 // Menu tab: Add Item collapse + table filters
+// ---------------------------------------------------------------------
 $id("addItemToggleBtn").addEventListener("click", () => {
   const card = $id("menuFormCard");
   card.classList.toggle("open");
@@ -990,7 +742,9 @@ populateFormForEdit = function (item) {
 $id("menuTableSearch").addEventListener("input", () => renderMenuItemsList());
 $id("menuTableCategory").addEventListener("change", () => renderMenuItemsList());
 
-// Wrap admin.js render functions so this file can extend them
+// ---------------------------------------------------------------------
+// Hooks into admin.js flows (function declarations are reassignable)
+// ---------------------------------------------------------------------
 const _renderOrders = renderOrders;
 renderOrders = function (orders) {
   _renderOrders(orders);
@@ -1022,18 +776,19 @@ function initShellData() {
   if (shellInitialized) return;
   shellInitialized = true;
   $id("topbarTitle").textContent = TAB_TITLES.dashboard;
-  updateStatusCard(); // Open/Closed comes from the clock
-  paintCachedStatusCounts(); // last known Orders/Revenue Today until fresh figures
   loadDashboardData();
   setInterval(updateStatusCard, 60000);
 }
 
-// admin.js may already have shown the dashboard before this file loaded
+// admin.js may have already shown the dashboard (stored token) before this
+// file loaded - catch up if so.
 if ($id("dashboard").style.display !== "none") {
   initShellData();
 }
 
-// Place Order: admin orders on behalf of a customer
+// ---------------------------------------------------------------------
+// Place Order: admin orders on behalf of a customer, generates Yoco link
+// ---------------------------------------------------------------------
 let adminCart = [];
 let adminMenuData = [];
 let adminSpiceLevels = [];
@@ -1043,16 +798,10 @@ let adminMenuQuery = "";
 let orderGenerating = false;
 
 // Delivery quote for the order being built (filled by the address lookup)
-const poDelivery = { fee: 0, distanceKm: 0, lat: null, lng: null, display: "", lastInput: "", tooFar: false, loading: false, error: "", manualFee: null };
-// poReset keeps a manually typed fee; poClearManualFee drops it (new address, cancel, ...).
+const poDelivery = { fee: 0, distanceKm: 0, lat: null, lng: null, display: "", lastInput: "", tooFar: false, loading: false, error: "" };
 const poReset = () => Object.assign(poDelivery, { fee: 0, distanceKm: 0, lat: null, lng: null, display: "", lastInput: "", tooFar: false, loading: false, error: "" });
-function poClearManualFee() {
-  poDelivery.manualFee = null;
-  const input = $id("poManualFee");
-  if (input) input.value = "";
-}
 
-/** Loads customer-facing menu data without rendering photos. */
+/** Same public menu the customers see (all dishes, spice levels, extras, sides) - photos are simply not drawn. */
 async function loadAdminMenu() {
   adminMenuLoadError = "";
   try {
@@ -1177,13 +926,14 @@ function openAdminOptionsModal(item) {
     document.body.appendChild(overlay);
     overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.classList.remove("active"); });
   }
-  const hasSpice = item.accepts_spice && adminSpiceLevels.length > 0;
-  const spiceHtml = hasSpice
-    ? `<div class="po-opt-group"><label id="poSpiceLabel">Spice level</label><div id="poSpiceOptions"></div></div>` : "";
-  // Free side: one choice per meal (3 meals can be chips, pap and rice), exactly like the customer menu.
-  const hasSides = (item.sides || []).length > 0;
-  const sideHtml = hasSides
-    ? `<div class="po-opt-group" id="poSideGroup"><label id="poSideLabel">Choice of side <small>(free)</small></label><div id="poSideOptions"></div><p class="form-error" id="poSideError" style="display:none">Please choose a side.</p></div>` : "";
+  const spiceHtml = item.accepts_spice && adminSpiceLevels.length
+    ? `<div class="po-opt-group"><label>Spice level</label><div class="po-pills" data-group="spice">${adminSpiceLevels
+        .map((s, i) => `<button type="button" class="po-pill${i === 0 ? " selected" : ""}" data-name="${escHtml(s.name)}">${escHtml(s.name)}</button>`)
+        .join("")}</div></div>` : "";
+  const sideHtml = (item.sides || []).length
+    ? `<div class="po-opt-group"><label>Choice of side <small>(free)</small></label><div class="po-pills" data-group="side">${item.sides
+        .map((sd) => `<button type="button" class="po-pill" data-id="${sd.id}" data-name="${escHtml(sd.name)}">${escHtml(sd.name)}</button>`)
+        .join("")}</div><p class="form-error" id="poSideError" style="display:none">Please choose a side.</p></div>` : "";
   const extrasHtml = item.accepts_addons && (item.addons || []).length
     ? `<div class="po-opt-group"><label>Extras</label>${item.addons
         .map((a) => `<label class="checkbox-option"><input type="checkbox" value="${a.id}" data-name="${escHtml(a.name)}" data-price="${a.price}" /> ${escHtml(a.name)} (+R${Number(a.price).toFixed(2)})</label>`)
@@ -1201,74 +951,34 @@ function openAdminOptionsModal(item) {
   overlay.classList.add("active");
   const close = () => overlay.classList.remove("active");
   $id("poOptClose").addEventListener("click", close);
+  overlay.querySelectorAll(".po-pills").forEach((group) =>
+    group.querySelectorAll(".po-pill").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        group.querySelectorAll(".po-pill").forEach((b) => b.classList.remove("selected"));
+        btn.classList.add("selected");
+        if ($id("poSideError")) $id("poSideError").style.display = "none";
+      }),
+    ),
+  );
   const qtyEl = $id("poQtyVal");
-  const sideChoices = []; // chosen side per meal: [{ id, name }, ...]
-  const spiceChoices = []; // chosen spice level per meal: ["Mild", "Hot", ...]
-
-  /** One row of buttons per meal, same as the customer's "for each meal" choices. */
-  const renderMealChoices = () => {
-    const quantity = parseInt(qtyEl.textContent, 10) || 1;
-    const rowsFor = (pillsFor) =>
-      Array.from({ length: quantity }, (_, meal) =>
-        `<div class="po-side-row">${quantity > 1 ? `<span class="po-side-label">Meal ${meal + 1}</span>` : ""}<div class="po-pills">${pillsFor(meal)}</div></div>`,
-      ).join("");
-    if (hasSpice) {
-      spiceChoices.length = Math.min(spiceChoices.length, quantity);
-      for (let m = 0; m < quantity; m++) if (!spiceChoices[m]) spiceChoices[m] = adminSpiceLevels[0].name; // first level is the default
-      $id("poSpiceLabel").textContent = quantity > 1 ? "Spice level for each meal" : "Spice level";
-      $id("poSpiceOptions").innerHTML = rowsFor((meal) =>
-        adminSpiceLevels
-          .map((sp) => `<button type="button" class="po-pill${spiceChoices[meal] === sp.name ? " selected" : ""}" data-meal="${meal}" data-name="${escHtml(sp.name)}">${escHtml(sp.name)}</button>`)
-          .join(""),
-      );
-      $id("poSpiceOptions").querySelectorAll(".po-pill").forEach((btn) =>
-        btn.addEventListener("click", () => {
-          spiceChoices[Number(btn.dataset.meal)] = btn.dataset.name;
-          btn.parentElement.querySelectorAll(".po-pill").forEach((b) => b.classList.toggle("selected", b === btn));
-        }),
-      );
-    }
-    if (hasSides) {
-      sideChoices.length = Math.min(sideChoices.length, quantity);
-      $id("poSideLabel").innerHTML = quantity > 1 ? "Choose a side for each meal <small>(free)</small>" : "Choose your side <small>(free)</small>";
-      $id("poSideOptions").innerHTML = rowsFor((meal) =>
-        item.sides
-          .map((sd) => `<button type="button" class="po-pill${sideChoices[meal]?.id === sd.id ? " selected" : ""}" data-meal="${meal}" data-id="${sd.id}" data-name="${escHtml(sd.name)}">${escHtml(sd.name)}</button>`)
-          .join(""),
-      );
-      $id("poSideOptions").querySelectorAll(".po-pill").forEach((btn) =>
-        btn.addEventListener("click", () => {
-          sideChoices[Number(btn.dataset.meal)] = { id: parseInt(btn.dataset.id, 10), name: btn.dataset.name };
-          btn.parentElement.querySelectorAll(".po-pill").forEach((b) => b.classList.toggle("selected", b === btn));
-          if (sideChoices.filter(Boolean).length === quantity) $id("poSideError").style.display = "none";
-        }),
-      );
-    }
-  };
-  renderMealChoices();
-
-  $id("poQtyMinus").addEventListener("click", () => { qtyEl.textContent = Math.max(1, parseInt(qtyEl.textContent, 10) - 1); renderMealChoices(); });
-  $id("poQtyPlus").addEventListener("click", () => { qtyEl.textContent = parseInt(qtyEl.textContent, 10) + 1; renderMealChoices(); });
+  $id("poQtyMinus").addEventListener("click", () => (qtyEl.textContent = Math.max(1, parseInt(qtyEl.textContent, 10) - 1)));
+  $id("poQtyPlus").addEventListener("click", () => (qtyEl.textContent = parseInt(qtyEl.textContent, 10) + 1));
   $id("poOptConfirm").addEventListener("click", () => {
-    const qty = parseInt(qtyEl.textContent, 10) || 1;
-    if (hasSides && sideChoices.filter(Boolean).length < qty) {
-      $id("poSideError").textContent = qty > 1 ? "Please choose a side for every meal." : "Please choose a side.";
+    const spiceBtn = overlay.querySelector('[data-group="spice"] .po-pill.selected');
+    const sideBtn = overlay.querySelector('[data-group="side"] .po-pill.selected');
+    if ((item.sides || []).length && !sideBtn) {
       $id("poSideError").style.display = "block";
       return;
     }
     const extras = [...overlay.querySelectorAll('input[type="checkbox"]:checked')].map((c) => ({
       id: parseInt(c.value, 10), name: c.dataset.name, price: parseFloat(c.dataset.price),
     }));
-    // Meals with the same spice level and side share a cart line: 2x (hot + chips) + 1x (mild + rice) -> two lines.
-    const groups = [];
-    for (let meal = 0; meal < qty; meal++) {
-      const spice = hasSpice ? spiceChoices[meal] || null : null;
-      const side = hasSides ? sideChoices[meal] : null;
-      const group = groups.find((g) => g.spice === spice && (g.side ? g.side.id : null) === (side ? side.id : null));
-      if (group) group.qty += 1;
-      else groups.push({ spice, side, qty: 1 });
-    }
-    for (const group of groups) addLineToAdminCart(item, { spice: group.spice, side: group.side, extras, qty: group.qty });
+    addLineToAdminCart(item, {
+      spice: spiceBtn ? spiceBtn.dataset.name : null,
+      side: sideBtn ? { id: parseInt(sideBtn.dataset.id, 10), name: sideBtn.dataset.name } : null,
+      extras,
+      qty: parseInt(qtyEl.textContent, 10) || 1,
+    });
     close();
   });
 }
@@ -1297,14 +1007,11 @@ function renderAdminCart() {
   if (!cartContainer) return;
 
   if (cartCount) cartCount.textContent = adminCart.reduce((s, c) => s + c.qty, 0);
-  if ($id("poJumpCount")) $id("poJumpCount").textContent = adminCart.reduce((s, c) => s + c.qty, 0);
 
   if (adminCart.length === 0) {
     if (cartEmpty) cartEmpty.style.display = "";
     cartContainer.innerHTML = "";
     if (totalEl) totalEl.innerHTML = "";
-    if ($id("poJumpTotal")) $id("poJumpTotal").textContent = "R0.00";
-    if ($id("poManualFeeField")) $id("poManualFeeField").style.display = poOrderType() === "delivery" && (poDelivery.tooFar || poDelivery.error || poDelivery.manualFee !== null) ? "" : "none";
     return;
   }
   if (cartEmpty) cartEmpty.style.display = "none";
@@ -1351,21 +1058,14 @@ function renderAdminCart() {
   const isDelivery = poOrderType() === "delivery";
   let feeRow = "";
   let fee = 0;
-  // The manual fee box only matters when the band price can't be used.
-  const manualField = $id("poManualFeeField");
-  if (manualField) manualField.style.display = isDelivery && (poDelivery.tooFar || poDelivery.error || poDelivery.manualFee !== null) ? "" : "none";
   if (isDelivery) {
     if (poDelivery.loading) feeRow = `<div class="po-total-row"><span>Delivery fee</span><span>Calculating&hellip;</span></div>`;
-    else if (poDelivery.manualFee !== null) {
-      fee = poDelivery.manualFee;
-      feeRow = `<div class="po-total-row"><span>Delivery fee (set manually)</span><span>R${fee.toFixed(2)}</span></div>`;
-    } else if (poDelivery.tooFar) feeRow = `<div class="po-total-row po-warn"><span>Delivery</span><span>A bit far (${poDelivery.distanceKm} km) - set fee below</span></div>`;
+    else if (poDelivery.tooFar) feeRow = `<div class="po-total-row po-warn"><span>Delivery</span><span>Too far (${poDelivery.distanceKm} km)</span></div>`;
     else if (poDelivery.lat !== null) {
       fee = poDelivery.fee;
       feeRow = `<div class="po-total-row"><span>Delivery fee (${poDelivery.distanceKm} km)</span><span>R${fee.toFixed(2)}</span></div>`;
     } else feeRow = `<div class="po-total-row"><span>Delivery fee</span><span>Enter address</span></div>`;
   }
-  if ($id("poJumpTotal")) $id("poJumpTotal").textContent = `R${(items + fee).toFixed(2)}`;
   if (totalEl) {
     totalEl.innerHTML = `
       <div class="po-total-row"><span>Items</span><span>R${items.toFixed(2)}</span></div>
@@ -1375,44 +1075,10 @@ function renderAdminCart() {
 }
 
 /** Address -> coordinates -> fee, exactly like the customer checkout. */
-// ---- Structured delivery address (same fields as the customer checkout) ----
-function poAddressParts() {
-  const v = (id) => ($id(id)?.value || "").trim();
-  return { street: v("poStreet"), unit: v("poUnit"), suburb: v("poSuburb"), city: v("poCity"), postal: v("poPostal"), province: v("poProvince") };
-}
-/** Full address for the order (unit included); also kept in the hidden #orderDeliveryAddress. */
-function poComposeAddress() {
-  const a = poAddressParts();
-  const full = [a.unit, a.street, a.suburb, a.city, a.postal, a.province].filter(Boolean).join(", ");
-  if ($id("orderDeliveryAddress")) $id("orderDeliveryAddress").value = full;
-  return full;
-}
-function poMissingAddressParts() {
-  const a = poAddressParts();
-  return [[a.street, "street address"], [a.suburb, "suburb"], [a.city, "town/city"], [a.postal, "postal code"], [a.province, "province"]]
-    .filter(([value]) => !value)
-    .map(([, label]) => label);
-}
-
-/** Validates the address before requesting a delivery quote. */
-async function poConfirmAddress() {
-  const missing = poMissingAddressParts();
-  if (missing.length) {
-    $id("poDeliveryStatus").textContent = `Please add the ${missing.join(", ")}, then tap OK.`;
-    return;
-  }
-  const btn = $id("poAddressOkBtn");
-  btn.disabled = true;
-  try {
-    await poLookupAddress();
-  } finally {
-    btn.disabled = false;
-  }
-}
-
 async function poLookupAddress() {
-  const address = poComposeAddress();
-  if (!address || poMissingAddressParts().length || poOrderType() !== "delivery") return;
+  const input = $id("orderDeliveryAddress");
+  const address = input?.value.trim();
+  if (!address || poOrderType() !== "delivery") return;
   if (address === poDelivery.lastInput && poDelivery.lat !== null) return;
   poReset();
   poDelivery.loading = true;
@@ -1420,34 +1086,26 @@ async function poLookupAddress() {
   renderAdminCart();
   try {
     const geoRes = await fetch("/api/delivery/geocode", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ parts: poAddressParts() }),
-      signal: AbortSignal.timeout(30000),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ address }),
     });
     const geo = await geoRes.json();
     if (!geoRes.ok || !geo.lat) throw new Error(geo.error || "Couldn't find that address.");
     const feeRes = await fetch("/api/delivery/fee", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lat: geo.lat, lng: geo.lng }),
-      signal: AbortSignal.timeout(15000),
     });
     const fee = await feeRes.json();
     if (!feeRes.ok) throw new Error(fee.error || "Couldn't work out the delivery fee.");
     Object.assign(poDelivery, { lat: geo.lat, lng: geo.lng, display: geo.display_name, lastInput: address, distanceKm: fee.distance_km });
     if (fee.too_far) {
       poDelivery.tooFar = true;
-      $id("poDeliveryStatus").textContent = `Found: ${geo.display_name}. It's a bit far (${fee.distance_km} km) - set the delivery fee manually below to continue.`;
+      $id("poDeliveryStatus").textContent = `Found: ${geo.display_name}. ${fee.message || "Too far to deliver."}`;
     } else {
-      poDelivery.fee = Number(fee.fee) || 0;
-      $id("poDeliveryStatus").textContent = geo.approximate
-        ? `Street not pinned - priced for the area: ${geo.display_name} (${fee.distance_km} km). Set the fee manually if needed.`
-        : `Found: ${geo.display_name} (${fee.distance_km} km)`;
-      if (geo.approximate) poDelivery.error = "approximate"; // shows the manual fee box
+      poDelivery.fee = fee.fee;
+      $id("poDeliveryStatus").textContent = `Found: ${geo.display_name}`;
     }
   } catch (err) {
     poReset();
-    poDelivery.error = err.message || "lookup failed";
-    $id("poDeliveryStatus").textContent =
-      (err.name === "TimeoutError" ? "The address lookup timed out." : err.message) +
-      " Add the suburb or village and try again, or set the delivery fee manually.";
+    $id("poDeliveryStatus").textContent = err.message + " Add the suburb or village and try again.";
   } finally {
     poDelivery.loading = false;
     renderAdminCart();
@@ -1465,100 +1123,13 @@ function waNumber(phone) {
 const waLink = (phone, text) => `https://wa.me/${waNumber(phone)}?text=${encodeURIComponent(text)}`;
 window.waLink = waLink;
 
-// ---- Dine in: date + time like the customer's table booking (South Africa time) ----
-// Opening hours come from Settings > General > Business Hours (window.adminHoursWindow in admin.js)
-const PO_SLOT_MIN = 30;
-const PO_LEAD_MIN = 90; // dine-in times today start this far ahead
-const PO_RANGE_LEAD_MIN = 120; // collection/delivery ranges start 2 hours ahead, like the customer's Preferred Time
-
-function poCafeNow() {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Africa/Johannesburg", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
-  }).formatToParts(new Date());
-  const get = (t) => parts.find((p) => p.type === t)?.value;
-  return { dateKey: `${get("year")}-${get("month")}-${get("day")}`, minutes: (+get("hour") % 24) * 60 + +get("minute") };
-}
-
-/** Half-hour times the cafe is open on a date, from `earliest` minutes past midnight. */
-function poSlotsFor(dateStr, earliest = 0) {
-  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr || "");
-  if (!d) return [];
-  const weekday = new Date(Date.UTC(+d[1], +d[2] - 1, +d[3])).getUTCDay();
-  const win = window.adminHoursWindow ? window.adminHoursWindow(weekday) : null;
-  if (!win) return []; // closed all day
-  const start = Math.max(win.open, Math.ceil(earliest / PO_SLOT_MIN) * PO_SLOT_MIN);
-  const slots = [];
-  for (let m = start; m < win.close; m += PO_SLOT_MIN) {
-    slots.push(`${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`);
-  }
-  return slots;
-}
-
-/** Fills the dine-in Time list: today = As soon as possible + slots from 1h30 ahead; later date = every half-hour. */
-function renderDineTimes() {
-  const sel = $id("poDineTime");
-  if (!sel) return;
-  const now = poCafeNow();
-  const dateInput = $id("poDineDate");
-  if (dateInput) {
-    dateInput.min = now.dateKey;
-    if (!dateInput.value || dateInput.value < now.dateKey) dateInput.value = now.dateKey;
-  }
-  const date = dateInput?.value || now.dateKey;
-  const later = date > now.dateKey;
-  const previous = sel.value;
-  // No "As soon as possible" for dine in: a time is always chosen (today: half-hour slots from 1h30 ahead, like collection/delivery)
-  const slots = later ? poSlotsFor(date) : poSlotsFor(date, now.minutes + PO_LEAD_MIN);
-  const placeholder = slots.length ? "Choose a time" : "No times left today - pick another date";
-  sel.innerHTML = `<option value="">${placeholder}</option>` +
-    slots.map((t) => `<option value="${later ? t : `At ${t}`}">${t}</option>`).join("");
-  if ([...sel.options].some((o) => o.value === previous)) sel.value = previous;
-  $id("poPartyField").style.display = later ? "" : "none";
-  $id("poDineNote").style.display = later ? "" : "none";
-  const tableLabel = document.querySelector('label[for="orderTableNumber"]');
-  if (tableLabel) tableLabel.innerHTML = later ? "Table number <small>(optional for a booking)</small>" : "Table number";
-}
-
-/** Collection/delivery time, like the customer's Preferred Time: As soon as possible (no time needed), then 30-minute ranges starting 2 hours ahead (rounded up to the half-hour). */
-function renderPickupTimes() {
-  const sel = $id("orderPickupTime");
-  if (!sel) return;
-  const now = poCafeNow();
-  const previous = sel.value;
-  // Before opening, count the 2 hours from opening time instead of from now.
-  const todayWin = window.adminHoursWindow ? window.adminHoursWindow(new Date(now.dateKey + "T00:00:00Z").getUTCDay()) : null;
-  const from = Math.max(now.minutes, todayWin ? todayWin.open : 0);
-  sel.innerHTML = `<option value="As soon as possible">As soon as possible</option>` +
-    poSlotsFor(now.dateKey, from + PO_RANGE_LEAD_MIN).map((t) => {
-      const [h, m] = t.split(":").map(Number);
-      const e = h * 60 + m + PO_SLOT_MIN;
-      const end = `${String(Math.floor(e / 60)).padStart(2, "0")}:${String(e % 60).padStart(2, "0")}`;
-      const dayWin = window.adminHoursWindow ? window.adminHoursWindow(new Date(now.dateKey + "T00:00:00Z").getUTCDay()) : null;
-      return dayWin && e > dayWin.close ? "" : `<option value="At ${t} - ${end}">${t} - ${end}</option>`;
-    }).join("");
-  if ([...sel.options].some((o) => o.value === previous)) sel.value = previous;
-}
-
-/** Re-draws the order form's time lists after the opening hours change. */
-function refreshOrderFormHours() {
-  if (!$id("orderPickupTime")) return; // order form not on screen yet
-  if (poOrderType() === "dine_in") renderDineTimes();
-  else renderPickupTimes();
-}
-
 function updateOrderTypeFields() {
   const type = poOrderType();
   $id("poDeliveryFields").style.display = type === "delivery" ? "" : "none";
   $id("poTableField").style.display = type === "dine_in" ? "" : "none";
-  $id("poDineFields").style.display = type === "dine_in" ? "" : "none";
-  $id("poWhenField").style.display = type === "dine_in" ? "none" : "";
-  if (type === "dine_in") renderDineTimes();
-  else renderPickupTimes();
-  if (type !== "delivery") {
-    poReset();
-    poClearManualFee();
-  }
+  if (type !== "delivery") poReset();
   renderAdminCart();
+  if (type === "delivery") poLookupAddress();
 }
 
 async function generatePaymentLink() {
@@ -1578,34 +1149,15 @@ async function generatePaymentLink() {
     toast("Enter the customer's name and phone number.");
     return;
   }
-  // Sent from a button, not a form submit - run the same field checks the forms get.
-  if (
-    typeof FuludeValidation !== "undefined" &&
-    !FuludeValidation.check(["orderCustomerName", "orderCustomerPhone", "orderCustomerEmail", "orderTableNumber", "poStreet", "poPostal", "poManualFee"])
-  ) {
-    return;
-  }
-  const dineDate = type === "dine_in" ? ($id("poDineDate")?.value || poCafeNow().dateKey) : null;
-  const dineLater = type === "dine_in" && dineDate > poCafeNow().dateKey;
-  const dineTime = type === "dine_in" ? ($id("poDineTime")?.value || "") : "";
-  const partySize = parseInt($id("poPartySize")?.value, 10);
-  if (type === "dine_in" && !dineLater && !table) {
+  if (type === "dine_in" && !table) {
     toast("Enter the table number.");
     return;
   }
-  if (type === "dine_in" && !dineTime) { toast(dineLater ? "Choose the booking time." : "Choose the time for the dine-in order."); return; }
-  if (dineLater) {
-    if (!Number.isInteger(partySize) || partySize < 1) { toast("Enter how many people the booking is for."); return; }
-  }
   if (type === "delivery") {
-    const missing = poMissingAddressParts();
-    if (missing.length) { toast(`Enter the ${missing.join(", ")}.`); return; }
-    if (poDelivery.manualFee === null) {
-      if (poDelivery.lat === null || poComposeAddress() !== poDelivery.lastInput) { toast("Tap OK under the address to calculate the delivery fee first."); return; }
-      if (poDelivery.loading) { toast("Still working out the delivery fee - try again in a moment."); return; }
-      if (poDelivery.lat === null) { toast("The address couldn't be located - set the delivery fee manually."); return; }
-      if (poDelivery.tooFar) { toast("That address is a bit far - set the delivery fee manually first."); return; }
-    }
+    if (!address) { toast("Enter the delivery address."); return; }
+    if (poDelivery.lat === null || address !== poDelivery.lastInput) await poLookupAddress();
+    if (poDelivery.loading || poDelivery.lat === null) { toast("The delivery address couldn't be located yet."); return; }
+    if (poDelivery.tooFar) { toast("That address is too far to deliver to."); return; }
   }
 
   orderGenerating = true;
@@ -1627,12 +1179,8 @@ async function generatePaymentLink() {
         delivery_address: type === "delivery" ? address : undefined,
         delivery_lat: type === "delivery" ? poDelivery.lat : undefined,
         delivery_lng: type === "delivery" ? poDelivery.lng : undefined,
-        delivery_fee_override: type === "delivery" && poDelivery.manualFee !== null ? poDelivery.manualFee : undefined,
         table_number: type === "dine_in" ? table : undefined,
-        pickup_time: type === "dine_in" ? (dineLater ? undefined : dineTime || undefined) : $id("orderPickupTime")?.value || undefined,
-        dine_date: type === "dine_in" ? dineDate : undefined,
-        dine_time: dineLater ? dineTime : undefined,
-        party_size: dineLater ? partySize : undefined,
+        pickup_time: $id("orderPickupTime")?.value || undefined,
         special_instructions: cleanText($id("orderInstructions")?.value, 500),
         cart_items: adminCart.map((l) => ({
           id: l.itemId,
@@ -1650,9 +1198,7 @@ async function generatePaymentLink() {
       return;
     }
 
-    const msg = data.is_reservation
-      ? `Hi ${customerName}, your Fulude's Cafe table booking for ${data.reservation_when} with a food pre-order (#${data.order_id}) comes to R${Number(data.total_amount).toFixed(2)}. Please pay securely here to confirm your booking: ${data.pay_url}`
-      : `Hi ${customerName}, your Fulude's Cafe order #${data.order_id} comes to R${Number(data.total_amount).toFixed(2)}. Please pay securely here to confirm it: ${data.pay_url}`;
+    const msg = `Hi ${customerName}, your Fulude's Cafe order #${data.order_id} comes to R${Number(data.total_amount).toFixed(2)}. Please pay securely here to confirm it: ${data.pay_url}`;
     const linkEl = $id("paymentLinkResult");
     if (linkEl) {
       linkEl.style.display = "";
@@ -1667,7 +1213,7 @@ async function generatePaymentLink() {
             <button type="button" class="btn btn-primary copy-paylink-btn">Copy</button>
           </div>
           <a class="btn btn-primary btn-block" style="margin-top:8px" target="_blank" rel="noopener" href="${waLink(customerPhone, msg)}"><i class="fab fa-whatsapp"></i> Send link on WhatsApp</a>
-          <small class="admin-hint">${data.is_reservation ? `Reservation for ${escHtml(data.reservation_when)}: it is confirmed once the customer pays, and the order shows on the dashboard 20 minutes before that time.` : "The order only goes to the kitchen once the customer has paid."}</small>
+          <small class="admin-hint">The order only goes to the kitchen once the customer has paid.</small>
         </div>`;
       $id("paymentLinkUrl").addEventListener("click", (e) => e.target.select());
       linkEl.querySelector(".copy-paylink-btn").addEventListener("click", () => {
@@ -1685,7 +1231,6 @@ async function generatePaymentLink() {
     toast("Payment link generated!");
     adminCart = [];
     poReset();
-    poClearManualFee();
     renderAdminCart();
     renderAdminMenu();
   } catch (err) {
@@ -1697,30 +1242,6 @@ async function generatePaymentLink() {
       btn.innerHTML = '<i class="fas fa-bolt"></i> Generate Payment Link';
     }
   }
-}
-
-/** Abandons the order being built: empties the cart and every field, hides any generated link. */
-function cancelPlaceOrder() {
-  const touched = adminCart.length || ["orderCustomerName", "orderCustomerPhone", "poStreet"].some((id) => $id(id)?.value.trim());
-  if (touched && !confirm("Cancel this order? Everything you added will be cleared.")) return;
-  adminCart = [];
-  poReset();
-  poClearManualFee();
-  ["orderCustomerName", "orderCustomerPhone", "orderCustomerEmail", "orderDeliveryAddress", "poStreet", "poUnit", "poSuburb", "poCity", "poPostal", "poProvince", "orderTableNumber", "orderInstructions"].forEach((id) => {
-    if ($id(id)) $id(id).value = "";
-  });
-  $id("orderType").value = "collection";
-  renderPickupTimes();
-  $id("orderPickupTime").selectedIndex = 0;
-  if ($id("poDineDate")) $id("poDineDate").value = "";
-  if ($id("poPartySize")) $id("poPartySize").value = "";
-  $id("poDeliveryStatus").textContent = "";
-  const linkEl = $id("paymentLinkResult");
-  linkEl.style.display = "none";
-  linkEl.innerHTML = "";
-  updateOrderTypeFields();
-  renderAdminMenu();
-  toast("Order cleared.");
 }
 
 async function refreshPlaceOrderMenu() {
@@ -1739,7 +1260,6 @@ function initPlaceOrderTab() {
   // (dishes/prices/stock may have changed - or the first load may have failed).
   if (container.dataset.loaded === "true") {
     refreshPlaceOrderMenu();
-    if (poOrderType() === "dine_in") renderDineTimes(); else renderPickupTimes(); // slots depend on the time now
     return;
   }
 
@@ -1747,7 +1267,7 @@ function initPlaceOrderTab() {
     <div class="place-order-layout">
       <div class="place-order-main">
         <div class="admin-panel-header"><h3>Menu</h3></div>
-        <input type="search" id="adminMenuSearch" class="po-search" placeholder="Search items&hellip;" />
+        <input type="search" id="adminMenuSearch" class="po-search" placeholder="Search dishes&hellip;" />
         <div id="adminMenuCats" class="po-chips"></div>
         <div id="adminMenuGrid" class="admin-menu-grid"><p class="menu-loading">Loading&hellip;</p></div>
       </div>
@@ -1769,65 +1289,23 @@ function initPlaceOrderTab() {
           </div>
           <div id="poDeliveryFields" style="display:none">
             <div class="form-group">
-              <label for="poStreet">Street address</label>
-              <input type="text" id="poStreet" class="po-addr" placeholder="e.g. 12 Mvelaphanda Street" autocomplete="off">
-            </div>
-            <div class="form-group">
-              <label for="poUnit">Unit / flat number <small>(optional)</small></label>
-              <input type="text" id="poUnit" class="po-addr" autocomplete="off">
-            </div>
-            <div class="form-group">
-              <label for="poSuburb">Suburb</label>
-              <input type="text" id="poSuburb" class="po-addr" autocomplete="off">
-            </div>
-            <div class="form-group">
-              <label for="poCity">Town / City</label>
-              <input type="text" id="poCity" class="po-addr" autocomplete="off">
-            </div>
-            <div class="form-group">
-              <label for="poPostal">Postal code</label>
-              <input type="text" id="poPostal" class="po-addr" inputmode="numeric" maxlength="4" autocomplete="off">
-            </div>
-            <div class="form-group">
-              <label for="poProvince">Province</label>
-              <select id="poProvince" class="po-addr">
-                <option value="">Choose…</option>
-                <option>Limpopo</option><option>Gauteng</option><option>Mpumalanga</option>
-                <option>North West</option><option>KwaZulu-Natal</option><option>Free State</option>
-                <option>Eastern Cape</option><option>Western Cape</option><option>Northern Cape</option>
-              </select>
-            </div>
-            <input type="hidden" id="orderDeliveryAddress">
-            <button type="button" id="poAddressOkBtn" class="btn btn-primary btn-block">OK - calculate delivery fee</button>
-            <small id="poDeliveryStatus" class="admin-hint" style="display:block;margin:6px 0 10px"></small>
-            <div class="form-group" id="poManualFeeField" style="display:none">
-              <label for="poManualFee">Delivery fee (R) - set manually</label>
-              <input type="number" id="poManualFee" min="0" step="0.01" placeholder="e.g. 80">
-              <small class="admin-hint">Added to the total before the payment link is sent.</small>
+              <label for="orderDeliveryAddress">Delivery address</label>
+              <input type="text" id="orderDeliveryAddress" placeholder="Street / stand, suburb or village" autocomplete="off">
+              <small id="poDeliveryStatus" class="admin-hint"></small>
             </div>
           </div>
           <div id="poTableField" class="form-group" style="display:none">
             <label for="orderTableNumber">Table number</label>
             <input type="text" id="orderTableNumber" placeholder="e.g. 4">
           </div>
-          <div id="poDineFields" style="display:none">
-            <div class="form-group">
-              <label for="poDineDate">Date</label>
-              <input type="date" id="poDineDate">
-            </div>
-            <div class="form-group">
-              <label for="poDineTime">Time</label>
-              <select id="poDineTime"></select>
-            </div>
-            <div class="form-group" id="poPartyField" style="display:none">
-              <label for="poPartySize">No. of people</label>
-              <input type="number" id="poPartySize" min="1" max="200" placeholder="e.g. 4">
-            </div>
-            <small id="poDineNote" class="admin-hint" style="display:none;margin:0 0 10px">A later date is saved as a table reservation with this pre-order. It confirms once the customer pays, and the order reaches the dashboard 20 minutes before the booking time.</small>
-          </div>
-          <div class="form-group" id="poWhenField">
-            <label for="orderPickupTime">Preferred time</label>
-            <select id="orderPickupTime"><option value="As soon as possible">As soon as possible</option></select>
+          <div class="form-group">
+            <label for="orderPickupTime">When</label>
+            <select id="orderPickupTime">
+              <option value="As soon as possible">As soon as possible</option>
+              <option value="In 30 minutes">In 30 minutes</option>
+              <option value="In 1 hour">In 1 hour</option>
+              <option value="In 2 hours">In 2 hours</option>
+            </select>
           </div>
           <div class="form-group">
             <label for="orderInstructions">Special instructions</label>
@@ -1848,50 +1326,23 @@ function initPlaceOrderTab() {
             <label for="orderCustomerEmail">Email <small>(optional - links the order to their account)</small></label>
             <input type="email" id="orderCustomerEmail" placeholder="customer@example.com">
           </div>
-          <p id="payLinkClosedNote" class="admin-hint" style="display: none; color: #b3261e; margin: 0 0 10px"></p>
           <button type="button" id="generatePayLinkBtn" class="btn btn-primary btn-block">
             <i class="fas fa-bolt"></i> Generate Payment Link
-          </button>
-          <button type="button" id="cancelPlaceOrderBtn" class="btn btn-secondary btn-block po-cancel-btn">
-            <i class="fas fa-xmark"></i> Cancel
           </button>
           <div id="paymentLinkResult" style="display: none; margin-top: 16px"></div>
         </div>
       </div>
-    </div>
-    <button type="button" class="po-jump-btn" id="poJumpBtn" aria-label="Go to the order">
-      <i class="fas fa-receipt"></i> Order (<span id="poJumpCount">0</span>) &middot; <span id="poJumpTotal">R0.00</span>
-    </button>`;
+    </div>`;
 
   container.dataset.loaded = "true";
   $id("generatePayLinkBtn").addEventListener("click", generatePaymentLink);
-  updateStatusCard(); // shows the "closed - can't generate a link" note straight away if it applies
-  $id("cancelPlaceOrderBtn").addEventListener("click", cancelPlaceOrder);
-  $id("poJumpBtn").addEventListener("click", () =>
-    document.querySelector(".place-order-sidebar").scrollIntoView({ behavior: "smooth", block: "start" }),
-  );
-  $id("poManualFee").addEventListener("input", (e) => {
-    const value = e.target.value.trim();
-    const n = Number(value);
-    poDelivery.manualFee = value !== "" && Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
-    renderAdminCart();
-  });
   $id("orderType").addEventListener("change", updateOrderTypeFields);
-  $id("poDineDate").addEventListener("change", renderDineTimes);
-  renderPickupTimes();
-  $id("poAddressOkBtn").addEventListener("click", poConfirmAddress);
-  const onAddressEdit = () => {
-    if (poComposeAddress() !== poDelivery.lastInput && (poDelivery.lat !== null || poDelivery.error || poDelivery.tooFar)) {
-      // A different address needs a fresh price - and a new tap on OK.
+  $id("orderDeliveryAddress").addEventListener("blur", poLookupAddress);
+  $id("orderDeliveryAddress").addEventListener("input", () => {
+    if ($id("orderDeliveryAddress").value.trim() !== poDelivery.lastInput && poDelivery.lat !== null) {
       poReset();
-      poClearManualFee();
-      $id("poDeliveryStatus").textContent = "Address changed - tap OK to update the delivery fee.";
       renderAdminCart();
     }
-  };
-  container.querySelectorAll(".po-addr").forEach((el) => {
-    el.addEventListener("input", onAddressEdit);
-    el.addEventListener("change", onAddressEdit);
   });
   $id("adminMenuSearch").addEventListener("input", (e) => {
     adminMenuQuery = e.target.value;
@@ -1913,7 +1364,11 @@ document.querySelectorAll("[data-goto-tab]").forEach((btn) => {
 });
 
 
-// Reservations: admin books a table for a customer who phoned
+// ---------------------------------------------------------------------
+// Reservations: admin books a table for a customer who phoned in, then
+// sends the confirmation over WhatsApp (opens WhatsApp with the message
+// filled in - the admin taps send).
+// ---------------------------------------------------------------------
 (function setupAdminReservationForm() {
   const form = $id("resNewForm");
   const toggle = $id("resNewToggle");
@@ -1969,46 +1424,4 @@ document.querySelectorAll("[data-goto-tab]").forEach((btn) => {
       msg.textContent = err.message || "Couldn't save the reservation.";
     }
   });
-})();
-
-
-// Refreshing the admin page keeps you on the tab you were on (not back on Dashboard).
-function restoreAdminTab() {
-  const wanted = (location.hash || "").replace("#", "") || sessionStorage.getItem("fulude_admin_tab");
-  if (wanted && wanted !== "dashboard") activateTab(wanted);
-}
-if ($id("dashboard").style.display !== "none") restoreAdminTab();
-const _showDashboardForRestore = showDashboard;
-showDashboard = function () {
-  _showDashboardForRestore();
-  setTimeout(restoreAdminTab, 0);
-};
-
-
-/* Shrink big money figures on the KPI cards so the digits always fit inside the card. */
-(function fitKpiValues() {
-  const MIN_PX = 11;
-  function fitAll() {
-    document.querySelectorAll(".kpi-value").forEach((el) => {
-      el.style.fontSize = "";
-      if (!el.clientWidth) return; // hidden tab: fitted when it is shown
-      let size = parseFloat(getComputedStyle(el).fontSize);
-      while (el.scrollWidth > el.clientWidth && size > MIN_PX) {
-        size -= 0.5;
-        el.style.fontSize = size + "px";
-      }
-    });
-  }
-  let queued = false;
-  function schedule() {
-    if (queued) return;
-    queued = true;
-    requestAnimationFrame(() => {
-      queued = false;
-      fitAll();
-    });
-  }
-  new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true, characterData: true });
-  window.addEventListener("resize", schedule);
-  schedule();
 })();

@@ -1,4 +1,13 @@
-// Admin dashboard logic for Fulude's Cafe: password login
+/**
+ * public/js/admin.js
+ * -----------------------------------------------------------------------
+ * Admin dashboard logic for Fulude's Cafe: password login, menu CRUD with
+ * category + spice/extras assignment, in-browser image compression +
+ * upload to R2, sold-out / visibility toggles, extras & spice-level
+ * catalog management, buffet visibility, review replies, and a polling
+ * live order monitor.
+ * -----------------------------------------------------------------------
+ */
 
 const TOKEN_KEY = "fulude_admin_token";
 let adminToken = localStorage.getItem(TOKEN_KEY);
@@ -12,6 +21,7 @@ let staffAccounts = [];
 let reservations = [];
 let pollIntervalId = null;
 let knownPaidNewOrderIds = new Set();
+let adminAudioContext = null;
 const ADMIN_ALERTS_MUTED_KEY = "fulude_admin_alerts_muted";
 
 const money = (n) => `R${Number(n).toFixed(2)}`;
@@ -29,32 +39,22 @@ function addAdminPasswordVisibilityToggle(inputId) {
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "password-visibility-toggle";
-  toggle.innerHTML = '<i class="fas fa-eye" aria-hidden="true"></i>'; // eye icon only
+  toggle.textContent = "Show";
   toggle.setAttribute("aria-label", "Show password");
-  toggle.title = "Show password";
   toggle.addEventListener("click", () => {
     const isVisible = input.type === "text";
     input.type = isVisible ? "password" : "text";
-    toggle.innerHTML = `<i class="fas ${isVisible ? "fa-eye" : "fa-eye-slash"}" aria-hidden="true"></i>`;
+    toggle.textContent = isVisible ? "Show" : "Hide";
     toggle.setAttribute("aria-label", `${isVisible ? "Show" : "Hide"} password`);
-    toggle.title = `${isVisible ? "Show" : "Hide"} password`;
   });
   wrapper.appendChild(toggle);
 }
 
+addAdminPasswordVisibilityToggle("adminPassword");
 addAdminPasswordVisibilityToggle("adminResetPassword");
-addAdminPasswordVisibilityToggle("staffAccountPassword");
-addAdminPasswordVisibilityToggle("adminAccountPassword");
-addAdminPasswordVisibilityToggle("currentAdminPassword");
-addAdminPasswordVisibilityToggle("newAdminPassword");
 
 /** "Delivery: 12 Main Rd" / "Dine In (Table 5)" / "Collection" */
 function describeOrderType(order) {
-  if (order.order_source === "walk_in") {
-    return order.order_type === "dine_in"
-      ? `Walk-in dine-in (Table ${order.table_number || "?"}${order.tab_round ? `, round ${order.tab_round}` : ""})`
-      : "Walk-in takeaway";
-  }
   if (order.order_type === "delivery")
     return `Delivery: ${order.delivery_address || ""}`;
   if (order.order_type === "dine_in")
@@ -62,46 +62,30 @@ function describeOrderType(order) {
   return "Collection";
 }
 
-// The little payment-status pill shown on every order card, in both Live Orders and History
-// Order History wording for a cancelled order: who cancelled it and what happened to the money
-function cancelledStatusLabel(order) {
-  const who =
-    order.cancelled_by === "customer"
-      ? "Cancelled by the customer"
-      : order.cancelled_by === "staff"
-        ? "Cancelled by staff"
-        : order.cancelled_by === "admin"
-          ? "Cancelled by admin"
-          : order.cancelled_by === "system"
-            ? `Cancelled automatically (${order.cancel_reason ? escapeHtml(order.cancel_reason) : "sold out"} - after payment)`
-            : "Cancelled";
-  if (order.payment_status === "refunded") {
-    // The customer can only cancel inside the 2-minute window, where the refund is automatic.
-    const auto = order.cancelled_by === "customer" && !order.refund_error;
-    return `${who} · ${auto ? "Automatically refunded" : "Refunded"}`;
-  }
-  if (order.payment_status === "paid") return `${who} · Refund needed`;
-  return `${who} · Not paid, nothing to refund`;
+/** Where a pay-at-X badge should say the customer will pay (legacy orders only - payment is online-only now). */
+function orderTypePaymentLabel(order) {
+  if (order.order_type === "delivery") return "Delivery";
+  if (order.order_type === "dine_in") return "Table";
+  return "Pickup";
 }
 
+/**
+ * The little payment-status pill shown on every order card, in both Live
+ * Orders and History. A Cancelled order that was already paid gets a
+ * "Refund Needed" pill instead - cancelling never refunds anything
+ * automatically (see handleOrderAction's confirm prompt), so this is the
+ * at-a-glance reminder that a manual refund may still be needed.
+ */
 function paymentBadgeHtml(order) {
-  if (order.payment_status === "tab_open" && order.status !== "Cancelled") {
-    return `<span class="badge badge-unpaid">Open Tab</span>`;
-  }
-  if (order.payment_status === "written_off") {
-    return `<span class="badge badge-refund">Written Off</span>`;
-  }
-  if (order.payment_status === "void") {
-    return `<span class="badge badge-unpaid">Removed from Bill</span>`;
+  if (order.payment_method !== "online") {
+    // Legacy orders placed before payment became mandatory.
+    return `<span class="badge badge-unpaid">Pay at ${orderTypePaymentLabel(order)}</span>`;
   }
   if (order.status === "Cancelled" && order.payment_status === "paid") {
     return `<span class="badge badge-refund">Refund Needed</span>`;
   }
-  if (order.payment_status === "refunded") {
-    return `<span class="badge badge-paid">Refunded</span>`;
-  }
   if (order.payment_status === "paid") {
-    return `<span class="badge badge-paid">${order.order_source === "walk_in" ? "Paid by Card (Walk-in)" : "Paid Online"}</span>`;
+    return `<span class="badge badge-paid">Paid Online</span>`;
   }
   if (order.payment_status === "failed") {
     return `<span class="badge badge-refund">Payment Failed</span>`;
@@ -109,7 +93,9 @@ function paymentBadgeHtml(order) {
   return `<span class="badge badge-unpaid">Awaiting Payment</span>`;
 }
 
+// ---------------------------------------------------------------------
 // Auth
+// ---------------------------------------------------------------------
 async function adminFetch(url, options = {}) {
   const res = await fetch(url, {
     ...options,
@@ -118,8 +104,6 @@ async function adminFetch(url, options = {}) {
       Authorization: `Bearer ${adminToken}`,
     },
   });
-  // 401 = the session really ended. (A section this admin isn't allowed to
-  // use answers 403 instead, which never logs anyone out.)
   if (res.status === 401) {
     logout();
     throw new Error("Session expired. Please log in again.");
@@ -127,99 +111,135 @@ async function adminFetch(url, options = {}) {
   return res;
 }
 
-// Permissions: admins created by the main admin only see
-let adminPermissions = { all: true }; // replaced with the real ones right after sign-in
-const adminCan = (perm) => Boolean(adminPermissions.all || adminPermissions[perm]);
-window.adminCan = adminCan;
-
-const TAB_PERMISSIONS = {
-  dashboard: ["orders"], orders: ["orders"], placeorder: ["orders"], walkin: ["orders"], history: ["orders"], sales: ["orders"],
-  reservations: ["orders"], menu: ["menu"], specials: ["menu"], addons: ["menu"], reviews: ["reviews"],
-  buffet: ["buffet"], customers: ["customers"], audit: ["audit"],
-  settings: ["settings", "admin_accounts", "marketing", "menu"],
-};
-const SETTINGS_TAB_PERMISSIONS = {
-  general: ["settings"], staff: ["settings"], "admin-accounts": ["admin_accounts"], categories: ["menu"],
-  delivery: ["settings"], payments: ["settings"], security: ["settings"], marketing: ["marketing"],
-};
-const allowed = (needs) => !needs || needs.some(adminCan);
-
-async function loadAdminPermissions() {
-  try {
-    const res = await adminFetch("/api/admin/me");
-    if (res.ok) adminPermissions = (await res.json()).permissions || {};
-  } catch {
-    /* logged out by adminFetch if the session is gone */
-  }
-}
-
-/** Applies permissions to admin navigation and shortcuts. */
-function applyAdminPermissions() {
-  document.querySelectorAll(".admin-tab-btn").forEach((btn) => {
-    btn.style.display = allowed(TAB_PERMISSIONS[btn.dataset.tab]) ? "" : "none";
-  });
-  document.querySelectorAll("[data-goto-tab]").forEach((btn) => {
-    btn.style.display = allowed(TAB_PERMISSIONS[btn.dataset.gotoTab]) ? "" : "none";
-  });
-  document.querySelectorAll(".settings-tab-btn").forEach((btn) => {
-    btn.style.display = allowed(SETTINGS_TAB_PERMISSIONS[btn.dataset.settingsTab]) ? "" : "none";
-  });
-  const activeTab = document.querySelector(".admin-tab-btn.active");
-  if (!activeTab || activeTab.style.display === "none") {
-    [...document.querySelectorAll(".admin-tab-btn")].find((b) => b.style.display !== "none")?.click();
-  }
-  const activeSettings = document.querySelector(".settings-tab-btn.active");
-  if (activeSettings && activeSettings.style.display === "none") {
-    [...document.querySelectorAll(".settings-tab-btn")].find((b) => b.style.display !== "none")?.click();
-  }
-}
-
 document.getElementById("logoutBtn").addEventListener("click", logout);
+
+document
+  .getElementById("forgotAdminPasswordBtn")
+  .addEventListener("click", async () => {
+    const email = prompt(
+      "Enter the admin email address for the password reset link:",
+    );
+    if (!email) return;
+
+    try {
+      const res = await fetch("/api/admin/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success)
+        throw new Error(data.error || "Couldn't send reset email.");
+      alert(
+        data.message ||
+          "If that email has an admin account, a reset link is on its way.",
+      );
+    } catch (err) {
+      alert(err.message || "Couldn't process that request.");
+    }
+  });
 
 function logout() {
   adminToken = null;
   localStorage.removeItem(TOKEN_KEY);
   clearInterval(pollIntervalId);
-  window.location.assign("/home");
+  document.getElementById("dashboard").style.display = "none";
+  document.getElementById("loginScreen").style.display = "flex";
+  document.getElementById("loginForm").style.display = "block";
+  document.getElementById("adminResetForm").style.display = "none";
 }
 
-async function showDashboard() {
+function showDashboard() {
+  document.getElementById("loginScreen").style.display = "none";
   document.getElementById("dashboard").style.display = "grid";
-  await loadAdminPermissions();
-  if (!adminToken) return; // the session ended while checking
-  applyAdminPermissions();
   loadEverything();
-  clearInterval(pollIntervalId);
-  pollIntervalId = setInterval(adminLivePoll, ADMIN_POLL_MS);
+  pollIntervalId = setInterval(loadOrders, 30000);
   initAdminAudio();
   setupAdminAlertToggle();
-  if (!adminPushBound) {
-    adminPushBound = true;
-    FuludePWA.bindPushToggle(document.getElementById("pushToggleBtn"), "admin", () => adminToken, {
-      onLabel: "Alerts on",
-      offLabel: "Phone alerts",
-    });
-  }
 }
-let adminPushBound = false;
+
+document.getElementById("loginForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const errorEl = document.getElementById("loginError");
+  errorEl.style.display = "none";
+
+  try {
+    const res = await fetch("/api/admin/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: document.getElementById("adminEmail").value.trim(),
+        password: document.getElementById("adminPassword").value,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success)
+      throw new Error(data.error || "Couldn't log in.");
+
+    adminToken = data.token;
+    localStorage.setItem(TOKEN_KEY, adminToken);
+    document.getElementById("loginForm").reset();
+    showDashboard();
+  } catch (err) {
+    errorEl.textContent = err.message || "Couldn't log in.";
+    errorEl.style.display = "block";
+  }
+});
 
 function initAdminAudio() {
-  FuludeOrderAlert.init();
+  if (adminAudioContext) return;
+  try {
+    adminAudioContext = new (
+      window.AudioContext || window.webkitAudioContext
+    )();
+  } catch (e) {
+    adminAudioContext = null;
+  }
 }
 
 function playAdminBeep(repeats = 2) {
-  FuludeOrderAlert.play(repeats, ADMIN_ALERTS_MUTED_KEY);
+  if (!adminAudioContext) return;
+  if (localStorage.getItem(ADMIN_ALERTS_MUTED_KEY) === "1") return;
+  const ctx = adminAudioContext;
+  const now = ctx.currentTime;
+  for (let i = 0; i < repeats; i++) {
+    const t = now + i * 0.18;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "sine";
+    o.frequency.value = 880 - i * 80;
+    g.gain.value = 0;
+    o.connect(g);
+    g.connect(ctx.destination);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.12, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+    o.start(t);
+    o.stop(t + 0.14);
+  }
 }
 
 function setupAdminAlertToggle() {
-  FuludeOrderAlert.bindMuteButton(
-    document.getElementById("alertMuteBtn"),
-    document.getElementById("alertMuteIcon"),
-    ADMIN_ALERTS_MUTED_KEY,
-  );
+  const btn = document.getElementById("alertMuteBtn");
+  const icon = document.getElementById("alertMuteIcon");
+  if (!btn) return;
+  const update = () => {
+    const muted = localStorage.getItem(ADMIN_ALERTS_MUTED_KEY) === "1";
+    if (icon)
+      icon.className = muted ? "fas fa-volume-mute" : "fas fa-volume-up";
+    btn.title = muted ? "Unmute order alerts" : "Mute order alerts";
+  };
+  btn.addEventListener("click", () => {
+    const muted = localStorage.getItem(ADMIN_ALERTS_MUTED_KEY) === "1";
+    localStorage.setItem(ADMIN_ALERTS_MUTED_KEY, muted ? "0" : "1");
+    update();
+  });
+  update();
 }
 
+// ---------------------------------------------------------------------
 // Tabs
+// ---------------------------------------------------------------------
 let historyLoadedOnce = false;
 
 document.querySelectorAll(".admin-tab-btn").forEach((btn) => {
@@ -238,40 +258,30 @@ document.querySelectorAll(".admin-tab-btn").forEach((btn) => {
       loadOrderHistory(true);
     }
     if (btn.dataset.tab === "sales") {
-      loadSalesStats(); // stats change with every order
+      loadSalesStats(); // always fresh - numbers change any time an order is placed or history is cleared
     }
     if (btn.dataset.tab === "audit") {
       loadAudit(true);
     }
     if (btn.dataset.tab === "customers") loadCustomerRecords();
-    if (btn.dataset.tab === "buffet") loadBuffetEventsAdmin();
     if (btn.dataset.tab === "settings") loadAdminAccounts();
   });
 });
 
-/** Loads only the sections this admin is allowed to use. */
 function loadEverything() {
-  if (adminCan("orders")) {
-    loadOrders();
-    loadReservations();
-  }
-  if (adminCan("menu")) {
-    loadCategories();
-    loadMenuItems();
-    loadAddonsAndSpice();
-  }
-  if (adminCan("reviews")) loadAdminReviews();
-  if (adminCan("settings")) {
-    loadBuffetSetting();
-    loadStaffAccounts();
-  }
-  if (adminCan("admin_accounts")) loadAdminAccounts();
+  loadOrders();
+  loadCategories();
+  loadMenuItems();
+  loadAddonsAndSpice();
+  loadAdminReviews();
+  loadBuffetSetting();
   initBuffetAdminHandlers();
   initStoreStatusHandlers();
   initAuditHandlers();
+  loadStaffAccounts();
+  loadReservations();
+  loadAdminAccounts();
 }
-
-let customerRecordsById = {};
 
 async function loadCustomerRecords() {
   const search = encodeURIComponent(
@@ -284,21 +294,17 @@ async function loadCustomerRecords() {
     const data = await response.json();
     if (!response.ok)
       throw new Error(data.error || "Failed to load customers.");
-    customerRecordsById = Object.fromEntries((data.customers || []).map((c) => [c.id, c]));
     list.innerHTML =
       (data.customers || [])
         .map(
           (customer) =>
-            `<div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">${escapeHtml(customer.name)}</div><div class="sa-list-sub">${escapeHtml(customer.email)} · ${escapeHtml(customer.phone_number || "No phone")} · Joined ${new Date(customer.created_at).toLocaleDateString()}</div></div><span class="admin-hint">${customer.marketing_email_opt_in ? "Email opt-in" : "No email opt-in"}</span><button type="button" class="admin-mini-btn danger" data-delete-customer="${customer.id}"><i class="fas fa-trash"></i> Delete</button></div>`,
+            `<div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">${customer.name}</div><div class="sa-list-sub">${customer.email} · ${customer.phone_number || "No phone"} · Joined ${new Date(customer.created_at).toLocaleDateString()}</div></div><span class="admin-hint">${customer.marketing_email_opt_in ? "Email opt-in" : "No email opt-in"}</span></div>`,
         )
         .join("") || '<p class="menu-empty">No recods yet</p>';
   } catch (error) {
     list.innerHTML = `<p class="menu-empty">No recods yet</p>`;
   }
 }
-
-let adminAccountsById = {};
-let adminAccountsMeta = { me: null, can_manage: false, helper_limit: 2, helper_count: 0 };
 
 async function loadAdminAccounts() {
   const list = document.getElementById("adminAccountsList");
@@ -308,29 +314,18 @@ async function loadAdminAccounts() {
     const data = await response.json();
     if (!response.ok)
       throw new Error(data.error || "Failed to load admin accounts.");
-    adminAccountsMeta = { me: data.me, can_manage: Boolean(data.can_manage), helper_limit: data.helper_limit ?? 2, helper_count: data.helper_count ?? 0 };
-    updateAdminLimitNote();
-    adminAccountsById = Object.fromEntries((data.accounts || []).map((a) => [a.id, a]));
     list.innerHTML =
       (data.accounts || [])
-        .map((account) => {
-          const isMe = Number(account.id) === Number(data.me);
-          const perms = account.permissions?.all
-            ? "Main admin (full access)"
-            : Object.keys(account.permissions || {})
-                .filter((key) => account.permissions[key])
-                .join(", ") || "None";
-          // Another admin's main (full-access) account can't be changed by anyone else.
-          const protectedMain = Boolean(account.permissions?.all) && !isMe;
-          const actions = data.can_manage && !protectedMain
-            ? `<div style="display:flex;gap:6px;margin-top:8px">
-                <button type="button" class="admin-mini-btn" data-edit-admin="${account.id}"><i class="fas fa-pen"></i> Edit</button>
-                ${account.is_locked ? `<button type="button" class="admin-mini-btn unlock" data-unlock-admin="${account.id}" title="Let this admin try signing in again"><i class="fas fa-lock-open"></i> Unlock</button>` : ""}
-                ${isMe ? "" : `<button type="button" class="admin-mini-btn danger" data-delete-admin="${account.id}"><i class="fas fa-trash"></i> Delete</button>`}
-              </div>`
-            : "";
-          return `<div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">${escapeHtml(account.username || account.email)}${isMe ? " <small>(you)</small>" : ""}${account.is_active === false ? ' <span class="badge badge-refund">Disabled</span>' : ""}${account.is_locked ? ' <span class="badge badge-refund">Locked</span>' : ""}${account.email_verified === false ? ' <span class="badge">Email not verified</span>' : ""}</div><div class="sa-list-sub">${escapeHtml(account.email)}</div><div class="sa-list-sub">Permissions: ${escapeHtml(perms)}</div>${actions}</div></div>`;
-        })
+        .map(
+          (account) =>
+            `<div class="sa-list-item"><div class="sa-list-main"><div class="sa-list-title">${account.email}</div><div class="sa-list-sub">Permissions: ${
+              account.permissions?.all
+                ? "All"
+                : Object.keys(account.permissions || {})
+                    .filter((key) => account.permissions[key])
+                    .join(", ") || "None"
+            }</div></div></div>`,
+        )
         .join("") ||
       '<p class="menu-empty">No database admin accounts yet.</p>';
   } catch (error) {
@@ -338,201 +333,47 @@ async function loadAdminAccounts() {
   }
 }
 
-/** "You've reached the 2-admin limit." note under the create form. */
-function updateAdminLimitNote() {
-  const status = document.getElementById("adminAccountStatus");
-  const editing = document.getElementById("adminAccountId")?.value;
-  if (!status || editing) return;
-  const reached = adminAccountsMeta.helper_count >= adminAccountsMeta.helper_limit;
-  if (reached) status.textContent = `You've reached the ${adminAccountsMeta.helper_limit}-admin limit.`;
-  else if (status.textContent.startsWith("You've reached")) status.textContent = "";
-}
-
-/** Back to "Create Admin Account". */
-function resetAdminAccountForm() {
-  const form = document.getElementById("adminAccountForm");
-  form.reset();
-  document.getElementById("adminAccountId").value = "";
-  document.getElementById("adminAccountFormTitle").textContent = "Create Admin Account";
-  document.getElementById("adminAccountSubmitBtn").textContent = "Create Admin Account";
-  document.getElementById("adminAccountPasswordLabel").textContent = "Password";
-  document.getElementById("adminAccountEmail").readOnly = false;
-  document.getElementById("adminAccountPassword").required = true;
-  document.getElementById("adminAccountCancelBtn").style.display = "none";
-  document.getElementById("adminActiveOption").style.display = "none";
-  document.getElementById("adminPermissionOptions").style.display = "";
-  editingFullAccess = false;
-}
-
-// True while a main admin edits their own account (full access is kept)
-var editingFullAccess = false;
-
-function startEditAdminAccount(account) {
-  const form = document.getElementById("adminAccountForm");
-  document.getElementById("adminAccountId").value = account.id;
-  document.getElementById("adminAccountEmail").value = account.email;
-  // The email address is fixed once the account exists.
-  document.getElementById("adminAccountEmail").readOnly = true;
-  document.getElementById("adminAccountUsername").value = account.username || "";
-  document.getElementById("adminAccountPassword").value = "";
-  document.getElementById("adminAccountPassword").required = false;
-  document.getElementById("adminAccountPasswordLabel").textContent = "New Password (leave blank to keep)";
-  document.getElementById("adminAccountFormTitle").textContent = `Edit: ${account.email}`;
-  document.getElementById("adminAccountSubmitBtn").textContent = "Save Changes";
-  document.getElementById("adminAccountCancelBtn").style.display = "";
-  document.getElementById("adminActiveOption").style.display = "";
-  document.getElementById("adminAccountActive").checked = account.is_active !== false;
-  const full = Boolean(account.permissions?.all);
-  editingFullAccess = full;
-  document.getElementById("adminPermissionOptions").style.display = full ? "none" : "";
-  document.querySelectorAll("#adminPermissionOptions input").forEach((input) => {
-    input.checked = full || Boolean(account.permissions?.[input.value]);
-  });
-  document.getElementById("adminAccountStatus").textContent = "";
-  form.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-document.getElementById("adminAccountCancelBtn")?.addEventListener("click", resetAdminAccountForm);
-
-document.getElementById("adminAccountsList")?.addEventListener("click", async (e) => {
-  const editBtn = e.target.closest("[data-edit-admin]");
-  if (editBtn) {
-    const account = adminAccountsById[editBtn.dataset.editAdmin];
-    if (account) startEditAdminAccount(account);
-    return;
-  }
-  const unlockBtn = e.target.closest("[data-unlock-admin]");
-  if (unlockBtn) {
-    const response = await adminFetch("/api/admin/accounts", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: Number(unlockBtn.dataset.unlockAdmin), unlock: true }),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.success) alert(data.error || "Couldn't unlock the account.");
-    loadAdminAccounts();
-    return;
-  }
-  const delBtn = e.target.closest("[data-delete-admin]");
-  if (!delBtn) return;
-  const account = adminAccountsById[delBtn.dataset.deleteAdmin];
-  if (!account) return;
-  if (!confirm(`Delete the admin account ${account.email}?\n\nThey'll be signed out and won't be able to log in again. This can't be undone.`)) return;
-  const response = await adminFetch("/api/admin/accounts", {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id: account.id }),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || !data.success) {
-    alert(data.error || "Couldn't delete the account.");
-    return;
-  }
-  if (String(document.getElementById("adminAccountId").value) === String(account.id)) resetAdminAccountForm();
-  loadAdminAccounts();
-});
-
 document
   .getElementById("customerSearchBtn")
   ?.addEventListener("click", loadCustomerRecords);
-
-// Delete a customer account: signs them out on every device and they can no longer log in.
-document.getElementById("customerRecordsList")?.addEventListener("click", async (e) => {
-  const delBtn = e.target.closest("[data-delete-customer]");
-  if (!delBtn) return;
-  const customer = customerRecordsById[delBtn.dataset.deleteCustomer];
-  if (!customer) return;
-  if (!confirm(`Delete the customer account for ${customer.name} (${customer.email})?
-
-They'll be signed out on every device and won't be able to log in to this account again. Their past orders, bookings and reviews stay in your records. This can't be undone.`)) return;
-  delBtn.disabled = true;
-  const response = await adminFetch(`/api/admin/customers?id=${encodeURIComponent(customer.id)}`, { method: "DELETE" });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || !data.success) {
-    alert(data.error || "Couldn't delete the customer account.");
-    delBtn.disabled = false;
-    return;
-  }
-  loadCustomerRecords();
-});
 document
   .getElementById("adminAccountForm")
   ?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const fullAccess = editingFullAccess;
-    const permissions = fullAccess
-      ? { all: true }
-      : Object.fromEntries(
-          [...document.querySelectorAll("#adminPermissionOptions input")].map(
-            (input) => [input.value, input.checked],
-          ),
-        );
+    const permissions = Object.fromEntries(
+      [...document.querySelectorAll("#adminPermissionOptions input")].map(
+        (input) => [input.value, input.checked],
+      ),
+    );
     const status = document.getElementById("adminAccountStatus");
-    const editingId = document.getElementById("adminAccountId").value;
-    if (!editingId && !fullAccess && adminAccountsMeta.helper_count >= adminAccountsMeta.helper_limit) {
-      status.textContent = `You've reached the ${adminAccountsMeta.helper_limit}-admin limit.`;
-      return;
-    }
     try {
       const response = await adminFetch("/api/admin/accounts", {
-        method: editingId ? "PUT" : "POST",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          id: editingId ? Number(editingId) : undefined,
-          // Email is only sent when creating - it can't be changed afterwards.
-          email: editingId ? undefined : document.getElementById("adminAccountEmail").value.trim(),
-          username: document.getElementById("adminAccountUsername").value.trim(),
+          email: document.getElementById("adminAccountEmail").value.trim(),
           password: document.getElementById("adminAccountPassword").value,
           permissions,
-          is_active: editingId ? document.getElementById("adminAccountActive").checked : undefined,
         }),
       });
       const data = await response.json();
       if (!response.ok || !data.success)
-        throw new Error(data.error || (editingId ? "Failed to save the admin account." : "Failed to create admin account."));
-      resetAdminAccountForm();
-      status.textContent = editingId ? "Admin account updated." : "Admin account created. A verification link was emailed to them - they can't sign in until they click it.";
+        throw new Error(data.error || "Failed to create admin account.");
+      status.textContent = "Admin account created.";
+      event.currentTarget.reset();
       loadAdminAccounts();
     } catch (error) {
       status.textContent = error.message;
     }
   });
 
-// Live refresh: orders reload every 5s so nobody has to reload the page (the kitchen board is always current),
-// and the dashboard's full order history reloads every 30s.
-const ADMIN_POLL_MS = 5000;
-let adminPollTick = 0;
-// While you're using a booking's status dropdown the list is not redrawn for 2 minutes
-// (a redraw closes the open dropdown). Pressing Save lets it refresh again straight away.
-const RESERVATION_HOLD_MS = 2 * 60 * 1000;
-let reservationHoldUntil = 0;
-(function holdReservationsWhileEditing() {
-  const list = document.getElementById("reservationsList");
-  if (!list) return;
-  const hold = (e) => {
-    if (e.target.closest && e.target.closest("select[data-reservation-status]")) {
-      reservationHoldUntil = Date.now() + RESERVATION_HOLD_MS;
-    }
-  };
-  ["focusin", "mousedown", "touchstart", "change"].forEach((type) => list.addEventListener(type, hold, true));
-})();
-
-function adminLivePoll() {
-  adminPollTick++;
-  if (!adminCan("orders")) return; // nothing live to refresh for this admin
-  loadOrders();
-  if (document.hidden) return;
-  const tab = document.querySelector(".admin-tab-btn.active")?.dataset.tab;
-  if (tab === "reservations" && Date.now() >= reservationHoldUntil) loadReservations();
-  // The dashboard pulls full history - every 30s is plenty.
-  if (tab === "dashboard" && adminPollTick % 6 === 0 && typeof loadDashboardData === "function") loadDashboardData();
-}
-
+// ---------------------------------------------------------------------
+// Orders: poll every 30s
+// ---------------------------------------------------------------------
 async function loadOrders() {
   try {
     const res = await adminFetch("/api/admin/pending-orders");
     const data = await res.json();
-    kdsScheduleNextRelease(data, loadOrders);
     const orders = data.orders || [];
 
     document.getElementById("orderCountBadge").textContent = orders.length;
@@ -541,7 +382,7 @@ async function loadOrders() {
     // Detect newly arrived PAID orders (status New && payment_status === 'paid')
     const paidNewIds = new Set(
       orders
-        .filter((o) => o.status === "New" && ["paid", "tab_open"].includes(o.payment_status))
+        .filter((o) => o.status === "New" && o.payment_status === "paid")
         .map((o) => String(o.id)),
     );
     const newOnes = [...paidNewIds].filter(
@@ -559,33 +400,25 @@ newOnes.forEach((id) => {
       });
 }
 
-    knownPaidNewOrderIds = paidNewIds;
-  } catch (err) {
-    // Non-fatal; the next poll will retry.
-  }
-}
-
 /** Load and render ingredient stock-up suggestions */
-let suggestionsRequestId = 0;
-const suggestionsOpen = new Set(); // ingredients the user has expanded - kept across refreshes
 async function loadIngredientSuggestions() {
   const listEl = document.getElementById("ingredientSuggestionsList");
+  const days = document.getElementById("suggestionsDays")?.value || "7";
+  const threshold = document.getElementById("suggestionsLowStockThreshold")?.value || "5";
+  
   if (!listEl) return;
-
-  const requestId = ++suggestionsRequestId;
-  if (!listEl.children.length || listEl.querySelector(".menu-loading, .form-error")) {
-    listEl.innerHTML = `<p class="menu-loading">Loading suggestions…</p>`;
-  }
+  
+  listEl.innerHTML = `<p class="menu-loading">Loading suggestions…</p>`;
 
   try {
-    const res = await adminFetch("/api/admin/ingredient-suggestions");
+    const res = await adminFetch(`/api/admin/ingredient-suggestions?days=${days}&low_stock_threshold=${threshold}`);
     const data = await res.json();
+    
     if (!res.ok) throw new Error(data.error || "Failed to load");
-    if (requestId !== suggestionsRequestId) return; // a newer request is in flight
+    
     renderIngredientSuggestions(data.ingredients || []);
   } catch (err) {
-    if (requestId !== suggestionsRequestId) return;
-    listEl.innerHTML = `<p class="form-error">Failed to load: ${String(err.message).replace(/[<>&]/g, "")}</p>`;
+    listEl.innerHTML = `<p class="form-error">Failed to load: ${err.message}</p>`;
   }
 }
 
@@ -594,62 +427,51 @@ function renderIngredientSuggestions(ingredients) {
   if (!listEl) return;
 
   if (!ingredients.length) {
-    listEl.innerHTML = `<p class="menu-empty">No ingredients need stocking up right now.</p>`;
+    listEl.innerHTML = `<p class="menu-empty">No ingredients flagged. All dishes are well-stocked and selling normally.</p>`;
     return;
   }
 
-  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const LABELS = { high: "High", medium: "Medium", low: "Low" };
-  const joinNames = (names) =>
-    names.length <= 1
-      ? names.join("")
-      : names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
-  const reasonText = (ing) => {
-    const names = ing.dishes.map((d) => esc(d.name));
-    return `Used ${ing.weekly_uses} times in the last 7 days. You might need to stock up on this because ${joinNames(names)} ${names.length === 1 ? "uses" : "use"} it and ${names.length === 1 ? "is" : "are"} running low.`;
-  };
-
-  listEl.innerHTML = ingredients.map((ing) => {
-    const level = LABELS[ing.urgency] ? ing.urgency : "low";
-    const key = String(ing.ingredient_name).toLowerCase();
-    const open = suggestionsOpen.has(key);
+  listEl.innerHTML = ingredients.map((ing, idx) => {
+    const urgencyClass = ing.urgency_score >= 3 ? "high" : ing.urgency_score >= 2 ? "medium" : "low";
+    const urgencyLabel = ing.urgency_score >= 3 ? "High" : ing.urgency_score >= 2 ? "Medium" : "Low";
+    
     return `
-      <div class="sugg-card sugg-${level}${open ? " open" : ""}">
-        <button type="button" class="sugg-card-head" data-key="${esc(key)}" aria-expanded="${open}">
-          <span class="sugg-head-main">
-            <strong class="sugg-name">${esc(ing.ingredient_name)}</strong>
-            <span class="sugg-badge sugg-badge-${level}">${LABELS[level]} urgency</span>
-          </span>
-          <i class="fas fa-chevron-down sugg-chevron" aria-hidden="true"></i>
-        </button>
-        <p class="sugg-reason">${reasonText(ing)}</p>
-        <div class="sugg-rows">
-          ${ing.dishes.map((d) => `
-            <div class="sugg-row">
-              <span class="sugg-row-name">${esc(d.name)}</span>
-              <span class="sugg-row-stock">${d.stock_quantity !== null ? d.stock_quantity + " left" : "Untracked"}</span>
-            </div>`).join("")}
+      <div class="ingredient-suggestion-item urgency-${urgencyClass}">
+        <div class="ingredient-header">
+          <strong>${ing.ingredient_name}</strong>
+          <span class="badge badge-status-${urgencyClass}">${urgencyLabel} urgency</span>
         </div>
-      </div>`;
+        <div class="ingredient-meta">
+          <span>${ing.dish_count} dish${ing.dish_count === 1 ? "" : "es"} use this</span>
+          <span>Urgency score: ${ing.urgency_score}</span>
+        </div>
+        <details class="ingredient-dishes">
+          <summary>Show dishes (${ing.dishes.length})</summary>
+          <table class="sa-table" style="margin-top: 8px; font-size: 0.85rem;">
+            <thead>
+              <tr><th>Dish</th><th style="text-align:center">Units Sold</th><th style="text-align:center">Stock Qty</th><th>Reasons</th></tr>
+            </thead>
+            <tbody>
+              ${ing.dishes.map(d => `
+                <tr>
+                  <td>${d.name}</td>
+                  <td style="text-align:center">${d.units_sold || "—"}</td>
+                  <td style="text-align:center">${d.stock_quantity !== null ? d.stock_quantity : "Untracked"}</td>
+                  <td>${d.reasons.join("; ")}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </details>
+      </div>
+    `;
   }).join("");
 }
 
 // Event listeners for suggestions panel
 document.getElementById("refreshSuggestionsBtn")?.addEventListener("click", loadIngredientSuggestions);
-
-// Expand / collapse an ingredient. One handler on the list, attached once, and the
-// card is updated in place (no re-render), so it opens and closes on the first click.
-document.getElementById("ingredientSuggestionsList")?.addEventListener("click", (e) => {
-  const head = e.target.closest(".sugg-card-head");
-  if (!head) return;
-  const card = head.closest(".sugg-card");
-  const key = head.dataset.key;
-  const nowOpen = !card.classList.contains("open");
-  card.classList.toggle("open", nowOpen);
-  head.setAttribute("aria-expanded", String(nowOpen));
-  if (nowOpen) suggestionsOpen.add(key);
-  else suggestionsOpen.delete(key);
-});
+document.getElementById("suggestionsDays")?.addEventListener("change", loadIngredientSuggestions);
+document.getElementById("suggestionsLowStockThreshold")?.addEventListener("change", loadIngredientSuggestions);
 
 // Load suggestions when Menu & Stock tab is activated
 document.querySelectorAll('.admin-tab-btn[data-tab="menu"]').forEach(btn => {
@@ -657,18 +479,20 @@ document.querySelectorAll('.admin-tab-btn[data-tab="menu"]').forEach(btn => {
     setTimeout(loadIngredientSuggestions, 100);
   });
 });
+    knownPaidNewOrderIds = paidNewIds;
+  } catch (err) {
+    // Non-fatal; the next poll will retry.
+  }
+}
 
 /** Sticky kitchen control bar above the board: instant operational visibility. */
 const KITCHEN_CAPACITY = 12; // active tickets considered a "full" kitchen
 
-function renderKitchenStrip(allOrders) {
-  // Stats cover today's orders only, so they start from zero at midnight.
-  const orders = allOrders.filter(kdsIsToday);
-  const note = document.getElementById("kpiResetNote");
-  if (note) note.textContent = kdsResetLabel();
-  // Only tickets the kitchen is still working on count towards ticket age, longest wait and load
-  const active = orders.filter((o) => ["New", "Preparing", "Ready"].includes(o.status));
-  const ages = active.filter(kdsCountsInStats).map(kdsMinutes);
+function renderKitchenStrip(orders) {
+  const active = orders.filter((o) =>
+    ["New", "Preparing", "Ready", "Collection", "Delivery", "Out for Delivery"].includes(o.status),
+  );
+  const ages = active.map(kdsMinutes);
   const avgAge = ages.length
     ? Math.round(ages.reduce((s, m) => s + m, 0) / ages.length)
     : 0;
@@ -687,17 +511,13 @@ function renderKitchenStrip(allOrders) {
   set("kpiWaiting", orders.filter((o) => o.status === "New").length);
   set("kpiPreparing", orders.filter((o) => o.status === "Preparing").length);
   set("kpiReady", orders.filter((o) => o.status === "Ready").length);
-  set("kpiPrepTime", ages.length ? `${avgAge} min` : "—");
-  set("kpiLongest", ages.length ? `${longest} min` : "—", longest >= 30);
+  set("kpiPrepTime", active.length ? `${avgAge} min` : "—");
+  set("kpiLongest", active.length ? `${longest} min` : "—", longest >= 30);
   set("kpiEfficiency", `${load}%`, load >= 90);
 }
 
-let lastKitchenOrders = [];
-kdsOnTick(() => renderKitchenStrip(lastKitchenOrders)); // live Avg Ticket Age / Longest Waiting
-
 function renderOrders(orders) {
   const list = document.getElementById("ordersList");
-  lastKitchenOrders = orders;
   renderKitchenStrip(orders);
 
   list.innerHTML = kdsBoardHtml(orders, [
@@ -713,19 +533,12 @@ function renderOrders(orders) {
   kdsBindBoard(list, orders, {
     onAction: handleOrderAction,
     confirmAction: (order, status) => {
-      if (status === "Cancelled" && order.order_source === "walk_in") {
-        return confirm(
-          order.payment_status === "paid"
-            ? `Order #${order.id} was already paid by card at the cafe (${money(order.total_amount)}). Cancelling marks it "Refund needed" - give the guest their money back on the card machine, then tap "Already refunded" in Order History.\n\nCancel this order?`
-            : `Cancel order #${order.id}? It is taken off the table's bill.`,
-        );
-      }
       if (status === "Cancelled" && order.payment_status === "paid") {
         return confirm(
-          `Order #${order.id} was already paid online (${money(order.total_amount)}). Cancelling marks it "Refund needed" - you can then refund it with one tap from Order History (the "Refund via Yoco" button).\n\nCancel this order?`,
+          `Order #${order.id} was already paid online (${money(order.total_amount)}). Cancelling does NOT refund it automatically - you'll need to log into Yoco and refund it yourself (Transactions History${order.payment_ref ? `, ref: ${order.payment_ref}` : ""}).\n\nCancel this order anyway?`,
         );
       }
-      if (status !== "Cancelled" && !["paid", "tab_open"].includes(order.payment_status)) {
+      if (status !== "Cancelled" && order.payment_status !== "paid") {
         return confirm(
           `Order #${order.id} hasn't been confirmed as paid yet (payment status: ${order.payment_status}). Advancing it means preparing food nobody's actually paid for.\n\nContinue anyway?`,
         );
@@ -735,7 +548,7 @@ function renderOrders(orders) {
   });
 }
 
-/** Kitchen stages before collection, delivery, and completion. */
+/** The kitchen lifecycle is New -> Preparing -> Ready -> Collection/Delivery -> Completed; this renders the one "advance" button for wherever an order currently sits. */
 const NEXT_STAGE = { New: "Preparing", Preparing: "Ready" };
 const NEXT_STAGE_LABEL = {
   New: "Start Preparing",
@@ -777,7 +590,10 @@ async function handleOrderAction(status, orderId) {
   loadOrders();
 }
 
-// Order History (read-only view across every status, incl
+// ---------------------------------------------------------------------
+// Order History (read-only view across every status, incl. Completed
+// and Cancelled - separate from the live order monitor).
+// ---------------------------------------------------------------------
 const HISTORY_PAGE_SIZE = 30;
 let historyOffset = 0;
 let historyOrders = [];
@@ -797,7 +613,9 @@ async function loadOrderHistory(reset) {
   });
   if (search) params.set("search", search);
 
-  // "Refund Needed" isn't a real order status - it's a shortcut for Cancelled orders that were already
+  // "Refund Needed" isn't a real order status - it's a shortcut for
+  // Cancelled orders that were already paid, so translate it into the
+  // two real filters the API understands.
   if (status === "refund_needed") {
     params.set("status", "Cancelled");
     params.set("payment_status", "paid");
@@ -830,7 +648,7 @@ function renderOrderHistory(orders) {
 
   list.innerHTML = orders
     .map((order) => {
-      const itemsHtml = groupOrderItems(order.items)
+      const itemsHtml = order.items
         .map((item) => {
           const extras = Array.isArray(item.extras)
             ? item.extras
@@ -838,7 +656,7 @@ function renderOrderHistory(orders) {
           const bits = [];
           if (item.spice_level) bits.push(item.spice_level);
           if (extras.length) bits.push(extras.map((e) => e.name).join(", "));
-          return `<li>${item.quantity}x ${item.item_name}${bits.length ? ` (${bits.join(" · ")})` : ""} - ${money(item.subtotal)}${mealBreakdownHtml(item)}</li>`;
+          return `<li>${item.quantity}x ${item.item_name}${bits.length ? ` (${bits.join(" · ")})` : ""} - ${money(item.subtotal)}</li>`;
         })
         .join("");
 
@@ -852,7 +670,6 @@ function renderOrderHistory(orders) {
         (order.status === "Cancelled" &&
           order.payment_status === "paid" &&
           order.refund_processed_at == null);
-      const statusLabel = order.status === "Cancelled" ? cancelledStatusLabel(order) : order.status;
 
       return `
       <div class="admin-order-card status-${order.status.toLowerCase()}${refundNeeded ? " refund-needed" : ""}">
@@ -861,79 +678,22 @@ function renderOrderHistory(orders) {
           <span>${money(order.total_amount)}</span>
         </div>
         <div class="admin-order-meta">
-          ${orderDate} · ${order.status === "Cancelled" ? `<strong class="${refundNeeded ? "refund-needed-note" : ""}">${statusLabel}</strong>` : statusLabel} · ${order.customer_phone || (order.order_source === "walk_in" ? "Walk-in" : "")} · ${describeOrderType(order)} · ${order.pickup_time} · ${paymentBadgeHtml(order)}
+          ${orderDate} · ${order.status} · ${order.customer_phone} · ${describeOrderType(order)} · ${order.pickup_time} · ${paymentBadgeHtml(order)}
           ${order.special_instructions ? `<br>Note: ${order.special_instructions}` : ""}
-          ${
-            refundNeeded
-              ? `<div class="refund-actions">
-                  ${order.refund_error ? `<div class="refund-error">Last refund attempt failed: ${escapeHtml(order.refund_error)}</div>` : ""}
-                  ${
-                    order.order_source === "walk_in"
-                      ? `<div class="refund-error" style="color:var(--sa-text)">This was paid by card at the cafe. Give the guest ${money(order.total_amount)} back on the card machine, then tap the button.</div>
-                  <button type="button" class="admin-mini-btn mark-refund-btn" data-order-id="${order.id}">Already refunded on the card machine</button>`
-                      : `<button type="button" class="admin-mini-btn refund-yoco-btn" data-order-id="${order.id}" data-amount="${order.total_amount}"><i class="fas fa-rotate-left"></i> Refund ${money(order.total_amount)} via Yoco</button>
-                  <button type="button" class="admin-mini-btn mark-refund-btn" data-order-id="${order.id}">Already refunded in Yoco</button>`
-                  }
-                </div>`
-              : order.refund_processed_at
-                ? `<br>Refunded ${new Date(order.refund_processed_at).toLocaleString("en-ZA")}${order.refund_ref ? ` (Yoco ref: ${escapeHtml(order.refund_ref)})` : ""}`
-                : ""
-          }
+          ${refundNeeded ? `<br><strong class="refund-needed-note">Refund needed via Yoco${order.payment_ref ? ` (ref: ${order.payment_ref})` : ""}</strong><br><button class="btn btn-secondary mark-refund-btn" data-order-id="${order.id}">Mark refund processed</button>` : order.refund_processed_at ? `<br>Refund marked processed ${new Date(order.refund_processed_at).toLocaleString("en-ZA")}` : ""}
         </div>
-        ${
-          order.order_type === "delivery" && ["Delivery", "Completed"].includes(order.status)
-            ? `<label class="admin-delivered-tick"><input type="checkbox" data-delivered-order="${order.id}" ${order.delivered_at ? "checked" : ""}> Delivered${order.delivered_at ? ` · ${new Date(order.delivered_at).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit", hour12: false })}` : ""}</label>`
-            : ""
-        }
         <ul class="admin-order-items">${itemsHtml}</ul>
       </div>
     `;
     })
     .join("");
 
-  list.querySelectorAll("[data-delivered-order]").forEach((box) =>
-    box.addEventListener("change", async () => {
-      box.disabled = true;
-      const response = await adminFetch("/api/admin/order-delivered", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ order_id: Number(box.dataset.deliveredOrder), delivered: box.checked }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.success) alert(data.error || "Couldn't update the delivered tick.");
-      loadOrderHistory(true);
-    }),
-  );
-
-  list.querySelectorAll(".refund-yoco-btn").forEach((button) =>
-    button.addEventListener("click", async () => {
-      const id = Number(button.dataset.orderId);
-      if (!confirm(`Refund ${money(button.dataset.amount)} for order #${id} back to the customer's card through Yoco now?`)) return;
-      button.disabled = true;
-      button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Refunding…';
-      const response = await adminFetch("/api/admin/refund", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ order_id: id, mode: "yoco" }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.success) {
-        alert(data.error || "The refund didn't go through.");
-        loadOrderHistory(true);
-        return;
-      }
-      alert(`Order #${id} refunded through Yoco. It usually reaches the customer's card within a few business days.`);
-      loadOrderHistory(true);
-    }),
-  );
-
   list.querySelectorAll(".mark-refund-btn").forEach((button) =>
     button.addEventListener("click", async () => {
-      if (!confirm("Only use this if you already refunded this order yourself in the Yoco dashboard. Mark it as refunded?")) return;
+      if (!confirm("Confirm the refund has been completed in Yoco?")) return;
       const response = await adminFetch("/api/admin/refund", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ order_id: Number(button.dataset.orderId), mode: "manual" }),
+        body: JSON.stringify({ order_id: Number(button.dataset.orderId) }),
       });
       const data = await response.json();
       if (!response.ok || !data.success)
@@ -974,7 +734,7 @@ document
 const salesPeriodSelect = document.getElementById("salesPeriodSelect");
 document
   .getElementById("salesFilterBtn")
-  .addEventListener("click", () => loadSalesStats());
+  .addEventListener("click", () => { loadSalesStats(); window.loadReportWidgets?.(); });
 
 if (salesPeriodSelect) {
   salesPeriodSelect.addEventListener("change", toggleSalesDateInputs);
@@ -984,7 +744,11 @@ populateSalesMonthSelect();
 setDefaultSalesDates();
 toggleSalesDateInputs();
 
-// Your Sales: order and revenue stats
+// ---------------------------------------------------------------------
+// Your Sales: period-based order + revenue stats and a hand-drawn SVG pie
+// chart of orders per menu category (no charting library - keeps this
+// vanilla/free-tier).
+// ---------------------------------------------------------------------
 const PIE_COLORS = [
   "#a88b4a",
   "#0a0a0a",
@@ -1147,66 +911,12 @@ async function loadSalesStats() {
       data.monthly_breakdown || [],
       selectedMonths,
     );
-    renderSalesChannels(data);
     // Store for the sidebar status card + dashboard (admin-app.js reads this).
     window.adminLastStats = data;
     if (typeof window.onStatsLoaded === "function") window.onStatsLoaded(data);
   } catch (err) {
     chartWrap.innerHTML = `<p class="menu-empty">Couldn't load sales stats.</p>`;
   }
-}
-
-/** "Sales by Channel": online vs walk-in takeaway vs walk-in dine-in, with each one's share of the total. */
-function renderSalesChannels(data) {
-  const box = document.getElementById("salesChannels");
-  if (!box) return;
-  const defs = [
-    { key: "online", label: "Online (website)", cls: "wi-ch-online" },
-    { key: "walk_in_takeaway", label: "Walk-in takeaway", cls: "wi-ch-takeaway" },
-    { key: "walk_in_dine_in", label: "Walk-in dine-in", cls: "wi-ch-dinein" },
-  ];
-  const byKey = Object.fromEntries((data.channels || []).map((c) => [c.channel, c]));
-  const totalRevenue = defs.reduce((s, d) => s + Number(byKey[d.key]?.revenue || 0), 0);
-  const totalOrders = defs.reduce((s, d) => s + Number(byKey[d.key]?.orders || 0), 0);
-  if (!totalOrders) {
-    box.innerHTML = '<p class="menu-empty">No paid orders in this period yet.</p>';
-    return;
-  }
-  const pct = (v) => (totalRevenue > 0 ? (Number(v) / totalRevenue) * 100 : 0);
-  const walkRevenue = Number(byKey.walk_in_takeaway?.revenue || 0) + Number(byKey.walk_in_dine_in?.revenue || 0);
-  const onlineRevenue = Number(byKey.online?.revenue || 0);
-  const summary =
-    walkRevenue === 0 && onlineRevenue === 0
-      ? ""
-      : `<p class="admin-hint" style="margin:0 0 6px"><strong>${pct(onlineRevenue).toFixed(0)}%</strong> of sales came from the website and <strong>${pct(walkRevenue).toFixed(0)}%</strong> from guests at the cafe.</p>`;
-  const bar = `<div class="wi-channel-bar">${defs
-    .map((d) => `<span class="${d.cls}" style="width:${pct(byKey[d.key]?.revenue || 0).toFixed(2)}%"></span>`)
-    .join("")}</div>`;
-  const rows = defs
-    .map((d) => {
-      const c = byKey[d.key] || { orders: 0, revenue: 0 };
-      const avg = c.orders ? Number(c.revenue) / c.orders : 0;
-      return `<div class="wi-channel-row">
-        <span class="wi-dot ${d.cls}"></span>
-        <span><strong>${d.label}</strong><br><small>${c.orders} order${c.orders === 1 ? "" : "s"} · avg R${avg.toFixed(0)}</small></span>
-        <span>R${Number(c.revenue).toFixed(2)}</span>
-        <strong>${pct(c.revenue).toFixed(0)}%</strong>
-        <span></span>
-      </div>`;
-    })
-    .join("");
-  // month by month, so the owner sees whether walk-ins are growing
-  const months = (data.monthly_breakdown || []).filter((m) => m.walk_in_revenue || m.revenue);
-  const monthRows = months.length > 1
-    ? `<div style="margin-top:12px"><small class="admin-hint">Month by month</small>${months
-        .map((m) => {
-          const online = Math.max(0, Number(m.revenue) - Number(m.walk_in_revenue));
-          const label = new Date(`${m.month}-01T00:00:00`).toLocaleString("en-ZA", { month: "short", year: "2-digit" });
-          return `<div class="wi-channel-row" style="grid-template-columns: 70px 1fr 1fr"><strong>${label}</strong><span>Online R${online.toFixed(0)}</span><span>Walk-in R${Number(m.walk_in_revenue).toFixed(0)}</span></div>`;
-        })
-        .join("")}</div>`
-    : "";
-  box.innerHTML = summary + bar + rows + monthRows;
 }
 
 /** Renders the month-by-month revenue trend as simple div-based bars (no chart library). */
@@ -1217,26 +927,10 @@ function renderMonthlyTrendHtml(monthlyBreakdown) {
     ...monthlyBreakdown.map((m) => Number(m.revenue || 0)),
     1,
   );
-  // % change on the month before. Only worked out when that month is the one directly before.
-  const monthIndex = (key) => {
-    const [y, mo] = key.split("-");
-    return Number(y) * 12 + Number(mo);
-  };
-  const today = new Date();
-  const currentKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
-  const arrows = { up: "▲", down: "▼", flat: "–" };
-
   const cols = monthlyBreakdown
-    .map((m, idx) => {
+    .map((m) => {
       const revenue = Number(m.revenue || 0);
-      const barHeight = Math.max(4, Math.round((revenue / maxRevenue) * 110));
-      const prev = idx > 0 ? monthlyBreakdown[idx - 1] : null;
-      const prevRevenue = prev ? Number(prev.revenue || 0) : 0;
-      const hasCompare = prev && prevRevenue > 0 && monthIndex(m.month) - monthIndex(prev.month) === 1;
-      const change = hasCompare ? ((revenue - prevRevenue) / prevRevenue) * 100 : null;
-      const dir = change === null ? "" : Math.abs(change) < 0.5 ? "flat" : change > 0 ? "up" : "down";
-      const changeText = dir ? `${arrows[dir]} ${Math.abs(change).toFixed(0)}%` : "";
-      const inProgress = m.month === currentKey;
+      const heightPct = Math.max(2, Math.round((revenue / maxRevenue) * 100));
       const [year, monthNumber] = m.month.split("-");
       const label = new Date(
         Number(year),
@@ -1244,11 +938,10 @@ function renderMonthlyTrendHtml(monthlyBreakdown) {
         1,
       ).toLocaleString("en-ZA", { month: "short" });
       return `
-        <div class="admin-trend-col" title="${m.month}: ${m.order_count} order${m.order_count === 1 ? "" : "s"} · R${revenue.toFixed(2)}${changeText ? ` (${changeText} on previous month)` : ""}">
+        <div class="admin-trend-col" title="${m.month}: ${m.order_count} order${m.order_count === 1 ? "" : "s"} · R${revenue.toFixed(2)}">
           <span class="admin-trend-value">R${Math.round(revenue)}</span>
-          <div class="admin-trend-bar${inProgress ? " partial" : ""}" style="height: ${barHeight}px"></div>
+          <div class="admin-trend-bar" style="height: ${heightPct}%"></div>
           <span class="admin-trend-label">${label} '${year.slice(2)}</span>
-          <span class="admin-trend-change ${dir}">${changeText || "&nbsp;"}</span>
           <span class="admin-trend-orders">${m.order_count} order${m.order_count === 1 ? "" : "s"}</span>
         </div>
       `;
@@ -1258,12 +951,7 @@ function renderMonthlyTrendHtml(monthlyBreakdown) {
   return `
     <div style="width: 100%; margin-bottom: 28px;">
       <h3 style="margin-bottom: 4px;">Revenue by Month</h3>
-      <div class="admin-trend-chart compare">${cols}</div>
-      <p class="admin-trend-legend">
-        <span><b class="up">▲</b> Up on previous month</span>
-        <span><b class="down">▼</b> Down on previous month</span>
-        ${monthlyBreakdown.some((m) => m.month === currentKey) ? "<span>Lighter bar: month still in progress</span>" : ""}
-      </p>
+      <div class="admin-trend-chart">${cols}</div>
     </div>
   `;
 }
@@ -1364,7 +1052,7 @@ function renderSalesPieChart(categories, monthlyBreakdown, selectedMonths) {
   });
 }
 
-/** Builds a pie-slice SVG arc from angles in degrees. */
+/** Builds an SVG arc path "wedge" from centre (cx,cy), for a pie slice spanning startAngle..endAngle (degrees, 0 = 3 o'clock). */
 function describeArc(cx, cy, r, startAngle, endAngle) {
   // A full-circle single-category case needs special handling - an SVG arc
   // can't sweep a full 360° in one path, so nudge it just under 360.
@@ -1385,7 +1073,9 @@ function polarToCartesian(cx, cy, r, angleDegrees) {
   };
 }
 
+// ---------------------------------------------------------------------
 // Categories
+// ---------------------------------------------------------------------
 async function loadCategories() {
   const res = await adminFetch("/api/admin/categories");
   const data = await res.json();
@@ -1415,62 +1105,32 @@ function renderCategoryOptions() {
   }
 }
 
-/** A category counts as drinks when its name says so (keep DRINK_CATEGORY_RE in menu.js in sync). */
-function isDrinksCategory(cat) {
-  return !!cat && /drink|beverage|juice|soda|cocktail|alcohol|liquor|wine|beer|smoothie|shake|coffee|\btea\b/i.test(`${cat.slug} ${cat.name}`);
-}
-
-/** Drinks: show the drink-type picker, hide photos + ingredients. Dessert: hide ingredients. */
-function updateMenuFormForCategory() {
-  const categorySelect = document.getElementById("itemCategory");
-  if (!categorySelect) return;
-  const selectedCat = categories.find((c) => String(c.id) === categorySelect.value);
-  const drinks = isDrinksCategory(selectedCat);
-  const ingredientsGroup = document.getElementById("itemIngredients")?.closest(".form-group");
-  if (ingredientsGroup) ingredientsGroup.style.display = drinks || selectedCat?.slug === "dessert" ? "none" : "block";
-  document.getElementById("itemDrinkTypeGroup").style.display = drinks ? "block" : "none";
-  document.getElementById("itemPhotosGroup").style.display = drinks ? "none" : "";
-  document.getElementById("itemImageThumbs").style.display = drinks ? "none" : "";
-}
-
-let menuCategoryListenerAttached = false;
+/** Show/hide ingredients field based on category (hide for Dessert, Drinks) */
 function setupIngredientsVisibility() {
   const categorySelect = document.getElementById("itemCategory");
-  if (!categorySelect) return;
-  if (!menuCategoryListenerAttached) {
-    categorySelect.addEventListener("change", updateMenuFormForCategory);
-    menuCategoryListenerAttached = true;
+  const ingredientsGroup = document.getElementById("itemIngredients")?.closest(".form-group");
+  if (!categorySelect || !ingredientsGroup) return;
+
+  // Category slugs that should NOT show ingredients
+  const excludedSlugs = new Set(["dessert", "drinks"]);
+
+  function checkVisibility() {
+    const selectedId = categorySelect.value;
+    const selectedCat = categories.find((c) => String(c.id) === selectedId);
+    const shouldHide = selectedCat && excludedSlugs.has(selectedCat.slug);
+    ingredientsGroup.style.display = shouldHide ? "none" : "block";
   }
-  updateMenuFormForCategory();
+
+  categorySelect.addEventListener("change", checkVisibility);
+  checkVisibility(); // initial
 }
 
 function renderCategoriesList() {
   const list = document.getElementById("categoriesList");
   list.innerHTML = categories
-    .map(
-      (c) =>
-        `<span class="admin-chip">${escapeHtml(c.name)}<button type="button" class="chip-remove" data-delete-category="${c.id}" title="Delete ${escapeHtml(c.name)}" aria-label="Delete ${escapeHtml(c.name)}">&times;</button></span>`,
-    )
+    .map((c) => `<span class="admin-chip">${c.name}</span>`)
     .join("");
 }
-
-document.getElementById("categoriesList")?.addEventListener("click", async (e) => {
-  const btn = e.target.closest("[data-delete-category]");
-  if (!btn) return;
-  const cat = categories.find((c) => String(c.id) === btn.dataset.deleteCategory);
-  if (!cat || !confirm(`Delete the category "${cat.name}"?`)) return;
-  const res = await adminFetch("/api/admin/categories", {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id: cat.id }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.success) {
-    alert(data.error || "Couldn't delete the category.");
-    return;
-  }
-  loadCategories();
-});
 
 document
   .getElementById("categoryForm")
@@ -1486,7 +1146,9 @@ document
     loadCategories();
   });
 
+// ---------------------------------------------------------------------
 // Menu items
+// ---------------------------------------------------------------------
 async function loadMenuItems() {
   const res = await adminFetch("/api/admin/menu");
   const data = await res.json();
@@ -1494,13 +1156,10 @@ async function loadMenuItems() {
   renderMenuItemsList();
   renderSpecialItemSelect();
   renderSpecialsList();
-  // Stock may have just changed - re-check so restocked items drop off the suggestions
-  if (typeof loadIngredientSuggestions === "function") loadIngredientSuggestions();
-  renderIngredientPicker(); // new ingredients saved on any item join the tick list
 }
 
-/* Stock button states: unlimited/healthy (gold), low (amber, 10 or fewer left), out (red). */
-const LOW_STOCK_THRESHOLD = 10;
+/* Stock button states: unlimited/healthy (gold), low (amber, 5 or fewer left), out (red). */
+const LOW_STOCK_THRESHOLD = 5;
 
 function stockButtonClass(item) {
   if (item.stock_quantity === null || item.stock_quantity === undefined) {
@@ -1540,10 +1199,7 @@ function renderStockCards() {
   set(
     "stockSpecials",
     menuItems.filter(
-      (i) =>
-        i.special_price !== null &&
-        i.special_price !== undefined &&
-        (!i.special_ends_at || new Date(i.special_ends_at) > new Date()),
+      (i) => i.special_price !== null && i.special_price !== undefined,
     ).length,
   );
 }
@@ -1553,7 +1209,7 @@ function renderMenuItemsList() {
   renderStockCards();
 
   if (menuItems.length === 0) {
-    list.innerHTML = `<p class="menu-empty">No menu items yet - add your first item with the Add Item button.</p>`;
+    list.innerHTML = `<p class="menu-empty">No menu items yet - add your first dish with the Add Item button.</p>`;
     return;
   }
 
@@ -1675,7 +1331,11 @@ async function saveMenuItemPatch(item, patch) {
   loadMenuItems();
 }
 
-// Specials - pick an existing dish and set a discounted price
+// ---------------------------------------------------------------------
+// Specials - pick an existing dish and set a discounted price for it.
+// While special_price is set, it IS the dish's real selling price
+// everywhere (customer menu, cart, checkout) - see functions/api/order.js.
+// ---------------------------------------------------------------------
 function renderSpecialItemSelect() {
   const select = document.getElementById("specialItemSelect");
   const previousValue = select.value;
@@ -1697,7 +1357,7 @@ function renderSpecialsList() {
   );
 
   if (specialItems.length === 0) {
-    list.innerHTML = `<p class="menu-empty">No items are on special right now.</p>`;
+    list.innerHTML = `<p class="menu-empty">No dishes are on special right now.</p>`;
     return;
   }
 
@@ -1753,26 +1413,6 @@ async function handleEndSpecial(id) {
   await saveMenuItemPatch(item, { special_price: null });
 }
 
-function specialStartOfToday() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function applySpecialDateMins() {
-  const d = specialStartOfToday();
-  const p = (n) => String(n).padStart(2, "0");
-  const min = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T00:00`;
-  ["specialStartsInput", "specialEndsInput"].forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.min = min;
-  });
-}
-applySpecialDateMins();
-["specialStartsInput", "specialEndsInput"].forEach((id) =>
-  document.getElementById(id)?.addEventListener("focus", applySpecialDateMins),
-);
-
 document.getElementById("specialForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const hint = document.getElementById("specialFormHint");
@@ -1784,7 +1424,7 @@ document.getElementById("specialForm").addEventListener("submit", async (e) => {
   );
   const item = menuItems.find((i) => i.id === itemId);
   if (!item) {
-    hint.textContent = "Pick an item first.";
+    hint.textContent = "Pick a dish first.";
     return;
   }
 
@@ -1802,22 +1442,10 @@ document.getElementById("specialForm").addEventListener("submit", async (e) => {
   const endsRaw = document.getElementById("specialEndsInput").value;
   // Convert local datetime-local string to ISO by appending timezone offset
   const normalize = (s) => (s ? new Date(s).toISOString() : null);
-  if (!startsRaw || !endsRaw) {
-    hint.textContent = "Please add the start and end date for this special.";
-    return;
-  }
   const startsIso = normalize(startsRaw);
   const endsIso = normalize(endsRaw);
-  if (new Date(startsRaw) < specialStartOfToday()) {
-    hint.textContent = "The start date can't be in the past.";
-    return;
-  }
-  if (new Date(endsIso) <= new Date(startsIso)) {
+  if (startsIso && endsIso && new Date(endsIso) <= new Date(startsIso)) {
     hint.textContent = "End must be after start.";
-    return;
-  }
-  if (new Date(endsIso) <= new Date()) {
-    hint.textContent = "The end date has already passed.";
     return;
   }
 
@@ -1827,89 +1455,6 @@ document.getElementById("specialForm").addEventListener("submit", async (e) => {
     special_ends_at: endsIso,
   });
   document.getElementById("specialForm").reset();
-});
-
-/* ---- Ingredient picker: tick from the existing list, or add a new one ----
-   The hidden #itemIngredients textarea holds the selection (one name per line), so saving is unchanged.
-   The list is every ingredient already used on any menu item, so a new one shows up next time. */
-function getSelectedIngredients() {
-  return document.getElementById("itemIngredients").value.split("\n").map((s) => s.trim()).filter(Boolean);
-}
-function setSelectedIngredients(list) {
-  const seen = new Set();
-  const clean = [];
-  for (const n of list) {
-    const name = String(n).trim();
-    const key = name.toLowerCase();
-    if (name && !seen.has(key)) { seen.add(key); clean.push(name); }
-  }
-  document.getElementById("itemIngredients").value = clean.join("\n");
-  renderIngredientPicker();
-}
-function renderIngredientPicker() {
-  const box = document.getElementById("itemIngredientChecks");
-  if (!box) return;
-  const known = new Map(); // lower-case -> name as first saved
-  for (const it of menuItems) {
-    for (const n of Array.isArray(it.ingredients) ? it.ingredients : []) {
-      const name = String(n).trim();
-      if (name && !known.has(name.toLowerCase())) known.set(name.toLowerCase(), name);
-    }
-  }
-  const selected = getSelectedIngredients();
-  for (const n of selected) if (!known.has(n.toLowerCase())) known.set(n.toLowerCase(), n);
-  const selectedKeys = new Set(selected.map((n) => n.toLowerCase()));
-  const query = (document.getElementById("ingredientSearch")?.value || "").trim().toLowerCase();
-  const names = [...known.values()]
-    .filter((n) => !query || n.toLowerCase().includes(query))
-    .sort((a, b) => a.localeCompare(b));
-  const scroll = box.scrollTop;
-  box.innerHTML = names.length
-    ? names
-        .map((n) => `<label class="checkbox-option"><input type="checkbox" value="${escapeHtml(n)}" ${selectedKeys.has(n.toLowerCase()) ? "checked" : ""} /> ${escapeHtml(n)}</label>`)
-        .join("")
-    : `<p class="admin-hint">${known.size ? "No match. Use the field below to add it as a new ingredient." : "No ingredients yet. Add the first one below."}</p>`;
-  box.scrollTop = scroll;
-  const toggleText = document.getElementById("ingredientToggleText");
-  if (toggleText) toggleText.textContent = selected.length ? `${selected.length} ingredient${selected.length === 1 ? "" : "s"} selected` : "Select ingredients";
-  const summary = document.getElementById("ingredientSelectedSummary");
-  if (summary) summary.textContent = selected.length ? `Selected: ${selected.join(", ")}` : "";
-}
-function addNewIngredient() {
-  const input = document.getElementById("newIngredientInput");
-  const name = (input.value || "").trim().replace(/\s+/g, " ");
-  if (!name) return;
-  // Same name in a different case is the same ingredient: tick the existing one instead of duplicating it
-  const existing = [...document.querySelectorAll("#itemIngredientChecks input")].find(
-    (el) => el.value.toLowerCase() === name.toLowerCase(),
-  );
-  setSelectedIngredients([...getSelectedIngredients(), existing ? existing.value : name]);
-  input.value = "";
-  const search = document.getElementById("ingredientSearch");
-  if (search) { search.value = ""; renderIngredientPicker(); }
-  input.focus();
-}
-document.getElementById("itemIngredientChecks")?.addEventListener("change", (e) => {
-  const el = e.target;
-  if (!el || el.tagName !== "INPUT") return;
-  const key = el.value.toLowerCase();
-  const rest = getSelectedIngredients().filter((n) => n.toLowerCase() !== key);
-  setSelectedIngredients(el.checked ? [...rest, el.value] : rest);
-});
-document.getElementById("ingredientToggle")?.addEventListener("click", () => {
-  const panel = document.getElementById("ingredientPanel");
-  const open = panel.hidden;
-  panel.hidden = !open;
-  document.getElementById("ingredientToggle").setAttribute("aria-expanded", String(open));
-  if (open) {
-    renderIngredientPicker();
-    document.getElementById("ingredientSearch")?.focus();
-  }
-});
-document.getElementById("ingredientSearch")?.addEventListener("input", renderIngredientPicker);
-document.getElementById("addIngredientBtn")?.addEventListener("click", addNewIngredient);
-document.getElementById("newIngredientInput")?.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") { e.preventDefault(); addNewIngredient(); }
 });
 
 function renderSideCheckboxesForForm(selectedIds = []) {
@@ -1942,7 +1487,7 @@ function renderAddonCheckboxesForForm(selectedIds = []) {
 }
 
 const MAX_ITEM_IMAGES = 6;
-let formImages = []; // URLs already uploaded to R2 for the item currently
+let formImages = []; // URLs already uploaded to R2 for the item currently being added/edited
 
 function populateFormForEdit(item) {
   document.getElementById("menuFormTitle").textContent = `Edit: ${item.name}`;
@@ -1962,9 +1507,7 @@ function populateFormForEdit(item) {
   document.getElementById("itemVisible").checked = item.is_visible;
   document.getElementById("itemAcceptsSpice").checked = item.accepts_spice;
   document.getElementById("itemAcceptsAddons").checked = item.accepts_addons;
-  setSelectedIngredients(Array.isArray(item.ingredients) ? item.ingredients : String(item.ingredients || "").split("\n"));
-  document.getElementById("itemDrinkType").value = item.drink_type || "beverage";
-  updateMenuFormForCategory();
+  document.getElementById("itemIngredients").value = item.ingredients || "";
 
   formImages =
     Array.isArray(item.images) && item.images.length > 0
@@ -1984,13 +1527,12 @@ function resetMenuForm() {
   document.getElementById("menuItemForm").reset();
   document.getElementById("itemId").value = "";
   document.getElementById("itemSpecialPrice").value = "";
-  setSelectedIngredients([]);
+  document.getElementById("itemIngredients").value = "";
   document.getElementById("cancelEditBtn").style.display = "none";
   formImages = [];
   renderImageThumbs();
   renderAddonCheckboxesForForm([]);
   renderSideCheckboxesForForm([]);
-  updateMenuFormForCategory();
 }
 
 /** Renders the uploaded-photo thumbnail strip, first photo marked as the cover. */
@@ -2000,7 +1542,7 @@ function renderImageThumbs() {
     .map(
       (url, idx) => `
     <div class="admin-thumb">
-      <img src="${url}" alt="Item photo ${idx + 1}" />
+      <img src="${url}" alt="Dish photo ${idx + 1}" />
       <button type="button" class="thumb-remove" data-idx="${idx}" aria-label="Remove photo">&times;</button>
       ${idx === 0 ? `<span class="cover-badge">Cover</span>` : ""}
     </div>
@@ -2043,7 +1585,10 @@ document
     }
 
     const price = parseFloat(document.getElementById("itemPrice").value);
-    // special_price isn't editable on this form (see the Specials tab)
+    // special_price isn't editable on this form (see the Specials tab) - just
+    // carry the item's existing special forward. If the regular price was
+    // dropped to/below the existing special here, the special no longer
+    // makes sense, so end it automatically rather than blocking this save.
     const carriedSpecialInput = document
       .getElementById("itemSpecialPrice")
       .value.trim();
@@ -2054,16 +1599,13 @@ document
         ? carriedSpecialPrice
         : null;
 
-    const categoryId = parseInt(document.getElementById("itemCategory").value, 10);
-    const isDrink = isDrinksCategory(categories.find((c) => c.id === categoryId));
     const payload = {
-      category_id: categoryId,
-      drink_type: isDrink ? document.getElementById("itemDrinkType").value : null,
+      category_id: parseInt(document.getElementById("itemCategory").value, 10),
       name: document.getElementById("itemName").value.trim(),
       description: document.getElementById("itemDescription").value.trim(),
       price,
       special_price: specialPrice,
-      images: isDrink ? [] : formImages,
+      images: formImages,
       stock_quantity: stockQuantity,
       is_visible: document.getElementById("itemVisible").checked,
       accepts_spice: document.getElementById("itemAcceptsSpice").checked,
@@ -2078,29 +1620,23 @@ document
         .filter((s) => s.length > 0),
     };
 
-    if (id) payload.id = parseInt(id, 10);
-
-    let res;
-    try {
-      res = await adminFetch("/api/admin/menu", {
-        method: id ? "PUT" : "POST",
+    if (id) {
+      payload.id = parseInt(id, 10);
+      await adminFetch("/api/admin/menu", {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-    } catch {
-      alert("Couldn't save the item. Please check your connection and try again.");
-      return;
-    }
-    if (!res.ok) {
-      // Keep the form as it is so nothing the admin typed is lost
-      const data = await res.json().catch(() => ({}));
-      alert(data.error || data.message || "Couldn't save the item. Please try again.");
-      return;
+    } else {
+      await adminFetch("/api/admin/menu", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
     }
 
     resetMenuForm();
     loadMenuItems();
-    if (typeof toast === "function") toast(id ? "Item updated" : "Item added");
   });
 
 // ---- Image compression + upload (supports selecting several photos at once) ----
@@ -2117,7 +1653,7 @@ document.getElementById("itemImage").addEventListener("change", async (e) => {
   }
   const filesToUpload = files.slice(0, room);
   if (files.length > filesToUpload.length) {
-    statusEl.textContent = `Only uploading ${filesToUpload.length} - the ${MAX_ITEM_IMAGES}-photo limit per item.`;
+    statusEl.textContent = `Only uploading ${filesToUpload.length} - the ${MAX_ITEM_IMAGES}-photo limit per dish.`;
   }
 
   for (let i = 0; i < filesToUpload.length; i++) {
@@ -2153,8 +1689,14 @@ document.getElementById("itemImage").addEventListener("change", async (e) => {
   e.target.value = "";
 });
 
-// compressImageToWebP(file, maxBytes) Downscales/re-encodes a photo entirely in the browser
-function compressImageToWebP(file, maxBytes = 300 * 1024, type = "image/webp") {
+/**
+ * compressImageToWebP(file, maxBytes)
+ * Downscales/re-encodes a photo entirely in the browser (canvas) to a
+ * WebP under maxBytes, so the server never has to receive or process
+ * an oversized upload - keeping R2 usage and Worker CPU time inside the
+ * free tier.
+ */
+function compressImageToWebP(file, maxBytes = 300 * 1024) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("Could not read the file."));
@@ -2199,7 +1741,7 @@ function compressImageToWebP(file, maxBytes = 300 * 1024, type = "image/webp") {
               }
               tryExport();
             },
-            type, // "image/jpeg" for email images
+            "image/webp",
             quality,
           );
         };
@@ -2212,7 +1754,9 @@ function compressImageToWebP(file, maxBytes = 300 * 1024, type = "image/webp") {
   });
 }
 
+// ---------------------------------------------------------------------
 // Extras (addons) & spice levels
+// ---------------------------------------------------------------------
 async function loadAddonsAndSpice() {
   const res = await adminFetch("/api/admin/addons");
   const data = await res.json();
@@ -2320,7 +1864,9 @@ document.getElementById("spiceForm").addEventListener("submit", async (e) => {
   loadAddonsAndSpice();
 });
 
+// ---------------------------------------------------------------------
 // Reviews
+// ---------------------------------------------------------------------
 /** Summary cards + rating distribution above the review feed. */
 function renderReviewSummary(reviews) {
   const wrap = document.getElementById("reviewSummary");
@@ -2372,10 +1918,8 @@ function renderReviewSummary(reviews) {
 }
 
 async function loadAdminReviews() {
-  // Admin endpoint: every review including pending ones (the public
-  // /api/review only returns approved reviews, so pending never showed here).
-  const res = await adminFetch("/api/admin/reviews");
-  const data = await res.json().catch(() => ({}));
+  const res = await fetch("/api/review");
+  const data = await res.json();
   const reviews = data.reviews || [];
   const list = document.getElementById("adminReviewsList");
   renderReviewSummary(reviews);
@@ -2387,44 +1931,27 @@ async function loadAdminReviews() {
 
   list.innerHTML = reviews
     .map((r) => {
-      const statusColors = { pending: "var(--sa-gold)", approved: "var(--sa-green-deep, #1a7f37)", rejected: "var(--sa-red)" };
       const statusBadge = r.status
-        ? `<div class="admin-item-meta">Status: <strong style="color:${statusColors[r.status] || "inherit"}">${r.status === "pending" ? "Waiting for approval" : escapeHtml(r.status)}</strong></div>`
+        ? `<div class="admin-item-meta">Status: <strong>${r.status}</strong></div>`
         : "";
-      const rejectedNote =
-        r.status === "rejected"
-          ? `<div class="admin-item-meta"><strong>Reason shown to the customer:</strong> ${escapeHtml(r.rejection_reason || "No reason was saved")}<br><em>The customer can now edit their review and send it back for approval.</em></div>`
-          : "";
-      const buttons = [
-        r.status !== "approved" ? `<button class="admin-mini-btn" data-action="approve" data-id="${r.id}">Approve</button>` : "",
-        r.status === "pending" ? `<button class="admin-mini-btn danger" data-reject-review="${r.id}">Reject</button>` : "",
-        `<button class="admin-mini-btn danger" data-action="delete" data-id="${r.id}">Delete</button>`,
-      ].join(" ");
+      const actions =
+        r.status === "pending"
+          ? `<div class="admin-item-actions" style="margin-top:8px;"><button class="admin-mini-btn" data-action="approve" data-id="${r.id}">Approve</button> <button class="admin-mini-btn danger" data-action="reject" data-id="${r.id}">Reject</button></div>`
+          : `<div class="admin-item-actions" style="margin-top:8px;"><button class="admin-mini-btn danger" data-action="delete" data-id="${r.id}">Delete</button></div>`;
 
       return `
     <div class="admin-item-card" style="flex-direction: column; align-items: stretch;">
       <div class="admin-item-info">
-        <strong>${escapeHtml(r.customer_name)} - ${"★".repeat(r.rating)}${"☆".repeat(5 - r.rating)}</strong>
-        <div class="admin-item-meta">${escapeHtml(r.comment)}</div>
-        ${r.items && r.items.length ? `<div class="admin-item-meta"><i class="fas fa-utensils"></i> Ordered: ${escapeHtml(r.items.join(", "))}${r.order_id ? ` (order #${r.order_id})` : ""}</div>` : ""}
-        ${r.owner_reply ? `<div class="admin-item-meta"><strong>Your reply:</strong> ${escapeHtml(r.owner_reply)}</div>` : ""}
+        <strong>${r.customer_name} - ${"★".repeat(r.rating)}${"☆".repeat(5 - r.rating)}</strong>
+        <div class="admin-item-meta">${r.comment}</div>
+        ${r.owner_reply ? `<div class="admin-item-meta"><strong>Your reply:</strong> ${r.owner_reply}</div>` : ""}
         ${statusBadge}
-        ${rejectedNote}
-        <div class="admin-item-meta">${new Date(r.created_at).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" })}</div>
       </div>
-      <form class="review-reject-form" data-reject-form="${r.id}" style="display:none">
-        <div class="form-group">
-          <label>Why is this review being rejected? The customer will see this reason and can edit their review.</label>
-          <textarea name="reason" rows="2" maxlength="300" required placeholder="e.g. Please remove the offensive language"></textarea>
-        </div>
-        <button type="submit" class="btn btn-primary admin-mini-btn">Reject review</button>
-        <button type="button" class="admin-mini-btn" data-cancel-reject="${r.id}">Cancel</button>
-      </form>
-      ${r.status === "approved" && !r.owner_reply ? `<form class="admin-form-inline" data-review-id="${r.id}" style="padding: 0; margin-top: 10px;">
-        <input type="text" placeholder="Write a reply…" required />
+      <form class="admin-form-inline" data-review-id="${r.id}" style="padding: 0; margin-top: 10px;">
+        <input type="text" placeholder="Write a reply…" value="${r.owner_reply || ""}" required />
         <button type="submit" class="btn btn-primary admin-mini-btn">Reply</button>
-      </form>` : ""}
-      <div class="admin-item-actions" style="margin-top:8px;">${buttons}</div>
+      </form>
+      ${actions}
     </div>
   `;
     })
@@ -2446,36 +1973,6 @@ async function loadAdminReviews() {
     });
   });
 
-  // Reject: open the reason form, then send the reason through review-moderate
-  list.querySelectorAll("[data-reject-review]").forEach((btn) =>
-    btn.addEventListener("click", () => {
-      const form = list.querySelector(`[data-reject-form="${btn.dataset.rejectReview}"]`);
-      if (form) form.style.display = form.style.display === "none" ? "" : "none";
-    }),
-  );
-  list.querySelectorAll("[data-cancel-reject]").forEach((btn) =>
-    btn.addEventListener("click", () => {
-      list.querySelector(`[data-reject-form="${btn.dataset.cancelReject}"]`).style.display = "none";
-    }),
-  );
-  list.querySelectorAll("form[data-reject-form]").forEach((form) =>
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const res = await adminFetch("/api/admin/review-moderate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          review_id: Number(form.dataset.rejectForm),
-          action: "reject",
-          reason: form.reason.value.trim(),
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) return alert(data.error || "Couldn't reject the review.");
-      loadAdminReviews();
-    }),
-  );
-
   // moderation action handlers
   list.querySelectorAll("[data-action]").forEach((btn) => {
     btn.addEventListener("click", async (e) => {
@@ -2496,7 +1993,9 @@ async function loadAdminReviews() {
   });
 }
 
+// ---------------------------------------------------------------------
 // Settings: admin password + staff accounts
+// ---------------------------------------------------------------------
 document
   .getElementById("adminPasswordForm")
   .addEventListener("submit", async (e) => {
@@ -2551,11 +2050,10 @@ function renderStaffAccountsList() {
       <div class="admin-item-card">
         <div class="admin-item-info">
           <strong>${account.name}</strong>
-          <div class="admin-item-meta">${account.email} · ${account.is_active ? "Active" : "Inactive"}${account.is_locked ? " · Locked" : ""}${account.email_verified === false ? " · Email not verified" : ""}</div>
+          <div class="admin-item-meta">${account.email} · ${account.is_active ? "Active" : "Inactive"}</div>
         </div>
         <div class="admin-item-actions">
           <button class="admin-mini-btn" data-staff-action="edit" data-id="${account.id}">Edit</button>
-          ${account.is_locked ? `<button class="admin-mini-btn unlock" data-staff-action="unlock" data-id="${account.id}" title="Let this staff member try signing in again"><i class="fas fa-lock-open"></i> Unlock</button>` : ""}
           <button class="admin-mini-btn danger" data-staff-action="delete" data-id="${account.id}">Delete</button>
         </div>
       </div>
@@ -2577,7 +2075,6 @@ function resetStaffAccountForm() {
   document.getElementById("staffAccountForm").reset();
   document.getElementById("staffAccountId").value = "";
   document.getElementById("staffAccountPassword").required = false;
-  document.getElementById("staffAccountEmail").readOnly = false;
   document.getElementById("cancelStaffEditBtn").style.display = "none";
   document.getElementById("staffAccountStatus").textContent = "";
 }
@@ -2590,10 +2087,8 @@ document
   .getElementById("marketingEmailForm")
   ?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const form = event.currentTarget;
     const status = document.getElementById("marketingEmailStatus");
-    const button = form.querySelector("button[type=submit]");
-    const picked = getMarketingPicker().files();
+    const button = event.currentTarget.querySelector("button[type=submit]");
     const formData = new FormData();
     formData.append(
       "subject",
@@ -2603,24 +2098,11 @@ document
       "body",
       document.getElementById("marketingBody").value.trim(),
     );
+    for (const file of document.getElementById("marketingImages").files)
+      formData.append("images", file);
     button.disabled = true;
+    status.textContent = "Sending…";
     try {
-      // Images are optional: each one is shrunk here, uploaded once, and shown inside the email.
-      const imageUrls = [];
-      for (let i = 0; i < picked.length; i++) {
-        status.textContent = `Preparing image ${i + 1} of ${picked.length}…`;
-        const blob = await compressImageToWebP(picked[i], 300 * 1024, "image/jpeg");
-        const up = await adminFetch("/api/admin/marketing/upload?filename=email.jpeg", {
-          method: "POST",
-          headers: { "Content-Type": "image/jpeg" },
-          body: blob,
-        });
-        const upData = await up.json().catch(() => ({}));
-        if (!up.ok || !upData.url) throw new Error(upData.error || `Couldn't upload image ${i + 1}.`);
-        imageUrls.push(upData.url);
-      }
-      formData.append("image_urls", JSON.stringify(imageUrls));
-      status.textContent = "Sending…";
       const response = await adminFetch("/api/admin/marketing/send", {
         method: "POST",
         body: formData,
@@ -2631,22 +2113,14 @@ document
           data.error ||
             `Sent ${data.sent || 0} email(s); ${data.failed || 0} failed.`,
         );
-      status.textContent = `Sent to ${data.sent} subscriber${data.sent === 1 ? "" : "s"}${data.images ? ` with ${data.images} image${data.images === 1 ? "" : "s"}` : ""}.`;
-      form.reset();
-      getMarketingPicker().reset();
+      status.textContent = `Sent to ${data.sent} subscriber${data.sent === 1 ? "" : "s"}.`;
+      event.currentTarget.reset();
     } catch (error) {
       status.textContent = error.message;
     } finally {
       button.disabled = false;
     }
   });
-
-let marketingPicker = null;
-function getMarketingPicker() {
-  if (!marketingPicker) marketingPicker = createImagePicker({ inputId: "marketingImages", previewId: "marketingImagePreview", max: 5 });
-  return marketingPicker;
-}
-getMarketingPicker();
 
 document
   .getElementById("staffAccountForm")
@@ -2660,10 +2134,8 @@ document
       password: document.getElementById("staffAccountPassword").value,
       permissions: { orders: true },
     };
-    // The email address can't be changed once the account exists.
-    if (id) delete payload.email;
 
-    if (!payload.name || (!id && !payload.email)) {
+    if (!payload.name || !payload.email) {
       statusEl.textContent = "Name and email are required.";
       return;
     }
@@ -2686,10 +2158,8 @@ document
         throw new Error(data.error || "Couldn't save the staff account.");
       statusEl.textContent = id
         ? "Staff account updated."
-        : "Staff account created. A verification link was emailed to them - they can't sign in until they click it.";
-      const doneMessage = statusEl.textContent;
+        : "Staff account created.";
       resetStaffAccountForm();
-      statusEl.textContent = doneMessage;
       loadStaffAccounts();
     } catch (err) {
       statusEl.textContent = err.message;
@@ -2697,21 +2167,6 @@ document
   });
 
 async function handleStaffAccountAction(action, id) {
-  if (action === "unlock") {
-    try {
-      const res = await adminFetch("/api/admin/staff", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, unlock: true }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || "Couldn't unlock that account.");
-      loadStaffAccounts();
-    } catch (err) {
-      alert(err.message);
-    }
-    return;
-  }
   if (action === "delete") {
     const account = staffAccounts.find((item) => item.id === id);
     if (!account) return;
@@ -2735,7 +2190,6 @@ async function handleStaffAccountAction(action, id) {
   document.getElementById("staffAccountId").value = account.id;
   document.getElementById("staffAccountName").value = account.name;
   document.getElementById("staffAccountEmail").value = account.email;
-  document.getElementById("staffAccountEmail").readOnly = true;
   document.getElementById("staffAccountPassword").value = "";
   document.getElementById("staffAccountPassword").required = false;
   document.getElementById("cancelStaffEditBtn").style.display = "inline-block";
@@ -2746,31 +2200,14 @@ async function handleStaffAccountAction(action, id) {
 
 /** Confirmation text for a table booking (opened in WhatsApp for the admin to send). */
 function reservationWhatsAppText(r) {
-  const d = new Date(`${String(r.reservation_date).slice(0, 10)}T00:00:00`);
+  const d = new Date(`${r.reservation_date}T00:00:00`);
   const dateLabel = d.toLocaleDateString("en-ZA", { weekday: "long", day: "numeric", month: "long" });
   const time = r.reservation_time ? String(r.reservation_time).slice(0, 5) : "";
-  const guests = `${r.party_size} guest${r.party_size > 1 ? "s" : ""}`;
-  const table = r.table_number ? ` (table ${r.table_number})` : "";
-  const name = r.customer_name;
-
-  // Cancelled: say so, and mention the refund when a pre-order was paid
-  if (r.status === "Cancelled") {
-    const refundNote =
-      r.preorder_payment_status === "refunded" ? " and your pre-order has been refunded"
-      : r.preorder_payment_status === "paid" ? " and your pre-order will be refunded"
-      : "";
-    return `Hi ${name}, your table booking at Fulude's Cafe for ${dateLabel} at ${time} has been cancelled${refundNote}. We're sorry for any inconvenience. Please contact us if you need any further assistance or would like to book another time.`;
+  const cancelled = r.status === "Cancelled";
+  if (cancelled) {
+    return `Hi ${r.customer_name}, your table booking at Fulude's Cafe for ${dateLabel} at ${time} has been cancelled. Please contact us if you'd like to rebook.`;
   }
-  // Completed: thank the guest
-  if (r.status === "Completed") {
-    return `Hi ${name}, thank you for dining with us at Fulude's Cafe on ${dateLabel}. We hope you enjoyed your visit! We would love to see you again.`;
-  }
-  // Pending: request received, not confirmed yet
-  if (r.status === "Pending") {
-    return `Hi ${name}, we have received your table request at Fulude's Cafe for ${dateLabel} at ${time} for ${guests}. We will confirm it shortly. Reply here if you need to change anything.`;
-  }
-  // Confirmed
-  return `Hi ${name}, your table at Fulude's Cafe is confirmed for ${dateLabel} at ${time} for ${guests}${table}. We look forward to seeing you! Reply here if you need to change anything.`;
+  return `Hi ${r.customer_name}, your table at Fulude's Cafe is ${r.status === "Confirmed" ? "confirmed" : "reserved"} for ${dateLabel} at ${time} for ${r.party_size} guest${r.party_size > 1 ? "s" : ""}${r.table_number ? ` (table ${r.table_number})` : ""}. We look forward to seeing you! Reply here if you need to change anything.`;
 }
 window.reservationWhatsAppText = reservationWhatsAppText;
 
@@ -2786,86 +2223,42 @@ async function loadReservations() {
   }
 }
 
-/** True once the booking's date and time (South Africa time, UTC+2, no DST) have passed. */
-function reservationTimePassed(r) {
-  const date = String(r.reservation_date || "").slice(0, 10);
-  const time = String(r.reservation_time || "00:00").slice(0, 5);
-  const when = new Date(`${date}T${time}:00+02:00`);
-  return !Number.isNaN(when.getTime()) && when.getTime() <= Date.now();
-}
-window.reservationTimePassed = reservationTimePassed;
-
-/** The food ordered with a booking (customer or admin pre-order): items, extras and the total. */
-function reservationOrderHtml(r) {
-  if (!r.advance_order_id) return "";
-  const items = Array.isArray(r.preorder_items) ? r.preorder_items : [];
-  if (!items.length && r.preorder_total == null) return "";
-  const lines = items
-    .map((it) => {
-      const extras = (Array.isArray(it.extras) ? it.extras : []).map((e) => e && e.name).filter(Boolean);
-      const detail = [it.spice_level, ...extras].filter(Boolean).map(escapeHtml).join(", ");
-      return `<li style="display:flex;justify-content:space-between;gap:12px"><span>${Number(it.quantity) || 1} × ${escapeHtml(it.name || "Item")}${detail ? ` <small style="opacity:.7">(${detail})</small>` : ""}</span><span>${money(it.subtotal)}</span></li>`;
-    })
-    .join("");
-  return `<div class="admin-item-meta" style="margin-top:8px"><strong>Order #${r.advance_order_id}</strong>
-    ${lines ? `<ul style="list-style:none;padding:0;margin:6px 0 0">${lines}</ul>` : ""}
-    <div style="display:flex;justify-content:space-between;gap:12px;margin-top:6px;padding-top:6px;border-top:1px solid rgba(128,128,128,.3)"><strong>Total</strong><strong>${money(r.preorder_total)}</strong></div></div>`;
-}
-
 /** Booking overview cards: today's covers, upcoming bookings, pending confirmations. */
 function renderReservationSummary() {
   const wrap = document.getElementById("resSummary");
   if (!wrap) return;
 
-  // "Today" is the cafe's day (South Africa time): these cards count
-  // today's bookings only and start from zero again at 12:00 am.
-  const todayKey = kdsDayKey();
-  // Completed (fulfilled) bookings still count towards today's stats even
-  // after the admin has cleared them from the list.
-  // Only Confirmed bookings are counted. Pending, Cancelled and Completed ones don't show here.
+  const todayKey = new Date().toISOString().slice(0, 10);
   const today = reservations.filter(
-    (r) => r.reservation_date === todayKey && r.status === "Confirmed",
+    (r) => r.reservation_date === todayKey && r.status !== "Cancelled",
   );
   const upcoming = reservations.filter(
-    (r) => r.reservation_date > todayKey && r.status !== "Cancelled" && r.status !== "Completed",
+    (r) => r.reservation_date > todayKey && r.status !== "Cancelled",
   );
   const pending = reservations.filter((r) => r.status === "Pending");
-  const guestsToday = today.reduce((s, r) => s + (Number(r.party_size) || 0), 0);
+  const guestsToday = today.reduce((s, r) => s + (r.party_size || 0), 0);
 
   wrap.innerHTML = `
     <div class="kpi-card"><span class="kpi-label">Today's Reservations</span><span class="kpi-value">${today.length}</span></div>
     <div class="kpi-card"><span class="kpi-label">Guests Today</span><span class="kpi-value">${guestsToday}</span></div>
     <div class="kpi-card"><span class="kpi-label">Upcoming</span><span class="kpi-value">${upcoming.length}</span></div>
     <div class="kpi-card"><span class="kpi-label">Awaiting Confirmation</span><span class="kpi-value">${pending.length}</span></div>
-    <p class="kds-reset-note" style="grid-column:1 / -1;margin:0">${kdsResetLabel().replace("Today's stats", "Today's Reservations and Guests Today")}</p>
   `;
 }
-// Page left open overnight: roll the "today" cards and kitchen strip over at midnight.
-kdsOnMidnight(() => {
-  if (!adminToken) return;
-  renderReservationSummary();
-  loadOrders();
-});
 
 function renderReservations() {
   const list = document.getElementById("reservationsList");
   renderReservationSummary();
 
-  const visible = reservations.filter((r) => !r.admin_cleared);
-  const finishedCount = visible.filter((r) => r.status === "Completed" || r.status === "Cancelled").length;
-  if (visible.length === 0) {
-    list.innerHTML = `<p class="menu-empty">No reservations to show.</p>`;
+  if (reservations.length === 0) {
+    list.innerHTML = `<p class="menu-empty">No reservations yet.</p>`;
     return;
   }
 
-  const clearBar = finishedCount
-    ? `<div style="margin-bottom:10px"><button type="button" class="btn admin-mini-btn" id="clearFinishedReservationsBtn"><i class="fas fa-eraser"></i> Clear completed &amp; cancelled (${finishedCount})</button> <span class="admin-hint" style="margin:0">Completed bookings stay in today's stats.</span></div>`
-    : "";
-
-  list.innerHTML = clearBar + visible
+  list.innerHTML = reservations
     .map((reservation) => {
       const dateLabel = new Date(
-        `${String(reservation.reservation_date).slice(0, 10)}T00:00:00`,
+        `${reservation.reservation_date}T00:00:00`,
       ).toLocaleDateString("en-ZA", {
         weekday: "short",
         day: "2-digit",
@@ -2874,15 +2267,6 @@ function renderReservations() {
       const timeLabel = reservation.reservation_time
         ? reservation.reservation_time.slice(0, 5)
         : "";
-      // Paid pre-order: confirmed by the payment, so only Confirmed / Cancelled / Completed.
-      const prepaid = ["paid", "refunded"].includes(reservation.preorder_payment_status);
-      // Completed is always final. Cancelled is final only when the booking had a pre-order (payment/refund involved).
-      const isCompleted =
-        reservation.status === "Completed" ||
-        (reservation.status === "Cancelled" && Boolean(reservation.advance_order_id || reservation.advance_order_requested));
-      const timePassed = reservationTimePassed(reservation);
-      // A paid pre-order, or an already Confirmed booking, can never go back to Pending.
-      const statusOptions = prepaid || reservation.status === "Confirmed" ? ["Confirmed", "Cancelled", "Completed"] : ["Pending", "Confirmed", "Cancelled", "Completed"];
       return `
         <div class="admin-item-card" style="flex-direction: column; align-items: stretch;">
           <div class="admin-item-info">
@@ -2890,26 +2274,17 @@ function renderReservations() {
             <div class="admin-item-meta">${dateLabel} at ${timeLabel} · ${reservation.customer_phone} · ${reservation.customer_email}</div>
             ${reservation.table_number ? `<div class="admin-item-meta">Table: ${reservation.table_number}</div>` : ""}
             ${reservation.notes ? `<div class="admin-item-meta">Notes: ${reservation.notes}</div>` : ""}
-            ${
-              prepaid
-                ? `<div class="admin-item-meta"><span class="badge badge-paid">${reservation.preorder_payment_status === "refunded" ? "Pre-order refunded" : "Pre-order paid"}</span> Order #${reservation.advance_order_id} · ${money(reservation.preorder_total)}</div>`
-                : reservation.advance_order_requested
-                  ? `<div class="admin-item-meta">Advance order requested: ${reservation.advance_order_details || "Details provided"}</div>`
-                  : ""
-            }
-            ${reservationOrderHtml(reservation)}
-            <div class="admin-item-meta">Status: ${
-              reservation.status === "Cancelled" ? `<strong style="color:var(--sa-red, #c0392b)">Cancelled</strong>`
-              : reservation.status === "Completed" ? `<strong style="color:var(--sa-green-deep, #1a7f37)">Completed</strong>`
-              : reservation.status
-            }</div>
+            ${reservation.advance_order_requested ? `<div class="admin-item-meta">Advance order requested: ${reservation.advance_order_details || "Details provided"}</div>` : ""}
+            <div class="admin-item-meta">Status: ${reservation.status}</div>
           </div>
           <div class="admin-form-inline" style="padding: 0; margin-top: 10px;">
-            ${isCompleted ? "" : `<select data-reservation-status="${reservation.id}" data-prepaid="${prepaid && reservation.preorder_payment_status === "paid" ? "1" : ""}" data-total="${reservation.preorder_total || 0}">
-              ${statusOptions.filter((s) => s !== "Completed" || timePassed || reservation.status === "Completed").map((s) => `<option value="${s}" ${reservation.status === s ? "selected" : ""}>${s}</option>`).join("")}
+            <select data-reservation-status="${reservation.id}">
+              <option value="Pending" ${reservation.status === "Pending" ? "selected" : ""}>Pending</option>
+              <option value="Confirmed" ${reservation.status === "Confirmed" ? "selected" : ""}>Confirmed</option>
+              <option value="Cancelled" ${reservation.status === "Cancelled" ? "selected" : ""}>Cancelled</option>
+              <option value="Completed" ${reservation.status === "Completed" ? "selected" : ""}>Completed</option>
             </select>
-            <button type="button" class="btn btn-primary admin-mini-btn" data-reservation-update="${reservation.id}">Save</button>`}
-            ${reservation.status === "Completed" || reservation.status === "Cancelled" ? `<button type="button" class="btn admin-mini-btn" data-reservation-clear="${reservation.id}" title="Remove from this list"><i class="fas fa-eraser"></i> Clear</button>` : ""}
+            <button type="button" class="btn btn-primary admin-mini-btn" data-reservation-update="${reservation.id}">Save</button>
             <a class="btn admin-mini-btn wa-btn" target="_blank" rel="noopener" title="Send the customer a WhatsApp confirmation"
                href="${window.waLink ? window.waLink(reservation.customer_phone, reservationWhatsAppText(reservation)) : "#"}"><i class="fab fa-whatsapp"></i> WhatsApp</a>
           </div>
@@ -2918,294 +2293,34 @@ function renderReservations() {
     })
     .join("");
 
-  const doClear = async (payload) => {
-    try {
-      await adminFetch("/api/admin/reservations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      loadReservations();
-    } catch {
-      alert("Couldn't clear.");
-    }
-  };
-  list.querySelectorAll("[data-reservation-clear]").forEach((btn) =>
-    btn.addEventListener("click", () => doClear({ action: "clear", reservation_id: parseInt(btn.dataset.reservationClear, 10) })),
-  );
-  document.getElementById("clearFinishedReservationsBtn")?.addEventListener("click", () => {
-    if (confirm("Clear all completed & cancelled bookings from this list? Completed ones still count in today's stats.")) doClear({ action: "clear_finished" });
-  });
-
   list.querySelectorAll("[data-reservation-update]").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      reservationHoldUntil = 0; // saving ends the pause, so the list refreshes with the new status
       const id = parseInt(btn.dataset.reservationUpdate, 10);
       const select = list.querySelector(`[data-reservation-status="${id}"]`);
       if (!select) return;
-      const current = reservations.find((r) => r.id === id);
-      if (select.value === "Cancelled" && select.dataset.prepaid && current?.status !== "Cancelled") {
-        if (!confirm(`Cancel this booking?\n\nIts pre-order (${money(select.dataset.total)}) will be cancelled and refunded to the customer's card through Yoco.`)) return;
-      }
       try {
-        const res = await adminFetch("/api/admin/reservations", {
+        await adminFetch("/api/admin/reservations", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ reservation_id: id, status: select.value }),
         });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data.success) throw new Error(data.error || "Couldn't update the reservation.");
-        if (data.refund?.outcome === "refunded") alert("Booking cancelled and the pre-order refunded through Yoco.");
-        else if (data.refund?.outcome === "refund_needed")
-          alert(`Booking cancelled, but the automatic refund didn't go through (${data.refund.error || "unknown reason"}). Refund it from Order History with "Refund via Yoco".`);
         loadReservations();
-      } catch (err) {
-        alert(err.message || "Couldn't update the reservation.");
+      } catch {
+        alert("Couldn't update the reservation.");
       }
     });
   });
 }
 
-// Last known store settings are cached in localStorage so the dashboard paints the right state
-const STORE_CACHE_KEY = "fc_admin_store_config_v1";
-const STORE_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000; // same length as an admin session
-
-function readStoreCache() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(STORE_CACHE_KEY) || "null");
-    if (!raw || !raw.data || Date.now() - raw.savedAt > STORE_CACHE_MAX_AGE_MS) return null;
-    return raw.data;
-  } catch {
-    return null;
-  }
-}
-
-function writeStoreCache(data) {
-  try {
-    localStorage.setItem(
-      STORE_CACHE_KEY,
-      JSON.stringify({
-        savedAt: Date.now(),
-        data: {
-          is_out_of_service: !!data.is_out_of_service,
-          out_of_service_reason: data.out_of_service_reason || "",
-          announcement_message: data.announcement_message || "",
-          is_buffet_visible: !!data.is_buffet_visible,
-        },
-      }),
-    );
-  } catch {
-    /* storage full / blocked - the live fetch below still works */
-  }
-}
-
-/** Paint the last known status immediately (no network wait). */
-function showCachedStoreStatus() {
-  const cached = readStoreCache();
-  if (!cached) return;
-  const buffet = document.getElementById("buffetToggle");
-  if (buffet) buffet.checked = !!cached.is_buffet_visible;
-  applyStoreStatus(cached, { fromCache: true });
-}
-
-document.addEventListener("DOMContentLoaded", () => {
-  if (adminToken) showCachedStoreStatus(); // signed in: show last known status before any request
-});
-
 async function loadBuffetSetting() {
-  showCachedStoreStatus();
-  try {
-    const res = await fetch("/api/config", { cache: "no-store" });
-    if (!res.ok) throw new Error("config " + res.status);
-    const data = await res.json();
-    document.getElementById("buffetToggle").checked = !!data.is_buffet_visible;
-    applyStoreStatus(data);
-  } catch {
-    /* offline / server hiccup: keep showing the last known status */
-  }
-}
-
-// ---------------- Business hours (admin-editable, South Africa time) ----------------
-const DEFAULT_ADMIN_HOURS = {
-  0: { closed: false, open: "09:00", close: "20:00" },
-  1: { closed: false, open: "09:00", close: "18:00" },
-  2: { closed: false, open: "09:00", close: "18:00" },
-  3: { closed: false, open: "09:00", close: "18:00" },
-  4: { closed: false, open: "09:00", close: "18:00" },
-  5: { closed: false, open: "09:00", close: "20:00" },
-  6: { closed: false, open: "09:00", close: "21:00" },
-};
-const ADMIN_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Monday first
-const ADMIN_DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-window.businessHours = DEFAULT_ADMIN_HOURS;
-
-const hhmmToMin = (str) => {
-  const m = /^(\d{1,2}):(\d{2})$/.exec(String(str || ""));
-  return m ? +m[1] * 60 + +m[2] : null;
-};
-
-/** { open, close } in minutes for a weekday (0 = Sunday), or null when closed all day. */
-function adminHoursWindow(weekday) {
-  const day = window.businessHours[weekday] || DEFAULT_ADMIN_HOURS[weekday];
-  if (!day || day.closed) return null;
-  const open = hhmmToMin(day.open);
-  const close = hhmmToMin(day.close);
-  return open === null || close === null || close <= open ? null : { open, close };
-}
-window.adminHoursWindow = adminHoursWindow;
-
-/** Cafe clock (South Africa time): weekday and minutes past midnight. */
-function adminCafeClock() {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Africa/Johannesburg", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false,
-  }).formatToParts(new Date());
-  const get = (t) => parts.find((p) => p.type === t)?.value;
-  return {
-    weekday: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(get("weekday")),
-    minutes: (+get("hour") % 24) * 60 + +get("minute"),
-  };
-}
-
-/** True when the cafe is inside the saved opening hours right now. */
-function adminIsOpenNow() {
-  const now = adminCafeClock();
-  const win = adminHoursWindow(now.weekday);
-  return !!win && now.minutes >= win.open && now.minutes < win.close;
-}
-window.adminIsOpenNow = adminIsOpenNow;
-
-/** Groups days with identical hours: [{ label: "Monday-Thursday", text: "09:00 - 18:00" }, ...] */
-function adminHoursGroups() {
-  const names = ADMIN_DAY_ORDER.map((d) => ADMIN_DAY_NAMES[d]);
-  const groups = [];
-  ADMIN_DAY_ORDER.forEach((d, idx) => {
-    const day = window.businessHours[d] || DEFAULT_ADMIN_HOURS[d];
-    const text = day.closed ? "Closed" : `${day.open} - ${day.close}`;
-    let g = groups.find((x) => x.text === text);
-    if (!g) groups.push((g = { text, idxs: [] }));
-    g.idxs.push(idx);
-  });
-  return groups.map((g) => {
-    const runs = [];
-    g.idxs.forEach((i) => {
-      const last = runs[runs.length - 1];
-      if (last && last[last.length - 1] === i - 1) last.push(i);
-      else runs.push([i]);
-    });
-    const label = runs
-      .map((r) => (r.length === 1 ? names[r[0]] : r.length === 2 ? `${names[r[0]]} & ${names[r[1]]}` : `${names[r[0]]} - ${names[r[r.length - 1]]}`))
-      .join(" & ");
-    return { label, text: g.text };
-  });
-}
-
-function renderBusinessHoursSummary() {
-  const el = document.getElementById("businessHoursSummary");
-  if (!el) return;
-  el.innerHTML = adminHoursGroups()
-    .map((g) => `${g.label}: ${g.text}`.replace(/&/g, "&amp;"))
-    .join("<br />");
-}
-
-/** <option>s every half hour (24h, like the website), plus the saved value if it isn't on the half hour. */
-function hoursTimeOptions(selected) {
-  const times = [];
-  for (let m = 0; m < 24 * 60; m += 30) times.push(`${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`);
-  if (selected && !times.includes(selected)) times.push(selected);
-  times.sort();
-  return times.map((t) => `<option value="${t}" ${t === selected ? "selected" : ""}>${t}</option>`).join("");
-}
-
-function renderBusinessHoursEditor() {
-  const wrap = document.getElementById("businessHoursRows");
-  if (!wrap) return;
-  wrap.innerHTML = ADMIN_DAY_ORDER.map((d) => {
-    const day = window.businessHours[d] || DEFAULT_ADMIN_HOURS[d];
-    return `<div class="bh-row" data-day="${d}">
-      <span class="bh-day">${ADMIN_DAY_NAMES[d]}</span>
-      <select data-f="open" ${day.closed ? "disabled" : ""} aria-label="${ADMIN_DAY_NAMES[d]} opening time">${hoursTimeOptions(day.open)}</select>
-      <select data-f="close" ${day.closed ? "disabled" : ""} aria-label="${ADMIN_DAY_NAMES[d]} closing time">${hoursTimeOptions(day.close)}</select>
-      <label class="bh-closed"><input type="checkbox" data-f="closed" ${day.closed ? "checked" : ""} aria-label="${ADMIN_DAY_NAMES[d]} closed" /></label>
-    </div>`;
-  }).join("");
-}
-
-function readBusinessHoursEditor() {
-  const out = {};
-  document.querySelectorAll("#businessHoursRows .bh-row").forEach((row) => {
-    out[row.dataset.day] = {
-      closed: row.querySelector('[data-f="closed"]').checked,
-      open: row.querySelector('[data-f="open"]').value,
-      close: row.querySelector('[data-f="close"]').value,
-    };
-  });
-  return out;
-}
-
-/** Called whenever fresh hours arrive from the server (or cache). */
-function applyBusinessHoursToAdmin(hours) {
-  if (!hours) return;
-  window.businessHours = hours;
-  renderBusinessHoursSummary();
-  // Anything else on screen that depends on the hours
-  if (typeof updateStatusCard === "function") updateStatusCard();
-  if (typeof refreshOrderFormHours === "function") refreshOrderFormHours();
-}
-
-function initBusinessHoursHandlers() {
-  const modal = document.getElementById("hoursModal");
-  const wrap = document.getElementById("businessHoursRows");
-  if (!modal || !wrap) return;
-  const err = document.getElementById("businessHoursStatus");
-  const close = () => modal.classList.remove("active");
-
-  document.getElementById("businessHoursEditBtn").addEventListener("click", () => {
-    renderBusinessHoursEditor(); // always starts from the saved hours
-    err.style.display = "none";
-    modal.classList.add("active");
-  });
-  document.getElementById("businessHoursCancelBtn").addEventListener("click", close);
-  wrap.addEventListener("change", (e) => {
-    if (e.target.matches('[data-f="closed"]')) {
-      e.target.closest(".bh-row").querySelectorAll("select").forEach((i) => { i.disabled = e.target.checked; });
-    }
-  });
-  document.getElementById("businessHoursCopyBtn").addEventListener("click", () => {
-    const rows = [...wrap.querySelectorAll(".bh-row")];
-    const first = rows[0]; // Monday
-    rows.slice(1).forEach((row) => {
-      ["open", "close"].forEach((f) => {
-        const sel = row.querySelector(`[data-f="${f}"]`);
-        sel.value = first.querySelector(`[data-f="${f}"]`).value;
-        sel.disabled = first.querySelector('[data-f="closed"]').checked;
-      });
-      row.querySelector('[data-f="closed"]').checked = first.querySelector('[data-f="closed"]').checked;
-    });
-  });
-  document.getElementById("businessHoursSaveBtn").addEventListener("click", async () => {
-    const btn = document.getElementById("businessHoursSaveBtn");
-    btn.disabled = true;
-    try {
-      await saveConfig({ business_hours: readBusinessHoursEditor() });
-      close();
-    } catch (e) {
-      err.textContent = e.message;
-      err.style.display = "block";
-    } finally {
-      btn.disabled = false;
-    }
-  });
+  const res = await fetch("/api/config", { cache: "no-store" });
+  const data = await res.json();
+  document.getElementById("buffetToggle").checked = !!data.is_buffet_visible;
+  applyStoreStatus(data);
 }
 
 // ---------------- Store status: Out of Service + hero announcement ----------------
-function applyStoreStatus(data, opts = {}) {
-  if (!opts.fromCache) {
-    writeStoreCache({
-      ...(readStoreCache() || {}),
-      ...data,
-      is_buffet_visible: data.is_buffet_visible ?? document.getElementById("buffetToggle")?.checked,
-    });
-  }
+function applyStoreStatus(data) {
   const on = !!data.is_out_of_service;
   const reason = data.out_of_service_reason || "";
   const toggle = document.getElementById("oosToggle");
@@ -3218,7 +2333,6 @@ function applyStoreStatus(data, opts = {}) {
   if (text) text.textContent = reason;
   const ann = document.getElementById("announcementInput");
   if (ann && document.activeElement !== ann) ann.value = data.announcement_message || "";
-  if (data.business_hours) applyBusinessHoursToAdmin(data.business_hours);
 }
 
 async function saveConfig(patch) {
@@ -3254,7 +2368,6 @@ function closeOosModal() {
 function initStoreStatusHandlers() {
   const toggle = document.getElementById("oosToggle");
   if (!toggle) return;
-  initBusinessHoursHandlers();
 
   toggle.addEventListener("change", async (e) => {
     if (e.target.checked) {
@@ -3312,22 +2425,17 @@ function initStoreStatusHandlers() {
 }
 
 // ----------------- Buffet admin UI handlers -----------------
-/** Empties the event form back to "Add Buffet Event". */
-function resetBuffetEventForm() {
-  const form = document.getElementById("buffetEventForm");
-  if (!form) return;
-  form.reset();
-  form.dataset.existingPhotos = "[]";
-  getBuffetPhotoPicker().reset();
-  document.getElementById("buffetEventId").value = "";
-  document.getElementById("buffetFormTitle").textContent = "Add Buffet Event";
-}
-
-/** The Buffet page (its own sidebar tab): event form, events list and bookings. */
 function initBuffetAdminHandlers() {
+  const btn = document.getElementById("manageBuffetBtn");
+  const modal = document.getElementById("buffetAdminModal");
+  const close = document.getElementById("buffetAdminClose");
   const form = document.getElementById("buffetEventForm");
-  if (form) getBuffetPhotoPicker(); // start collecting picked photos
-  document.getElementById("buffetEventNewBtn")?.addEventListener("click", resetBuffetEventForm);
+  if (!btn || !modal) return;
+  btn.addEventListener("click", async () => {
+    modal.style.display = "block";
+    await loadBuffetEventsAdmin();
+  });
+  close.addEventListener("click", () => (modal.style.display = "none"));
   if (form) {
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -3336,9 +2444,8 @@ function initBuffetAdminHandlers() {
       const event_date = document.getElementById("buffetEventDate").value;
       const capacity =
         Number(document.getElementById("buffetEventCapacity").value) || 30;
-      const price_cents = Math.round(
-        (Number(document.getElementById("buffetEventPrice").value) || 0) * 100,
-      );
+      const price_cents =
+        Number(document.getElementById("buffetEventPrice").value) || 0;
       const description = document
         .getElementById("buffetEventDescription")
         .value.trim();
@@ -3349,39 +2456,20 @@ function initBuffetAdminHandlers() {
       const booking_closes_at = booking_closes_at_raw
         ? new Date(booking_closes_at_raw).toISOString()
         : null;
-      // Dates matter - ask for anything that's missing instead of failing quietly.
-      const missing = [];
-      if (!title) missing.push("Title");
-      if (!event_date) missing.push("Date & time of the buffet");
-      if (!booking_closes_at) missing.push("Date & time booking closes");
-      if (missing.length) {
-        alert(`Please fill in: ${missing.join(", ")}.`);
-        return;
-      }
-      if (new Date(event_date) < new Date() && !id) {
-        alert("The buffet date is in the past. Please pick a future date & time.");
-        return;
-      }
-      if (new Date(booking_closes_at) > new Date(event_date)) {
-        alert("Booking must close before (or at) the buffet start time. Please fix the 'Booking closes at' date.");
-        return;
-      }
-      const saveBtn = form.querySelector('button[type="submit"]');
-      const saveLabel = saveBtn ? saveBtn.textContent : "";
       try {
-        if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = "Saving…"; }
+        const photoInput = document.getElementById("buffetEventPhotos");
         const existingPhotos = JSON.parse(form.dataset.existingPhotos || "[]");
         const photos = [...existingPhotos];
-        for (const file of getBuffetPhotoPicker().files().slice(0, 6 - photos.length)) {
-          // Phone photos are several MB - shrink to WebP (<300KB) first,
-          // otherwise the server rejects them and the picture never shows.
-          const webpBlob = await compressImageToWebP(file, 300 * 1024);
+        for (const file of Array.from(photoInput.files).slice(
+          0,
+          6 - photos.length,
+        )) {
           const upload = await adminFetch(
-            `/api/admin/upload?filename=${encodeURIComponent(`${Date.now()}.webp`)}`,
+            `/api/admin/upload?filename=${encodeURIComponent(file.name)}`,
             {
               method: "POST",
-              headers: { "Content-Type": "image/webp" },
-              body: webpBlob,
+              headers: { "Content-Type": file.type },
+              body: await file.arrayBuffer(),
             },
           );
           const uploadData = await upload.json();
@@ -3410,86 +2498,18 @@ function initBuffetAdminHandlers() {
         });
         const data = await res.json();
         if (!res.ok || !data.success) throw new Error(data.error || "Failed");
-        resetBuffetEventForm();
+        form.reset();
+        form.dataset.existingPhotos = "[]";
+        document.getElementById("buffetEventPhotoPreview").innerHTML = "";
         await loadBuffetEventsAdmin();
       } catch (err) {
         alert(err.message || "Failed to save event");
-      } finally {
-        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = saveLabel; }
       }
     });
   }
 }
 
 let buffetEventsById = {};
-
-/** Photo thumbnails in the buffet form, each with a remove (x) button. */
-// Photo picker that lets admins add pictures in several goes: every pick is ADDED to the list
-function createImagePicker({ inputId, previewId, max, existing = () => [], setExisting = () => {} }) {
-  const input = document.getElementById(inputId);
-  const preview = document.getElementById(previewId);
-  let pending = []; // [{ file, url }]
-  const thumb = (src, attr, isNew) =>
-    `<span class="picker-thumb"><img src="${escapeHtml(src)}" alt="" />${isNew ? '<span class="picker-new">new</span>' : ""}<button type="button" ${attr} aria-label="Remove photo">&times;</button></span>`;
-  const render = () => {
-    if (!preview) return;
-    const saved = existing();
-    const total = saved.length + pending.length;
-    preview.innerHTML =
-      saved.map((src, i) => thumb(src, `data-remove-saved="${i}"`, false)).join("") +
-      pending.map((p, i) => thumb(p.url, `data-remove-new="${i}"`, true)).join("") +
-      (total ? `<span class="picker-count">${total} of ${max}</span>` : "");
-  };
-  input?.addEventListener("change", () => {
-    const room = max - existing().length - pending.length;
-    const picked = [...input.files];
-    picked.slice(0, Math.max(0, room)).forEach((file) => pending.push({ file, url: URL.createObjectURL(file) }));
-    if (picked.length > room) alert(`Up to ${max} photos - ${picked.length - Math.max(0, room)} weren't added.`);
-    input.value = ""; // the next pick adds to the list instead of replacing it
-    render();
-  });
-  preview?.addEventListener("click", (e) => {
-    const savedBtn = e.target.closest("[data-remove-saved]");
-    const newBtn = e.target.closest("[data-remove-new]");
-    if (savedBtn) {
-      const list = existing();
-      list.splice(Number(savedBtn.dataset.removeSaved), 1);
-      setExisting(list);
-    } else if (newBtn) {
-      const [gone] = pending.splice(Number(newBtn.dataset.removeNew), 1);
-      if (gone) URL.revokeObjectURL(gone.url);
-    } else return;
-    render();
-  });
-  return {
-    files: () => pending.map((p) => p.file),
-    reset() {
-      pending.forEach((p) => URL.revokeObjectURL(p.url));
-      pending = [];
-      render();
-    },
-    render,
-  };
-}
-
-let buffetPhotoPicker = null;
-function getBuffetPhotoPicker() {
-  if (!buffetPhotoPicker) {
-    const form = document.getElementById("buffetEventForm");
-    buffetPhotoPicker = createImagePicker({
-      inputId: "buffetEventPhotos",
-      previewId: "buffetEventPhotoPreview",
-      max: 6,
-      existing: () => JSON.parse(form.dataset.existingPhotos || "[]"),
-      setExisting: (list) => (form.dataset.existingPhotos = JSON.stringify(list)),
-    });
-  }
-  return buffetPhotoPicker;
-}
-
-function renderBuffetPhotoPreview() {
-  getBuffetPhotoPicker().render();
-}
 
 function buffetWhatsAppText(bk) {
   const evt = buffetEventsById[bk.event_id] || {};
@@ -3499,30 +2519,7 @@ function buffetWhatsAppText(bk) {
   if (bk.status === "cancelled") {
     return `Hi ${bk.name}, your buffet booking${evt.title ? ` for "${evt.title}"` : ""} at Fulude's Cafe has been cancelled. Please contact us if you'd like to rebook.`;
   }
-  if (bk.status === "pending") {
-    return `Hi ${bk.name}, we've received your buffet booking${evt.title ? ` for "${evt.title}"` : ""} at Fulude's Cafe for ${bk.seats} seat${bk.seats > 1 ? "s" : ""}. We'll confirm it shortly.`;
-  }
   return `Hi ${bk.name}, your buffet booking at Fulude's Cafe is confirmed${evt.title ? `: "${evt.title}"` : ""}${when ? ` on ${when}` : ""} for ${bk.seats} seat${bk.seats > 1 ? "s" : ""}. We look forward to seeing you! Reply here if you need to change anything.`;
-}
-
-let buffetBookingsTab = "pending"; // which status tab is open in the bookings list
-
-/** Receipt block for one booking: what was booked and what it costs, whatever the status. */
-function buffetReceiptHtml(bk) {
-  const evt = buffetEventsById[bk.event_id] || {};
-  const perSeat = Number(evt.price_cents || 0) / 100;
-  const seats = Number(bk.seats) || 0;
-  const row = (label, value) => `<div style="display:flex;justify-content:space-between;gap:12px"><span class="admin-hint">${label}</span><span>${value}</span></div>`;
-  return `<div class="buffet-admin-receipt" style="border:1px dashed var(--sa-border-strong);border-radius:8px;padding:8px 10px;margin-top:8px;font-size:0.85rem">
-    ${row("Booking", `#${bk.id}`)}
-    ${row("Event", escapeHtml(evt.title || "Buffet"))}
-    ${evt.event_date ? row("Date", new Date(evt.event_date).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" })) : ""}
-    ${row("Seats", seats)}
-    ${row("Price per seat", money(perSeat))}
-    ${row("Booked on", new Date(bk.created_at).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" }))}
-    ${row("Status", escapeHtml(bk.status))}
-    <div style="display:flex;justify-content:space-between;border-top:1px solid var(--sa-border);margin-top:4px;padding-top:4px;font-weight:700"><span>Total</span><span>${money(perSeat * seats)}</span></div>
-  </div>`;
 }
 
 /** Bookings for one buffet event + a form so admin can book seats for customers who phone in. */
@@ -3532,7 +2529,7 @@ async function showBuffetBookings(eventId) {
     const res = await adminFetch(`/api/admin/buffet-bookings?event_id=${eventId}`);
     const data = await res.json();
     const evt = buffetEventsById[eventId] || {};
-    const active = (data.bookings || []).filter((bk) => bk.status === "confirmed" || bk.status === "pending").reduce((n, bk) => n + Number(bk.seats), 0);
+    const active = (data.bookings || []).filter((bk) => bk.status === "confirmed").reduce((n, bk) => n + Number(bk.seats), 0);
     container.innerHTML = `
       <h4 style="margin:0 0 8px">${evt.title || "Buffet"} - ${active}/${evt.capacity || "?"} seats booked</h4>
       <form id="buffetAdminBookForm" class="res-new-form">
@@ -3543,36 +2540,14 @@ async function showBuffetBookings(eventId) {
         <div class="res-full"><button type="submit" class="btn btn-primary">Book seats for customer</button>
           <span id="bbMsg" class="admin-hint" style="margin-left:10px"></span></div>
       </form>
-      <div class="res-tabs" id="bbTabs" style="display:flex;gap:6px;flex-wrap:wrap;margin:12px 0"></div>
       <div id="bbRows"></div>`;
     const rows = container.querySelector("#bbRows");
-    const all = data.bookings || [];
-    const tabs = [["pending", "Pending"], ["confirmed", "Confirmed"], ["cancelled", "Cancelled"], ["all", "All"]];
-    const tabsEl = container.querySelector("#bbTabs");
-    tabsEl.innerHTML = tabs
-      .map(([key, label]) => {
-        const n = key === "all" ? all.length : all.filter((bk) => bk.status === key).length;
-        return `<button type="button" class="admin-mini-btn${key === buffetBookingsTab ? " active" : ""}" data-bb-tab="${key}" style="${key === buffetBookingsTab ? "background:var(--sa-gold);color:#fff;border-color:var(--sa-gold)" : ""}">${label} (${n})</button>`;
-      })
-      .join("");
-    tabsEl.querySelectorAll("[data-bb-tab]").forEach((b) =>
-      b.addEventListener("click", () => {
-        buffetBookingsTab = b.dataset.bbTab;
-        showBuffetBookings(eventId);
-      }),
-    );
-    const visible = buffetBookingsTab === "all" ? all : all.filter((bk) => bk.status === buffetBookingsTab);
-    if (!visible.length) rows.innerHTML = `<p class="admin-hint">No ${buffetBookingsTab === "all" ? "" : buffetBookingsTab + " "}bookings.</p>`;
-    visible.forEach((bk) => {
+    (data.bookings || []).forEach((bk) => {
       const row = document.createElement("div");
       row.className = "sa-list-item";
-      // The message matches the booking's status, ready to send as-is.
-      const text = buffetWhatsAppText(bk);
-      const wa = window.waLink ? window.waLink(bk.phone, text) : "#";
-      row.innerHTML = `<div class="sa-list-main"><div class="sa-list-title">${escapeHtml(bk.name)} (${bk.seats} seat${bk.seats > 1 ? "s" : ""}) - ${escapeHtml(bk.status)}</div><div class="sa-list-sub">${escapeHtml(bk.email || "no email")} • ${escapeHtml(bk.phone || "")}</div>
-        ${buffetReceiptHtml(bk)}
-        ${bk.phone ? `<div style="margin-top:8px"><div class="admin-hint" style="margin-bottom:4px"><i class="fab fa-whatsapp"></i> Message ready to send:</div><div style="background:var(--sa-green-soft, #ecfdf3);border-radius:8px;padding:8px 10px;font-size:0.85rem;white-space:pre-wrap">${escapeHtml(text)}</div></div>` : ""}</div>
-        <div style="margin-top:8px">${bk.status === "pending" ? `<button class="admin-mini-btn btn-confirm" data-id="${bk.id}">Confirm</button> ` : ""}${bk.status === "pending" || bk.status === "confirmed" ? `<button class="admin-mini-btn danger btn-cancel" data-id="${bk.id}">Cancel</button>` : ""} ${bk.phone ? `<a class="admin-mini-btn wa-btn" target="_blank" rel="noopener" href="${wa}"><i class="fab fa-whatsapp"></i> Send on WhatsApp</a>` : ""}</div>`;
+      const wa = window.waLink ? window.waLink(bk.phone, buffetWhatsAppText(bk)) : "#";
+      row.innerHTML = `<div class="sa-list-main"><div class="sa-list-title">${bk.name} (${bk.seats} seat${bk.seats > 1 ? "s" : ""}) - ${bk.status}</div><div class="sa-list-sub">${bk.email || "no email"} • ${bk.phone || ""} • ${new Date(bk.created_at).toLocaleString()}</div></div>
+        <div style="margin-top:8px"><button class="admin-mini-btn btn-confirm" data-id="${bk.id}">Confirm</button> <button class="admin-mini-btn danger btn-cancel" data-id="${bk.id}">Cancel</button> ${bk.phone ? `<a class="admin-mini-btn wa-btn" target="_blank" rel="noopener" href="${wa}"><i class="fab fa-whatsapp"></i> WhatsApp</a>` : ""}</div>`;
       rows.appendChild(row);
     });
     const act = (cls, action) =>
@@ -3632,7 +2607,6 @@ async function loadBuffetEventsAdmin() {
     const res = await adminFetch("/api/admin/buffet-events");
     const data = await res.json();
     const list = document.getElementById("buffetEventsList");
-    const form = document.getElementById("buffetEventForm");
     if (!list) return;
     list.innerHTML = "";
     (data.events || []).forEach((evt) => {
@@ -3667,8 +2641,6 @@ async function loadBuffetEventsAdmin() {
         const all = await res.json();
         const evt = (all.events || []).find((x) => x.id === id);
         if (!evt) return alert("Not found");
-        document.getElementById("buffetFormTitle").textContent = `Edit: ${evt.title}`;
-        form.scrollIntoView({ behavior: "smooth", block: "start" });
         document.getElementById("buffetEventId").value = evt.id;
         document.getElementById("buffetEventTitle").value = evt.title;
         const d = new Date(evt.event_date);
@@ -3677,14 +2649,18 @@ async function loadBuffetEventsAdmin() {
           .slice(0, 16);
         document.getElementById("buffetEventDate").value = isoLocal;
         document.getElementById("buffetEventCapacity").value = evt.capacity;
-        document.getElementById("buffetEventPrice").value = (
-          Number(evt.price_cents || 0) / 100
-        ).toFixed(2);
+        document.getElementById("buffetEventPrice").value = evt.price_cents;
         document.getElementById("buffetEventDescription").value =
           evt.description || "";
         const eventPhotos = Array.isArray(evt.photos) ? evt.photos : [];
         form.dataset.existingPhotos = JSON.stringify(eventPhotos);
-        getBuffetPhotoPicker().reset(); // drop unsaved picks, show this event's photos
+        document.getElementById("buffetEventPhotoPreview").innerHTML =
+          eventPhotos
+            .map(
+              (photo) =>
+                `<img src="${photo}" alt="Buffet event" style="width:72px;height:54px;object-fit:cover;border-radius:4px;" />`,
+            )
+            .join("");
         document.getElementById("buffetEventPublished").checked =
           !!evt.is_published;
         if (evt.booking_closes_at) {
@@ -3700,10 +2676,7 @@ async function loadBuffetEventsAdmin() {
     );
     buffetEventsById = Object.fromEntries((data.events || []).map((e) => [e.id, e]));
     document.querySelectorAll("#buffetEventsList .btn-view").forEach((b) =>
-      b.addEventListener("click", async (e) => {
-        await showBuffetBookings(Number(e.currentTarget.dataset.id));
-        document.getElementById("buffetBookingsCard")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }),
+      b.addEventListener("click", (e) => showBuffetBookings(Number(e.currentTarget.dataset.id))),
     );
   } catch (err) {
     console.error("Failed to load buffet events", err);
@@ -3720,17 +2693,20 @@ document
     });
   });
 
+// ---------------------------------------------------------------------
 // Admin password reset flow on the login page
+// ---------------------------------------------------------------------
 function getResetTokenFromUrl() {
   const params = new URLSearchParams(window.location.search);
   return params.get("reset_token") || "";
 }
 
 function showAdminResetForm(token) {
+  const loginForm = document.getElementById("loginForm");
   const resetForm = document.getElementById("adminResetForm");
   const resetTokenInput = document.getElementById("adminResetToken");
 
-  document.getElementById("adminResetScreen").style.display = "flex";
+  loginForm.style.display = "none";
   resetForm.style.display = "block";
   resetTokenInput.value = token;
 }
@@ -3756,7 +2732,13 @@ document
         "Password reset successfully. You can now log in with your new password.";
       document.getElementById("adminResetForm").reset();
       setTimeout(() => {
-        window.location.assign("/home.html?auth=signin");
+        window.history.replaceState(
+          {},
+          document.title,
+          window.location.pathname,
+        );
+        document.getElementById("loginForm").style.display = "flex";
+        document.getElementById("adminResetForm").style.display = "none";
       }, 1500);
     } catch (err) {
       statusEl.textContent = err.message;
@@ -3824,22 +2806,7 @@ const AUDIT_LABELS = {
   out_of_service_reason_updated: "Out-of-service reason changed",
   announcement_updated: "Announcement updated",
   buffet_visibility_updated: "Buffet visibility changed",
-  order_completed: "Order completed",
-  order_cancelled: "Order cancelled",
-  walkin_takeaway_paid_by_card: "Walk-in takeaway paid by card",
-  walkin_tab_round_added: "Walk-in tab: items sent to kitchen",
-  walkin_tab_item_removed: "Walk-in tab: item removed from bill",
-  walkin_tab_closed_paid_by_card: "Walk-in tab closed, paid by card",
-  walkin_tab_written_off: "Walk-in tab written off (unpaid)",
 };
-
-// Who did it. The server sends the account's CURRENT username/name (api/admin/audit.js), so the same
-// person reads the same on every entry. If the account no longer exists it falls back to the name saved
-// at the time, then to the role and id.
-function auditActor(r) {
-  if (r.actor_name) return r.actor_name;
-  return `${r.actor_type || ""}${r.actor_id ? " #" + r.actor_id : ""}`;
-}
 
 function auditLabel(action) {
   if (AUDIT_LABELS[action]) return AUDIT_LABELS[action];
@@ -3848,8 +2815,8 @@ function auditLabel(action) {
 }
 
 function auditTone(action) {
-  if (/deleted|removed|enabled$|refund|cancelled|written_off/.test(action || "")) return "danger";
-  if (/disabled$|created|added|completed/.test(action || "")) return "good";
+  if (/deleted|removed|enabled$|refund/.test(action || "")) return "danger";
+  if (/disabled$|created|added/.test(action || "")) return "good";
   return "";
 }
 
@@ -3869,11 +2836,11 @@ function auditChangesHtml(details) {
   const lines = Object.entries(details)
     .filter(([k, v]) => !skip.has(k) && v !== null && v !== undefined && v !== "")
     .map(([k, v]) => {
-      const label = k.replace(/_/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+      const label = k.replace(/_/g, " ");
       const val = typeof v === "object" ? JSON.stringify(v) : String(v);
       return `<span class="audit-change-line"><b>${escapeHtml(label.charAt(0).toUpperCase() + label.slice(1))}:</b> ${escapeHtml(val)}</span>`;
     });
-  return lines.join("") || '<span class="audit-none">No details were saved for this entry</span>';
+  return lines.join("") || "-";
 }
 
 function parseAuditDetails(d) {
@@ -3896,12 +2863,12 @@ function renderAuditTable(rows) {
     const tone = auditTone(r.action);
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td data-label="Time">${new Date(r.created_at).toLocaleString()}</td>
-      <td data-label="What happened"><span class="audit-action-tag ${tone}">${escapeHtml(auditLabel(r.action))}</span>${summary ? `<span class="audit-summary">${escapeHtml(summary)}</span>` : ""}</td>
-      <td data-label="Actor role">${escapeHtml(r.actor_role || "")}</td>
-      <td data-label="Actor">${escapeHtml(auditActor(r))}</td>
-      <td data-label="Target">${escapeHtml(r.target_type || "")}${r.target_id ? " #" + r.target_id : ""}</td>
-      <td data-label="What changed" class="audit-details audit-changes" data-raw="${escapeHtml(raw)}" title="Click to copy the raw details">${auditChangesHtml(details)}</td>
+      <td>${new Date(r.created_at).toLocaleString()}</td>
+      <td><span class="audit-action-tag ${tone}">${escapeHtml(auditLabel(r.action))}</span>${summary ? `<span class="audit-summary">${escapeHtml(summary)}</span>` : ""}</td>
+      <td>${escapeHtml(r.actor_role || "")}</td>
+      <td>${escapeHtml(r.actor_type || "")}${r.actor_id ? " #" + r.actor_id : ""}</td>
+      <td>${escapeHtml(r.target_type || "")}${r.target_id ? " #" + r.target_id : ""}</td>
+      <td class="audit-details audit-changes" data-raw="${escapeHtml(raw)}" title="Click to copy the raw details">${auditChangesHtml(details)}</td>
     `;
     body.appendChild(tr);
   });
@@ -3911,26 +2878,6 @@ function initAuditHandlers() {
   document
     .getElementById("auditLoadBtn")
     ?.addEventListener("click", () => loadAudit(true));
-  // Clearing is permanent, so it only happens after an explicit "yes".
-  document.getElementById("auditClearBtn")?.addEventListener("click", async () => {
-    const sure = confirm(
-      "Are you sure you want to clear the whole audit log?\n\nThis permanently deletes every entry and CANNOT be undone. (Tip: use Export CSV first if you want a copy.)",
-    );
-    if (!sure) return;
-    try {
-      const res = await adminFetch("/api/admin/audit", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirm: "CLEAR" }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) throw new Error(data.error || "Couldn't clear the audit log.");
-      alert(`Audit log cleared (${data.deleted} entr${data.deleted === 1 ? "y" : "ies"} removed).`);
-      loadAudit(true);
-    } catch (err) {
-      alert(err.message || "Couldn't clear the audit log.");
-    }
-  });
   document.getElementById("auditPrevBtn")?.addEventListener("click", () => {
     auditOffset = Math.max(0, auditOffset - auditLimit);
     loadAudit(false);
@@ -3955,7 +2902,7 @@ function initAuditHandlers() {
             `"${new Date(r.created_at).toISOString()}"`,
             `"${r.action || ""}"`,
             `"${r.actor_role || ""}"`,
-            `"${auditActor(r)}"`,
+            `"${r.actor_type || ""}${r.actor_id ? " #" + r.actor_id : ""}"`,
             `"${r.target_type || ""}${r.target_id ? " #" + r.target_id : ""}"`,
             `"${details.replace(/"/g, '""')}"`,
           ].join(",");
@@ -3996,76 +2943,7 @@ function initAuditHandlers() {
   }
 }
 // Init
+// ---------------------------------------------------------------------
 if (adminToken) {
   showDashboard();
-} else if (!initialResetToken) {
-  window.location.replace("/home.html?auth=signin");
 }
-
-// Form validation for every admin form
-if (typeof FuludeValidation !== "undefined") {
-  const money = (max, title) => ({ min: 0, max, step: 0.01, title });
-  FuludeValidation.apply({
-    // Customer details entered by staff: Place Order, Book for a customer, buffet seats
-    names: ["resNewName", "orderCustomerName", "bbName", "staffAccountName"],
-    newPasswords: ["staffAccountPassword", "adminAccountPassword", "newAdminPassword", "adminResetPassword"],
-    futureDates: ["resNewDate"],
-    futureDateTimes: ["buffetEventDate"],
-    numbers: {
-      itemPrice: money(100000, "Price in Rand, e.g. 85 or 85.50"),
-      addonPrice: money(100000, "Price in Rand, e.g. 15"),
-      specialPriceInput: money(100000, "Special price in Rand"),
-      buffetEventPrice: money(100000, "Price per seat in Rand"),
-      poManualFee: money(10000, "Delivery fee in Rand"),
-      itemStockQuantity: { min: 0, max: 100000, step: 1, title: "Whole number - leave empty for unlimited" },
-      buffetEventCapacity: { min: 1, max: 1000, step: 1, title: "Number of seats (1-1000)" },
-      resNewParty: { min: 1, max: 200, step: 1, title: "1 to 200 guests" },
-      bbSeats: { min: 1, max: 500, step: 1, title: "Number of seats" },
-      cafeLatitude: { min: -90, max: 90, step: "any", title: "Between -90 and 90, e.g. -22.9834" },
-      cafeLongitude: { min: -180, max: 180, step: "any", title: "Between -180 and 180, e.g. 30.3571" },
-    },
-    maxLengths: {
-      itemName: 100, itemDescription: 500, itemIngredients: 1000,
-      addonName: 60, spiceName: 60, sideName: 60, categoryName: 60,
-      resNewTable: 30, resNewNotes: 500, orderTableNumber: 30, orderInstructions: 500,
-      poStreet: 200, poUnit: 50, poSuburb: 100, poCity: 100,
-      buffetEventTitle: 200, buffetEventDescription: 2000,
-      marketingSubject: 150, marketingBody: 5000,
-    },
-    patterns: { poPostal: { pattern: "[0-9]{4}", title: "4-digit postal code, e.g. 0950" } },
-    custom: [
-      {
-        id: "buffetEventBookingCloses",
-        test: (v) => !document.getElementById("buffetEventDate")?.value || v <= document.getElementById("buffetEventDate").value,
-        message: "Booking must close before the event starts.",
-      },
-      {
-        id: "specialStartsInput",
-        test: (v) => new Date(v) >= specialStartOfToday(),
-        message: "The start date can't be in the past.",
-      },
-      {
-        id: "specialEndsInput",
-        test: (v) => (!document.getElementById("specialStartsInput")?.value || v > document.getElementById("specialStartsInput").value) && new Date(v) > new Date(),
-        message: (el) => {
-          const s = document.getElementById("specialStartsInput")?.value;
-          return s && el.value <= s ? "The special must end after it starts." : "The end date has already passed.";
-        },
-      },
-    ],
-  });
-}
-
-
-/* Stop the mouse wheel / trackpad scroll from changing a focused number field
-   (price, stock, etc.). Un-focusing it lets the page scroll normally instead. */
-document.addEventListener(
-  "wheel",
-  (e) => {
-    const el = document.activeElement;
-    if (el && el.tagName === "INPUT" && el.type === "number" && e.target === el) {
-      el.blur();
-    }
-  },
-  { passive: true },
-);
