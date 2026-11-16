@@ -286,7 +286,7 @@ async function loadDashboardData() {
   updateStatusCard();
   renderDashKpis(history, statsRes, months);
   renderDashCharts(months);
-  renderDashLists(history, reviews);
+  renderDashLists(history, reviews, statsRes?.top_customers || []);
   updateKitchenCompletedToday(history);
 }
 
@@ -623,7 +623,7 @@ function renderDashCharts(months) {
   );
 }
 
-function renderDashLists(history, reviews) {
+function renderDashLists(history, reviews, topCustomers = []) {
   const recent = history.filter(isPaidOrder).slice(0, 6);
   $id("dashRecentOrders").innerHTML = recent.length
     ? recent
@@ -671,26 +671,16 @@ function renderDashLists(history, reviews) {
     .map(([label, value]) => ({ label, value }));
   $id("dashTopItems").innerHTML = rowsHtml(topItems, (v) => `${v} sold`);
 
-  // Top customers: order count + spend per customer name.
-  const customers = {};
-  history.forEach((o) => {
-    if (!isPaidOrder(o) || isWalkIn(o)) return; // walk-in guests are anonymous - they stay out of Top Customers
-    const c = (customers[o.customer_name] = customers[o.customer_name] || { count: 0, spend: 0 });
-    c.count += 1;
-    c.spend += Number(o.total_amount || 0);
-  });
-  const topCustomers = Object.entries(customers)
-    .sort((a, b) => b[1].spend - a[1].spend)
-    .slice(0, 5);
+  // Top customers come from the server (grouped per account, online customers only).
   $id("dashTopCustomers").innerHTML = topCustomers.length
     ? topCustomers
         .map(
-          ([name, c]) => `
+          (c) => `
         <div class="sa-list-item">
-          <span class="sidebar-avatar" style="background:var(--sa-gold-soft);color:var(--sa-gold)">${name.charAt(0)}</span>
+          <span class="sidebar-avatar" style="background:var(--sa-gold-soft);color:var(--sa-gold)">${escHtml(String(c.name || "?").charAt(0))}</span>
           <div class="sa-list-main">
-            <div class="sa-list-title">${escHtml(name)}</div>
-            <div class="sa-list-sub">${c.count} order${c.count === 1 ? "" : "s"}</div>
+            <div class="sa-list-title">${escHtml(c.name)}</div>
+            <div class="sa-list-sub">${c.orders} order${c.orders === 1 ? "" : "s"}</div>
           </div>
           <span class="sa-list-end">${money(c.spend)}</span>
         </div>`

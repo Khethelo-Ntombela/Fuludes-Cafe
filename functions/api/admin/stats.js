@@ -84,7 +84,7 @@ export async function onRequestGet(context) {
         ? "AND TO_CHAR(o.created_at, 'YYYY-MM') = ANY($3::text[])"
         : "";
 
-    const [summaryResult, monthlyResult, categoryResult, channelResult] = await Promise.all([
+    const [summaryResult, monthlyResult, categoryResult, channelResult, topCustomersResult] = await Promise.all([
       runQuery(
         env,
         `
@@ -154,6 +154,25 @@ export async function onRequestGet(context) {
       `,
         months && months.length > 0 ? [start, end, months] : [start, end],
       ),
+      // Top customers: one row per ACCOUNT (customer_id), never per name, so two different people
+      // with the same name stay separate. Online customers only - walk-ins have no account.
+      runQuery(
+        env,
+        `
+        SELECT c.id AS customer_id,
+               c.name,
+               COUNT(*)::int AS orders,
+               COALESCE(SUM(o.total_amount)::numeric(12,2), 0) AS spend
+        FROM orders o
+        JOIN customers c ON c.id = o.customer_id
+        WHERE o.payment_status = 'paid'
+          AND o.customer_id IS NOT NULL
+          AND o.order_source IS DISTINCT FROM 'walk_in'
+        GROUP BY c.id, c.name
+        ORDER BY spend DESC, orders DESC
+        LIMIT 5;
+      `,
+      ),
     ]);
 
     const summary = summaryResult.rows[0] || {};
@@ -179,6 +198,12 @@ export async function onRequestGet(context) {
         revenue: Number(row.revenue || 0),
       })),
       categories: categoryResult.rows,
+      top_customers: (topCustomersResult.rows || []).map((row) => ({
+        customer_id: row.customer_id,
+        name: row.name,
+        orders: row.orders,
+        spend: Number(row.spend || 0),
+      })),
       period,
       auto_reset_months: 6,
     });
