@@ -515,7 +515,7 @@ function renderFoodCards(items) {
             ? `<div class="slides-track" data-index="0">${photos
                 .map(
                   (src, i) =>
-                    `<img src="${src}" alt="${item.name}${photos.length > 1 ? ` (photo ${i + 1} of ${photos.length})` : ""}" ${i === 0 ? "" : 'loading="lazy"'} draggable="false" />`,
+                    `<div class="slide" style="--bg:url('${String(src).replace(/'/g, "%27").replace(/"/g, "%22")}')"><img src="${src}" alt="${item.name}${photos.length > 1 ? ` (photo ${i + 1} of ${photos.length})` : ""}" ${i === 0 ? "" : 'loading="lazy"'} draggable="false" /></div>`,
                 )
                 .join("")}</div>`
             : ""

@@ -139,12 +139,38 @@ function myReviewHtml(r) {
     </div>`;
 }
 
+// Right-hand card: switch between the form and the customer's own reviews
+function showReviewPanel(which) {
+  const form = document.getElementById("reviewForm");
+  const mine = document.getElementById("myReviews");
+  const showMine = which === "mine";
+  if (form) form.style.display = showMine ? "none" : "";
+  if (mine) mine.style.display = showMine ? "" : "none";
+  document.querySelectorAll("[data-review-panel]").forEach((btn) => {
+    const on = btn.dataset.reviewPanel === which;
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-selected", String(on));
+  });
+  if (showMine && mine) mine.scrollTop = 0;
+}
+
+function hideMyReviewsTab() {
+  const tabs = document.getElementById("reviewTabs");
+  if (tabs) tabs.style.display = "none";
+  showReviewPanel("form");
+}
+
+document.getElementById("reviewTabs")?.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-review-panel]");
+  if (btn) showReviewPanel(btn.dataset.reviewPanel);
+});
+
 async function loadMyReviews() {
   const wrap = document.getElementById("myReviews");
   const list = document.getElementById("myReviewsList");
   if (!wrap || !list) return;
   if (!customerSignedIn()) {
-    wrap.style.display = "none";
+    hideMyReviewsTab();
     return;
   }
   try {
@@ -153,10 +179,13 @@ async function loadMyReviews() {
     const data = await res.json();
     const reviews = data.reviews || [];
     if (!reviews.length) {
-      wrap.style.display = "none";
+      hideMyReviewsTab();
       return;
     }
-    wrap.style.display = "";
+    const tabs = document.getElementById("reviewTabs");
+    if (tabs) tabs.style.display = "";
+    const countEl = document.getElementById("myReviewsCount");
+    if (countEl) countEl.textContent = `(${reviews.length})`;
     list.innerHTML = reviews.map(myReviewHtml).join("");
 
     list.querySelectorAll("[data-edit-my-review]").forEach((btn) =>
@@ -205,7 +234,7 @@ async function loadMyReviews() {
       }),
     );
   } catch {
-    wrap.style.display = "none";
+    hideMyReviewsTab();
   }
 }
 
