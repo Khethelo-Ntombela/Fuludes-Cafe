@@ -12,7 +12,7 @@
     <meta name="robots" content="index, follow" />
     <link rel="canonical" href="https://fuludescafe.co.za/reviews" />
 
-    <link rel="stylesheet" href="css/style.css?v=33" />
+    <link rel="stylesheet" href="css/style.css?v=34" />
     <link
       href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap"
       rel="stylesheet"
@@ -103,10 +103,6 @@
             <p class="menu-loading">Loading reviews…</p>
           </div>
           <div class="review-side">
-          <div class="review-tabs" id="reviewTabs" role="tablist" style="display: none">
-            <button type="button" class="review-tab active" role="tab" aria-selected="true" data-review-panel="form">Leave a Review</button>
-            <button type="button" class="review-tab" role="tab" aria-selected="false" data-review-panel="mine">Your Reviews <span id="myReviewsCount"></span></button>
-          </div>
           <form class="review-form" id="reviewForm">
             <h3>Leave a Review</h3>
             <div class="form-group">
@@ -140,8 +136,12 @@
             <button type="submit" class="btn btn-primary btn-block">
               Submit Review
             </button>
+            <p class="review-mine-wrap">
+              <a href="#" class="review-link" id="reviewMineLink" data-review-panel="mine" style="display: none">Your Reviews <span id="myReviewsCount"></span></a>
+            </p>
           </form>
           <div class="my-reviews" id="myReviews" style="display: none">
+            <a href="#" class="review-link" data-review-panel="form">&larr; Leave a Review</a>
             <h3>Your Reviews</h3>
             <p class="auth-hint">
               A review is published once we approve it. If we can't publish it,
@@ -457,7 +457,7 @@
 
     <script src="js/form-validation.js?v=1"></script>
     <script src="js/site.js?v=42"></script>
-    <script src="js/reviews.js?v=5"></script>
+    <script src="js/reviews.js?v=6"></script>
   <script>
   if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 </script>

@@ -3638,73 +3638,51 @@ html {
 .meal-breakdown li { display: block; padding: 0; border: 0; }
 
 
-/* --- Menu photos: every photo sits in the same 4:3 box. The WHOLE picture is shown (nothing cropped or
-       stretched) over a soft blurred copy of itself, so tall and wide photos all look uniform. --- */
+/* --- Menu photos: every photo fills the same 4:3 frame. A photo that is not 4:3 is enlarged evenly
+       (never stretched) until it covers the frame, centred a little above the middle. --- */
 .order-card .order-card-image {
   height: auto;
   aspect-ratio: 4 / 3;
   background: #efebe5;
 }
 
-.order-card-image .slides-track .slide {
-  position: relative;
-  flex: 0 0 100%;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  background: #efebe5;
+.order-card .order-card-image img,
+.order-card-image .slides-track img {
+  object-fit: cover;
+  object-position: center 40%;
 }
 
-.order-card-image .slides-track .slide::before {
-  content: "";
-  position: absolute;
-  inset: -24px;
-  background: var(--bg) center / cover no-repeat;
-  filter: blur(18px) brightness(0.9);
+/* --- Menu photo arrows: gold --- */
+.slide-arrow {
+  color: var(--gold);
+  border: 1.5px solid var(--gold);
+  background: rgba(10, 10, 10, 0.7);
 }
 
-.order-card-image .slides-track .slide img {
-  position: relative;
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  background: transparent;
+.slide-arrow:hover {
+  background: var(--gold);
+  color: #0a0a0a;
 }
 
-/* --- Reviews page: "Leave a Review" / "Your Reviews" switch in the right-hand card --- */
+/* --- Reviews page: "Your Reviews" is a link under the Leave a Review card --- */
 .review-side {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
   min-width: 0;
 }
 
-.review-tabs {
-  display: flex;
-  gap: 6px;
-  padding: 4px;
-  background: var(--cream, #f5f1ea);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-}
-
-.review-tab {
-  flex: 1;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
+.review-link {
+  color: var(--gold-dark);
   font-weight: 600;
-  font-size: 0.9rem;
-  padding: 10px 12px;
-  border-radius: 999px;
+  text-decoration: underline;
   cursor: pointer;
 }
 
-.review-tab.active {
-  background: #0a0a0a;
-  color: #fff;
+.review-link:hover {
+  color: var(--gold);
+}
+
+.review-mine-wrap {
+  text-align: center;
+  margin: 18px 0 0;
 }
 
 .review-side .my-reviews {
@@ -3720,22 +3698,14 @@ html {
   -webkit-overflow-scrolling: touch;
 }
 
+.review-side .my-reviews .review-link {
+  display: inline-block;
+  margin-bottom: 12px;
+}
+
 @media (max-width: 768px) {
   .review-side .my-reviews {
     max-height: 65vh;
     padding: 18px;
   }
-}
-
-
-/* --- Menu photo arrows: gold --- */
-.slide-arrow {
-  color: var(--gold);
-  border: 1.5px solid var(--gold);
-  background: rgba(10, 10, 10, 0.7);
-}
-
-.slide-arrow:hover {
-  background: var(--gold);
-  color: #0a0a0a;
 }
